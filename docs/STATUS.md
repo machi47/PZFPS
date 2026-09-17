@@ -19,12 +19,12 @@ PZ simulation/update -> immutable authoritative snapshot
 PZ render thread     -> PZFPS perspective world -> PZ text/UI
 ```
 
-No PZ process is currently running. The last isolated process was PID 23376 and
-loaded staged bridge JAR
-`9a96314174656c3e6c7a9228c6fc03e5073cab4560b52dea0406e4c140ef2cdc` from the
-project-local disposable profile. The newest source build is not staged or
-live-tested; the hashes below distinguish it from that last live artifact. No
-normal save, installed game binary or unrelated mod was changed.
+One isolated PZ process, PID 24960, is currently running from the project-local
+disposable profile with staged bridge JAR
+`9073b35640b7d86a01681b622783ea70958b30b2486de82827245b27c5a4fbed` (source
+checkpoint `0555930`). The newest source build is not staged or live-tested;
+the hashes below distinguish it from the current live artifact. No normal save,
+installed game binary or unrelated mod was changed.
 
 ## Truthful acceptance state
 
@@ -39,11 +39,14 @@ normal save, installed game binary or unrelated mod was changed.
   macOS 15.7.3 with Swift 6.2.3; no licensed model payload was supplied.
 - **Live replacement rendering:** operational as a diagnostic. The owner
   accepted the current room view as substantially more coherent and observed
-  that the previous whole-world flashing had stopped. Source textures are
-  projected onto indexed geometry where available; PZ's normal UI remains
-  visible over the perspective world. Expected holes, wrong/incomplete object
-  shapes, missing unseen surfaces, crude actor/world-item representations and
-  material/projection errors remain visible.
+  that the previous whole-world flashing had stopped. The live `0555930`
+  artifact also exposes safe reverse structural faces and topology-derived
+  ceilings; its first completed sample reported `mirroredStructuralFaces=3955`
+  and `completedInteriorCeilings=11834`. Source textures are projected onto
+  indexed geometry where available; PZ's normal UI remains visible over the
+  perspective world. Expected holes, wrong/incomplete object shapes, missing
+  unseen surfaces, crude actor/world-item representations and material/
+  projection errors remain visible.
 - **Accepted live first-person gameplay:** **NO**. The owner rejected the last
   live build because lateral reversals still inherited PZ's third-person
   turn-to-travel delay, and Space could expose an isometric cursor while GLFW
@@ -52,10 +55,15 @@ normal save, installed game binary or unrelated mod was changed.
   strafe family, and redirects only normal locomotion's native root-motion
   magnitude along camera-relative WASD before PZ's collision path. Canned
   actions, climbing, vehicles, ragdolls and timed actions are excluded. The
-  Space cursor request is suppressed only while capture is active. These fixes
-  are source-built but not live-tested. Continuously tracked centre-view
-  selection, aiming/combat and ordinary inventory/container play also remain
-  unaccepted.
+  Space cursor request is suppressed only while capture is active. The owner
+  then observed two additional live failures: the pointer could escape the
+  window while the bridge's logical state still said captured, and the reused
+  `crosshair00.png` appeared as a parenthesis rather than a complete reticle.
+  The newest source blocks a late low-level ungrab while focused, compares the
+  real GLFW cursor mode on every mouse poll, repairs drift, and draws a
+  symmetric four-tick reticle. These newest fixes are source-built but not
+  live-tested. Continuously tracked centre-view selection, aiming/combat and
+  ordinary inventory/container play also remain unaccepted.
 - **Performance checkpoint:** unavailable. The log records completed render
   callbacks and queue behavior, not game FPS. At its last unpaused fresh-state
   sample it reported `completedFrames=300`, `enqueuedFrames=300`, `meshes=169`,
@@ -77,11 +85,12 @@ gameplay:
    player is stationary. The former 169 -> 117/104 -> 169 oscillation is gone.
 5. The perspective room uses source PZ textures on known geometry and retains
    the normal PZ text/UI pass. The owner reported no further whole-world flash.
-6. The current source build passes 79 Java tests; the last canonical suite run
-   passes 45 Python tests. Native actor activation, shared reticle-ray tracking,
-   FPS locomotion/root-motion adaptation, captured-cursor filtering, safe wall
-   reverse faces and structural ceilings are source-built but have not been
-   loaded into a game process.
+6. The live `0555930` artifact passes 79 Java tests and is loaded in PID 24960.
+   Its safe wall reverse faces and structural ceilings are visibly active; its
+   native actor pass failed safely during model snapshot preparation because
+   `modelSlot.model.playerData` was null. The newest cursor/reticle source build
+   passes 82 Java tests but has not yet been loaded. The last canonical suite
+   run passes 45 Python tests.
 
 No source/enhanced video pair or matched gameplay performance capture has yet
 been accepted.
@@ -114,7 +123,10 @@ been accepted.
   It also consumes persistent material batches. The first recipe is a
   continuous-world-coordinate interior plaster ceiling, which avoids restarting
   a texture pattern at chunk boundaries and remains separate from source sprite
-  batches.
+  batches. The newest shader source removes the prior very high-frequency
+  sinusoid that produced visible distance banding/moire; it retains only subtle
+  broad variation and is still a provisional material, not recovered source
+  appearance.
 - `bridge/src/main/java/dev/pzfps/bridge/WorldMeshBuilder.java` — converts
   immutable chunk snapshots into source-textured indexed geometry, puts
   structural north/west faces on square boundaries instead of centered slabs,
@@ -163,7 +175,9 @@ been accepted.
   no-aim strafe blend (`DeltaX`/`DeltaY`); camera yaw is reasserted before and
   after the player update so A-to-D reversal does not require a 180-degree body
   turn. The adapter is disabled for canned/timed actions, climbing, vehicles
-  and ragdolls.
+  and ragdolls. Cursor capture no longer trusts the LWJGL compatibility
+  wrapper's cached flag: every PZ mouse poll compares the logical owner with
+  GLFW's actual cursor input mode and repairs a mismatch only while appropriate.
 - `bridge/src/main/java/dev/pzfps/bridge/PerspectiveViewRay.java` — defines the
   single normalized centre-view contract used by the renderer camera,
   interaction ray, PZ aim-vector override and native ballistics adapter. It
@@ -195,6 +209,10 @@ been accepted.
   `Mouse.update()` even though GLFW remains grabbed; only a `true` request made
   while FPS capture is active is rejected. F8 and cursor-owning UI change the
   capture state first, so their visibility requests remain intact.
+- `bridge/src/main/java/dev/pzfps/bridge/patches/PointerGrabPatch.java` — covers
+  the lower `org.lwjglx.input.Mouse.setGrabbed(boolean)` boundary. A late
+  ungrab request is rejected only while FPS gameplay owns an active/focused
+  window; deliberate F8/UI release and focus loss remain allowed.
 - `bridge/src/main/java/dev/pzfps/bridge/patches/LocomotionPatch.java` — hooks
   the exact installed `IsoGameCharacter.isStrafing()` and protected
   `getDeferredMovement(Vector2, boolean)` descriptors. It activates B42's
@@ -238,12 +256,13 @@ been accepted.
   target to the normal menu builder. B42 expands that target to every object on
   its square before vanilla and mod providers construct their options. The
   visible result is positioned at the centre of the first-person viewport.
-  Its post-UI callback reuses the
-  installed `media/ui/Reticle/crosshair00.png` at the viewport centre and hides
-  it whenever the real cursor is visible. Its size and opacity now report
-  `none`, ordinary world, identity-resolved interactable, or B42-native combat
-  target states from the shared view ray; no proprietary texture is copied into
-  the project and the UI state is not action validity.
+  Its post-UI callback assembles a symmetric four-tick reticle from the
+  installed `media/white.png` at the viewport centre and hides it whenever the
+  real cursor is visible. The earlier `crosshair00.png` is an animation fragment
+  and appeared as a literal parenthesis when drawn alone. Tick gap, length and
+  opacity now report `none`, ordinary world, identity-resolved interactable, or
+  B42-native combat target states from the shared view ray; no proprietary
+  texture is copied into the project and the UI state is not action validity.
 - `WorldState.WorldItem` and `WorldCapture.worldItem(...)` — preserve a dropped
   item's real ID/type, static/world model identities, world texture, absolute
   placement, rotations, scale and extended-placement state. The mesh builder
@@ -461,13 +480,13 @@ The latest context pass also used installed B42 Lua read-only to verify that
 non-visible action-discovery path and that one selected object expands to every
 object on its square. No installed script was modified.
 
-The same installed-game Lua parser was rerun after adding tracked-reticle UI
-states and returned `PZFPS_LUA_PARSE_OK`.
+The same installed-game Lua parser was rerun after replacing the incomplete
+reticle image with four code-drawn ticks and returned `PZFPS_LUA_PARSE_OK`.
 
 Most recent test results:
 
 - Python/pytest: 45 passed, 0 failed (49 deprecation warnings).
-- Java/Gradle: 79 passed, 0 failed across `ChunkLifecycleTest`,
+- Java/Gradle: 82 passed, 0 failed across `ChunkLifecycleTest`,
   `CursorCaptureStateTest`, `DirectPatchInstallerTest`, `FirstPersonInputTest`,
   `FirstPersonCharacterCameraTest`, `FirstPersonModelCameraTest`,
   `InputStateTest`, `InteractionTargetTest`, `MovementDiagnosticsTest`,
@@ -490,14 +509,14 @@ Most recent test results:
 - Live console: `.local/pz-runtime/user-cache/Zomboid/console.txt`.
 - Disposable save:
   `.local/pz-runtime/user-cache/Zomboid/Saves/Top Of The World/46507890207760758489`.
-- Last live-loaded staged bridge JAR SHA-256:
-  `9a96314174656c3e6c7a9228c6fc03e5073cab4560b52dea0406e4c140ef2cdc`.
-- Newest built but not live-tested bridge JAR SHA-256:
+- Current live-loaded staged bridge JAR SHA-256:
   `9073b35640b7d86a01681b622783ea70958b30b2486de82827245b27c5a4fbed`.
+- Newest built but not live-tested bridge JAR SHA-256:
+  `d934677e67e9c4d84fd89181e0efeb5b323e05df0e80ff5e1111f95ed9fb6267`.
 - Last live screenshots:
-  `.local/captures/current-window.png`, `.local/captures/pz-front.png`,
-  `.local/captures/pz-clicked-close.png` and
-  `.local/captures/pz-ui-closed.png`.
+  `.local/captures/pz-0555930-live.png`,
+  `.local/captures/pz-0555930-ui-closed.png` and
+  `.local/captures/pz-0555930-ui-closed-2.png`.
 - Offline canonical report:
   `.local/canonical-bed-v64/store/objects/5107aa94b47977535039da77ac4018329c238388ad51c94829dc5a69d01d1a0a/report.json`.
 - Geometry source SHA-256:
@@ -671,13 +690,26 @@ update rates have not been reported as achieved performance.
     tests now cover upper-floor ceilings, roofed top-storey ceilings and stair
     openings. The final clean build passes all 79 tests; no failed artifact was
     staged or loaded.
+23. In the live `0555930` process, the bridge's logical cursor state remained
+    `GAMEPLAY_CAPTURED` while the owner observed the native pointer escaping the
+    PZ window. The existing code cached only its last requested state, so it
+    could not detect a later Cocoa/PZ/GLFW mode change. The newest source
+    intercepts the exact installed `org.lwjglx.input.Mouse.setGrabbed(boolean)`
+    descriptor and independently polls `glfwGetInputMode(..., GLFW_CURSOR)`.
+    Unit tests cover active-capture ungrab filtering, focus loss and actual-mode
+    mismatch detection. This repair still needs live acceptance.
+24. The live centre reference looked like `(` because `crosshair00.png` was
+    drawn as though it were a complete static reticle. The source script now
+    uses four independently positioned rectangles from installed `white.png`;
+    the installed Lua compiler parses the result. This is source validation,
+    not yet proof of live scale, centering or visibility behavior.
 
 ## Next smallest experiment
 
-Stage the single 79-test artifact and launch one isolated process. This restart
-has a specific batched target: replace the rejected turn-to-travel locomotion,
-fix the captured Space cursor leak, activate native actors/shared reticle
-tracking, and expose the first safe reverse walls and structural ceilings.
+Stage the single 82-test artifact and restart the one isolated process once.
+This restart has a specific batched target: replace the parenthesis fragment
+with a symmetric reticle and keep logical gameplay capture synchronized with
+the actual GLFW cursor mode without breaking deliberate F8/UI/focus release.
 
 1. Stage one batched build and live-test simultaneous W+A/W+D, A/D,
    Shift+W/A/D and backward movement while keeping mouse view fixed. Confirm
@@ -687,8 +719,9 @@ tracking, and expose the first safe reverse walls and structural ceilings.
    position. Use the corrected previous-request versus `nextX/nextY` diagnostic;
    its direction alignment is evidence about movement, not gameplay FPS.
    Press Space while captured and confirm the normal shove executes without a
-   visible/free cursor; then verify F8, inventory and context menus still expose
-   the cursor normally.
+   visible/free cursor. Move repeatedly to all window edges and confirm the
+   system pointer cannot escape. Then verify F8, inventory and context menus
+   still expose the cursor normally and that focus loss does not trap it.
 2. Aim at each of two neighboring doors/windows in turn and verify that the
    normal `Interact` key executes only the identity-matched reticle object's
    PZ-generated contextual action. Then aim at a locked/non-actionable target
@@ -700,9 +733,9 @@ tracking, and expose the first safe reverse walls and structural ceilings.
    opens only for an actionable hit, one normal option executes, and capture
    returns only after the menu clears. Verify that the reticle changes for an
    ordinary surface, an identity-resolved interactable and a B42-accepted combat
-   target, remains at optical centre while looking steeply up/down, hides while
-   the cursor owns the menu, and returns after recapture. The source path is
-   built but not live-tested.
+   target, is visibly four-way rather than `(`, remains at optical centre while
+   looking steeply up/down, hides while the cursor owns the menu, and returns
+   after recapture. The source path is built but not live-tested.
 4. Inspect one real dropped item from several angles and verify the new native
    item pass selects PZ's installed model/texture, placement and scale, shares
    the perspective depth buffer, and leaves unresolved identities as honest

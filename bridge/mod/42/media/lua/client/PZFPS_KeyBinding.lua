@@ -91,36 +91,49 @@ end
 
 Events.OnKeyPressed.Add(PZFPS_SyncInventoryCursor)
 
--- Draw a fixed first-person reference through PZ's own UI pass. Reuse the
--- installed reticle asset rather than shipping a copied game texture, and hide
--- it whenever PZFPS has released the real cursor to menus or inventory.
-local PZFPS_reticle = nil
+-- Draw a fixed first-person reference through PZ's own UI pass. crosshair00 is
+-- one animated fragment (and appeared as a literal parenthesis when drawn as a
+-- complete reticle), so assemble four symmetric ticks from PZ's installed white
+-- texture. Hide them whenever PZFPS releases the real cursor to UI.
+local PZFPS_reticlePixel = nil
 function PZFPS_DrawReticle()
     if not getSpecificPlayer(0) or Mouse.isCursorVisible() then return end
-    if not PZFPS_reticle then
-        PZFPS_reticle = getTexture("media/ui/Reticle/crosshair00.png")
+    if not PZFPS_reticlePixel then
+        PZFPS_reticlePixel = getTexture("media/white.png")
     end
-    if not PZFPS_reticle then return end
+    if not PZFPS_reticlePixel then return end
 
-    -- The image remains fixed at the optical centre; the Java bridge publishes what that exact
-    -- shared ray resolves. A subtle size/opacity change confirms tracking without inventing hit
-    -- validity: PZ's own context/combat code still authorizes every action.
+    -- The empty centre remains fixed on the shared optical ray. Gap/length changes
+    -- report tracking state only; PZ still owns reach, action and combat validity.
     local targetKind = PZFPS_ReticleTargetKind or "none"
-    local size = 18
-    local alpha = 0.60
+    local gap = 5
+    local arm = 4
+    local thickness = 2
+    local alpha = 0.48
     if targetKind == "world" then
-        size = 20
-        alpha = 0.72
+        gap = 5
+        arm = 5
+        alpha = 0.66
     elseif targetKind == "interact" then
-        size = 22
+        gap = 4
+        arm = 6
         alpha = 0.92
     elseif targetKind == "combat" then
-        size = 24
+        gap = 3
+        arm = 7
         alpha = 1.0
     end
-    local x = getPlayerScreenLeft(0) + (getPlayerScreenWidth(0) - size) / 2
-    local y = getPlayerScreenTop(0) + (getPlayerScreenHeight(0) - size) / 2
-    UIManager.DrawTexture(PZFPS_reticle, x, y, size, size, alpha)
+    local centreX = getPlayerScreenLeft(0) + getPlayerScreenWidth(0) / 2
+    local centreY = getPlayerScreenTop(0) + getPlayerScreenHeight(0) / 2
+    local halfThickness = thickness / 2
+    UIManager.DrawTexture(PZFPS_reticlePixel,
+        centreX - gap - arm, centreY - halfThickness, arm, thickness, alpha)
+    UIManager.DrawTexture(PZFPS_reticlePixel,
+        centreX + gap, centreY - halfThickness, arm, thickness, alpha)
+    UIManager.DrawTexture(PZFPS_reticlePixel,
+        centreX - halfThickness, centreY - gap - arm, thickness, arm, alpha)
+    UIManager.DrawTexture(PZFPS_reticlePixel,
+        centreX - halfThickness, centreY + gap, thickness, arm, alpha)
 end
 
 Events.OnPostUIDraw.Add(PZFPS_DrawReticle)

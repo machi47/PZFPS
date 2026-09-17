@@ -45,6 +45,7 @@ public final class DirectPatchInstaller {
         MouseInputPatch.Pressed.class,
         MouseInputPatch.UiCheck.class,
         CursorVisibilityPatch.class,
+        PointerGrabPatch.class,
         LocomotionPatch.DeferredMovement.class,
         LocomotionPatch.StrafePresentation.class
     };
@@ -71,7 +72,8 @@ public final class DirectPatchInstaller {
                         "zombie.characters.IsoGameCharacter",
                         "zombie.core.physics.BallisticsController",
                         "zombie.input.GameKeyboard",
-                        "zombie.input.Mouse"))
+                        "zombie.input.Mouse",
+                        "org.lwjglx.input.Mouse"))
                 .transform(DirectPatchInstaller::transform)
                 .installOn(instrumentation);
         System.out.println("[PZFPS] direct hook installer active");
@@ -193,6 +195,11 @@ public final class DirectPatchInstaller {
                         .visit(advice(MouseInputPatch.UiCheck.class).on(uiCheck))
                         .visit(advice(CursorVisibilityPatch.class).on(cursorVisible));
             }
+            case "org.lwjglx.input.Mouse" -> {
+                ElementMatcher.Junction<MethodDescription> setGrabbed = pointerGrabMatcher();
+                requireOneTarget(type, setGrabbed, "setGrabbed(Z)V");
+                yield builder.visit(advice(PointerGrabPatch.class).on(setGrabbed));
+            }
             default -> builder;
         };
     }
@@ -255,6 +262,12 @@ public final class DirectPatchInstaller {
 
     static ElementMatcher.Junction<MethodDescription> mouseCursorVisibilityMatcher() {
         return named("setCursorVisible")
+                .and(takesArguments(1))
+                .and(takesArgument(0, boolean.class));
+    }
+
+    static ElementMatcher.Junction<MethodDescription> pointerGrabMatcher() {
+        return named("setGrabbed")
                 .and(takesArguments(1))
                 .and(takesArgument(0, boolean.class));
     }

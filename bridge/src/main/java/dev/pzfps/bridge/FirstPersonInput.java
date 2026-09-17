@@ -1,6 +1,8 @@
 package dev.pzfps.bridge;
 
 import org.lwjglx.input.Keyboard;
+import org.lwjgl.glfw.GLFW;
+import org.lwjglx.opengl.Display;
 import se.krka.kahlua.vm.KahluaTable;
 import zombie.Lua.LuaManager;
 import zombie.characters.IsoGameCharacter;
@@ -20,7 +22,7 @@ public final class FirstPersonInput {
     private static final float MAX_PITCH = (float) Math.toRadians(89.0);
     private static final CursorCaptureState CURSOR = new CursorCaptureState(2);
     private static boolean initialized;
-    private static boolean hardwareCaptured;
+    private static long lastCaptureRepairLogNanos;
     private static float yaw;
     private static float pitch;
     private static MovementRequest lastMovementRequest = MovementRequest.inactive();
@@ -70,6 +72,7 @@ public final class FirstPersonInput {
             System.out.printf(
                     "[PZFPS input] cursor mode %s -> %s%n", previousMode, CURSOR.mode());
         }
+        reconcileHardwareCapture();
         if (!CURSOR.captured()) return;
 
         // GLFW's disabled-cursor mode supplies unbounded, window-relative deltas and
@@ -159,6 +162,19 @@ public final class FirstPersonInput {
 
     static boolean filterCursorVisibilityRequest(boolean requestedVisible, boolean captured) {
         return requestedVisible && !captured;
+    }
+
+    /**
+     * PZ and macOS may issue a low-level ungrab after the high-level cursor visibility request.
+     * Keep that request only when gameplay capture is inactive or the window has lost focus.
+     */
+    public static boolean filterHardwareCaptureRequest(boolean requestedCaptured) {
+        return filterHardwareCaptureRequest(requestedCaptured, isCaptured(), Display.isActive());
+    }
+
+    static boolean filterHardwareCaptureRequest(
+            boolean requestedCaptured, boolean gameplayCaptured, boolean displayActive) {
+        return requestedCaptured || (gameplayCaptured && displayActive);
     }
 
     /**
@@ -380,10 +396,46 @@ public final class FirstPersonInput {
 
     private static void applyCaptureState() {
         boolean value = CURSOR.captured();
-        if (hardwareCaptured == value) return;
-        hardwareCaptured = value;
+        if (value && !Display.isActive()) return;
         org.lwjglx.input.Mouse.setGrabbed(value);
         Mouse.setCursorVisible(!value);
+    }
+
+    /**
+     * The LWJGL compatibility wrapper caches its own grabbed flag. Query GLFW itself so focus,
+     * Cocoa, or another PZ path cannot leave a free system pointer while logical FPS capture is
+     * still active. This runs after every PZ mouse poll and repairs only a measured mismatch.
+     */
+    private static void reconcileHardwareCapture() {
+        if (!Display.isCreated()) return;
+        long window = Display.getWindow();
+        if (window == 0L) return;
+
+        boolean expected = CURSOR.captured();
+        boolean active = Display.isActive();
+        int actualMode = GLFW.glfwGetInputMode(window, GLFW.GLFW_CURSOR);
+        if (!captureNeedsRepair(expected, active, actualMode)) return;
+
+        org.lwjglx.input.Mouse.setGrabbed(expected);
+        Mouse.setCursorVisible(!expected);
+        long now = System.nanoTime();
+        if (now - lastCaptureRepairLogNanos >= 1_000_000_000L) {
+            lastCaptureRepairLogNanos = now;
+            System.out.printf(
+                    "[PZFPS input] repaired GLFW cursor mode=%d expectedCaptured=%s%n",
+                    actualMode,
+                    expected);
+        }
+    }
+
+    static boolean captureNeedsRepair(
+            boolean expectedCaptured, boolean displayActive, int actualMode) {
+        if (expectedCaptured && !displayActive) return false;
+        if (expectedCaptured) {
+            return actualMode != GLFW.GLFW_CURSOR_DISABLED
+                    && actualMode != GLFW.GLFW_CURSOR_CAPTURED;
+        }
+        return actualMode != GLFW.GLFW_CURSOR_NORMAL;
     }
 
     private static int captureKey() {

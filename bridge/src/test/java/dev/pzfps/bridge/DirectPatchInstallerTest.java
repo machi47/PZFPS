@@ -99,6 +99,20 @@ final class DirectPatchInstallerTest {
     }
 
     @Test
+    void matchesAndInlinesInstalledPointerGrabDescriptor() {
+        TypeDescription mouse = new TypeDescription.ForLoadedType(org.lwjglx.input.Mouse.class);
+        DirectPatchInstaller.requireOneTarget(
+                mouse, DirectPatchInstaller.pointerGrabMatcher(), "setGrabbed(Z)V");
+        byte[] transformed = new ByteBuddy()
+                .redefine(org.lwjglx.input.Mouse.class)
+                .visit(Advice.to(PointerGrabPatch.class)
+                        .on(DirectPatchInstaller.pointerGrabMatcher()))
+                .make()
+                .getBytes();
+        assertTrue(transformed.length > 0);
+    }
+
+    @Test
     void inlinesBallisticsAdviceIntoInstalledClass() {
         byte[] transformed = new ByteBuddy()
                 .redefine(BallisticsController.class)

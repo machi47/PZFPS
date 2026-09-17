@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
+import org.lwjgl.glfw.GLFW;
 import zombie.iso.Vector2;
 
 final class FirstPersonInputTest {
@@ -76,6 +77,30 @@ final class FirstPersonInputTest {
         assertFalse(FirstPersonInput.filterCursorVisibilityRequest(false, false));
         assertFalse(FirstPersonInput.filterCursorVisibilityRequest(true, true));
         assertFalse(FirstPersonInput.filterCursorVisibilityRequest(false, true));
+    }
+
+    @Test
+    void blocksOnlyAnActiveGameplayUngrabRequest() {
+        assertTrue(FirstPersonInput.filterHardwareCaptureRequest(false, true, true));
+        assertFalse(FirstPersonInput.filterHardwareCaptureRequest(false, true, false));
+        assertFalse(FirstPersonInput.filterHardwareCaptureRequest(false, false, true));
+        assertTrue(FirstPersonInput.filterHardwareCaptureRequest(true, false, true));
+    }
+
+    @Test
+    void detectsRealGlfwCursorModeDriftInsteadOfTrustingWrapperCache() {
+        assertFalse(FirstPersonInput.captureNeedsRepair(
+                true, true, GLFW.GLFW_CURSOR_DISABLED));
+        assertFalse(FirstPersonInput.captureNeedsRepair(
+                true, true, GLFW.GLFW_CURSOR_CAPTURED));
+        assertTrue(FirstPersonInput.captureNeedsRepair(
+                true, true, GLFW.GLFW_CURSOR_NORMAL));
+        assertFalse(FirstPersonInput.captureNeedsRepair(
+                true, false, GLFW.GLFW_CURSOR_NORMAL));
+        assertFalse(FirstPersonInput.captureNeedsRepair(
+                false, true, GLFW.GLFW_CURSOR_NORMAL));
+        assertTrue(FirstPersonInput.captureNeedsRepair(
+                false, true, GLFW.GLFW_CURSOR_HIDDEN));
     }
 
     @Test

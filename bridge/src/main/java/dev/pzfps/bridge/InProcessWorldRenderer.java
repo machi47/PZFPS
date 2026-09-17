@@ -731,9 +731,10 @@ public final class InProcessWorldRenderer {
                             return;
                         }
                         if (uMaterial == 1) {
-                            float fine = sin(worldPosition.x * 31.7 + worldPosition.z * 19.9);
-                            float broad = sin(worldPosition.x * 2.3 - worldPosition.z * 3.1);
-                            float variation = 0.965 + 0.018 * fine + 0.012 * broad;
+                            float fine = sin(worldPosition.x * 2.17 + worldPosition.z * 1.63)
+                                    * sin(worldPosition.x * 0.73 - worldPosition.z * 1.11);
+                            float broad = sin(worldPosition.x * 0.37 - worldPosition.z * 0.53);
+                            float variation = 0.985 + 0.010 * fine + 0.005 * broad;
                             gl_FragColor = vec4(vertexColor * variation, 1.0);
                             return;
                         }
