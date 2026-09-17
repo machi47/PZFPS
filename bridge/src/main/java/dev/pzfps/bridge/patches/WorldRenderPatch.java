@@ -1,5 +1,6 @@
 package dev.pzfps.bridge;
 
+import java.util.LinkedHashSet;
 import net.bytebuddy.asm.Advice;
 
 /** Replaces only the isometric world draw; IngameState's later text and UI passes remain. */
@@ -10,11 +11,16 @@ public final class WorldRenderPatch {
     public static boolean enter() {
         BridgeRuntime.onWorldRender();
         NativeActorPass.PreparedFrame actors = BridgeRuntime.prepareNativeActors();
-        boolean replaced = InProcessWorldRenderer.replaceWorldDraw(actors.entityIds());
+        NativeVehiclePass.PreparedFrame vehicles = BridgeRuntime.prepareNativeVehicles();
+        LinkedHashSet<Integer> nativeEntityIds = new LinkedHashSet<>(actors.entityIds());
+        nativeEntityIds.addAll(vehicles.entityIds());
+        boolean replaced = InProcessWorldRenderer.replaceWorldDraw(nativeEntityIds);
         if (replaced) {
+            vehicles.queueAfterWorld();
             actors.queueAfterWorld();
             BridgeRuntime.queueNativeWorldItems();
         } else {
+            vehicles.discard();
             actors.discard();
         }
         return replaced;

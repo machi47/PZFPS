@@ -89,7 +89,7 @@ public final class InProcessWorldRenderer {
     }
 
     /** Called by advice on the game/render-state producer thread. */
-    public static boolean replaceWorldDraw(Set<Integer> nativeActorIds) {
+    public static boolean replaceWorldDraw(Set<Integer> nativeEntityIds) {
         if (!ENABLED
                 || !ASSETS_READY.get()
                 || RENDER_FAILED.get()
@@ -101,7 +101,7 @@ public final class InProcessWorldRenderer {
                 PLAYER.get(),
                 ENTITIES.get(),
                 List.copyOf(MESHES.values()),
-                Set.copyOf(nativeActorIds));
+                Set.copyOf(nativeEntityIds));
         SpriteRenderer.instance.drawGeneric(new WorldDrawer(snapshot));
         ENQUEUED_FRAMES.incrementAndGet();
         if (REPLACEMENT_ANNOUNCED.compareAndSet(false, true)) {
@@ -212,7 +212,7 @@ public final class InProcessWorldRenderer {
             WorldState.Player player,
             WorldState.Entities entities,
             List<WorldMeshBuilder.MeshData> meshes,
-            Set<Integer> nativeActorIds) {}
+            Set<Integer> nativeEntityIds) {}
 
     private record CullingCounts(int visible, int empty, int distance, int frustum) {
         private static CullingCounts none() {
@@ -328,7 +328,7 @@ public final class InProcessWorldRenderer {
                 GL20.glUniform1i(texturedUniform, 0);
                 GL11.glDisable(GL11.GL_BLEND);
                 GL11.glDisable(GL11.GL_TEXTURE_2D);
-                drawEntities(snapshot.entities, snapshot.nativeActorIds);
+                drawEntities(snapshot.entities, snapshot.nativeEntityIds);
             } finally {
                 GL11.glPopClientAttrib();
                 GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, previousArrayBuffer);

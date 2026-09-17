@@ -51,6 +51,14 @@ until a first-person body/arms treatment can avoid head, neck and shoulder
 clipping. Unavailable native models retain the explicit diagnostic-box fallback.
 This path is source-built and unit-tested but not yet live-accepted.
 
+Vehicles now use that same evaluated-model boundary instead of remaining
+uniform diagnostic boxes. The bridge validates each live vehicle `ModelSlot`,
+retains B42's body/part/wheel transforms and damage/light textures, and renders
+the snapshot through the perspective depth pass. A missing or inactive slot
+keeps the explicit box fallback. This path is source-built and unit-tested; it
+still needs a live parked/moving/damaged-vehicle check, and the locally occupied
+vehicle needs a specific interior/near-camera acceptance pass.
+
 Live FPS controls currently reserve two editable entries under the `[PZFPS]`
 key-binding section: F8 releases/recaptures mouse look, and F7 asks PZ to open
 its own world context menu for the identity-checked three-dimensional reticle

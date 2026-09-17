@@ -26,4 +26,17 @@ final class FirstPersonCharacterCameraTest {
 
         assertEquals(1.0f, oneModelUnit.length(), 0.0001f);
     }
+
+    @Test
+    void placesVehicleRootWithoutCharacterScaleOrFootOffset() {
+        Matrix4f transform = FirstPersonCharacterCamera.modelTransform(
+                8.0f, 9.0f, 2.0f, 0.0f, false, true, new Matrix4f());
+        Vector3f origin = transform.transformPosition(new Vector3f());
+        Vector3f oneModelUnit = transform.transformDirection(new Vector3f(0.0f, 1.0f, 0.0f));
+
+        assertEquals(8.0f, origin.x, 0.0001f);
+        assertEquals(6.0f, origin.y, 0.0001f);
+        assertEquals(9.0f, origin.z, 0.0001f);
+        assertEquals(1.0f, oneModelUnit.length(), 0.0001f);
+    }
 }

@@ -103,6 +103,11 @@ public final class BridgeRuntime {
         return NativeActorPass.prepareVisible(IsoPlayer.getInstance());
     }
 
+    /** Snapshot native vehicle render data before the replacement world is queued. */
+    public static NativeVehiclePass.PreparedFrame prepareNativeVehicles() {
+        return NativeVehiclePass.prepareVisible(IsoPlayer.getInstance());
+    }
+
     private static void capture(IsoPlayer player) {
         if (!STARTED.get() || server == null || player == null) return;
         long now = System.nanoTime();

@@ -67,7 +67,7 @@ gameplay:
    player is stationary. The former 169 -> 117/104 -> 169 oscillation is gone.
 5. The perspective room uses source PZ textures on known geometry and retains
    the normal PZ text/UI pass. The owner reported no further whole-world flash.
-6. The current source build passes 38 Java tests and 45 Python tests.
+6. The current source build passes 40 Java tests and 45 Python tests.
 
 No source/enhanced video pair or matched gameplay performance capture has yet
 been accepted.
@@ -172,6 +172,17 @@ been accepted.
   disabled only around the synchronous native draw and restored in `finally`.
   Queued and completed callbacks are logged separately and are not called game
   FPS. This path is source-built and unit-tested, not yet live-accepted.
+- `bridge/src/main/java/dev/pzfps/bridge/NativeVehiclePass.java` — replaces a
+  visible vehicle's uniform diagnostic box only after validating its active
+  B42 `ModelSlot` and snapshotting it through `ModelSlotRenderData`. The native
+  vehicle renderer therefore retains the game's evaluated body/part/wheel
+  transforms, installed textures, damage masks, lights and ambient state while
+  sharing the perspective depth buffer. The camera adapter explicitly treats
+  a vehicle root as B42 vehicle space (unit scale and no character foot offset),
+  which `ModelSlotRenderData.inVehicle` alone cannot identify. Missing slots
+  keep the old box fallback, and render preparation/callback counts remain
+  separate. This is source-built and unit-tested, not live-accepted; a locally
+  occupied vehicle also needs a dedicated interior/near-camera visual check.
 - `bridge/src/main/java/dev/pzfps/bridge/InteractionTarget.java` — chooses only
   authoritative door/window/container candidates intersected by a short 3D
   perspective ray from the real eye height and pitch. Door/window volumes use
@@ -248,7 +259,8 @@ otool -arch arm64 -tvV "$PZ_BULLET"
 Targeted installed-class inspection used `javap -c -p` on `IsoPlayer`,
 `IsoWorld`, `UIManager`, `IsoWorldInventoryObject`, `InventoryItem`,
 `ItemModelRenderer`, `WorldItemModelDrawer`, `IModelCamera`, `ModelCamera`,
-`CharacterModelCamera`, `ModelCameraRenderData`, `ModelSlotRenderData`,
+`CharacterModelCamera`, `VehicleModelCamera`, `ModelCameraRenderData`,
+`ModelSlotRenderData`, `BaseVehicle`,
 `TextureDraw.drawModel`, `SpriteRenderer.drawModel`, `Model`, `Shader`,
 `CharacterInputComponent`, `IsoPlayer.doContext()`, `BallisticsController`,
 `AimingReticle`, `Bullet` and related input/context-action/model classes. This
@@ -268,11 +280,12 @@ native binary was changed. Socket/log diagnostics used `lsof`, `nc`, `xxd` and
 Most recent test results:
 
 - Python/pytest: 45 passed, 0 failed (49 deprecation warnings).
-- Java/Gradle: 38 passed, 0 failed across `ChunkLifecycleTest`,
+- Java/Gradle: 40 passed, 0 failed across `ChunkLifecycleTest`,
   `CursorCaptureStateTest`, `DirectPatchInstallerTest`, `FirstPersonInputTest`,
   `FirstPersonCharacterCameraTest`, `FirstPersonModelCameraTest`,
   `InputStateTest`, `InteractionTargetTest`, `MovementDiagnosticsTest`,
-  `NativeActorPassTest`, `NativeWorldItemPassTest`, `PerspectiveBallisticsTest`,
+  `NativeActorPassTest`, `NativeVehiclePassTest`, `NativeWorldItemPassTest`,
+  `PerspectiveBallisticsTest`,
   `WireProtocolTest` and `WorldMeshBuilderTest`.
 
 ## Evidence and identities
@@ -290,7 +303,7 @@ Most recent test results:
 - Live-tested staged bridge JAR SHA-256:
   `c0904da6d2f775c6dcd8bfac90ccc1096093640fff7fc05d61149cc8bd8946d2`.
 - Newest built but not live-tested bridge JAR SHA-256:
-  `67bbac586d3bd82433994354239c23c7843061f5d5fe5b7b20bf312bb330c5dd`.
+  `8be620440cbd8c5202bc2b9918d83f8fd75cc5f09987e8e005e6cecdb14c232c`.
 - Offline canonical report:
   `.local/canonical-bed-v64/store/objects/5107aa94b47977535039da77ac4018329c238388ad51c94829dc5a69d01d1a0a/report.json`.
 - Geometry source SHA-256:
@@ -382,6 +395,11 @@ Without restarting the current accepted visual session merely to inspect it:
    animation, clothing/held equipment and world-depth occlusion. Check standing,
    walking and crawling before accepting it; actor callback counts are not
    gameplay FPS.
+6. Inspect one parked, one moving and—if available in the disposable save—one
+   visibly damaged vehicle. Verify that B42's native body, part/wheel transforms,
+   lights and damage textures replace the box at the correct world pose. Test an
+   occupied local vehicle separately because near-camera exterior clipping is
+   not evidence of a usable first-person interior.
 
 The later appearance experiment is one identity-stable real asset carried
 through constrained completion and inspected from multiple moving views. It is
