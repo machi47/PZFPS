@@ -67,7 +67,7 @@ gameplay:
    player is stationary. The former 169 -> 117/104 -> 169 oscillation is gone.
 5. The perspective room uses source PZ textures on known geometry and retains
    the normal PZ text/UI pass. The owner reported no further whole-world flash.
-6. The current source build passes 48 Java tests and 45 Python tests.
+6. The current source build passes 49 Java tests and 45 Python tests.
 
 No source/enhanced video pair or matched gameplay performance capture has yet
 been accepted.
@@ -94,14 +94,17 @@ been accepted.
   immutable chunk snapshots into source-textured indexed geometry, puts
   structural north/west faces on square boundaries instead of centered slabs,
   and retains conservative fallbacks for unsupported objects. Each built chunk
-  carries explicit counts for source-textured versus flat floors, indexed
-  objects, structural fallbacks, native items, unsupported-object holes and
-  safety-cap truncation so later completion work can be prioritized from real
-  scene evidence.
+  carries explicit counts for source-textured versus flat floors, authoritative
+  stair openings, indexed objects, structural fallbacks, native items,
+  unsupported-object holes and safety-cap truncation so later completion work
+  can be prioritized from real scene evidence. A solid-floor square with B42's
+  `HasStairsBelow` flag deliberately omits the generic full-tile floor plane;
+  stairs on the current level do not remove the supporting floor beneath them.
 - `bridge/src/main/java/dev/pzfps/bridge/WorldCapture.java` and
   `WorldState.java` — capture geometry/state plus authoritative stair, stairs-
-  below and stair-top flags. These flags preserve portal facts; they do not yet
-  fabricate ceiling or stairwell geometry.
+  below and stair-top flags. These flags preserve portal facts and now prevent
+  a false floor across the opening; they do not fabricate missing ceiling or
+  stairwell surface geometry.
 - `bridge/src/main/java/dev/pzfps/bridge/FirstPersonInput.java` — uses GLFW
   relative mouse deltas without macOS cursor warping, reads PZ's actual physical
   key bindings simultaneously, and returns the inverse of B42's isometric input
@@ -288,6 +291,7 @@ Targeted installed-class inspection used `javap -c -p` on `IsoPlayer`,
 `ModelSlotRenderData`, `ModelInstance`, `ModelManager`, `BaseVehicle`,
 `TextureDraw.drawModel`, `SpriteRenderer.drawModel`, `Model`, `Shader`,
 `CharacterInputComponent`, `IsoPlayer.doContext()`, `ContextualAction`,
+`IsoGridSquare.HasStairsBelow()`,
 `BallisticsController`,
 `AimingReticle`, `Bullet` and related input/context-action/model classes. This
 confirmed that B42 snapshots evaluated model data on
@@ -306,7 +310,7 @@ native binary was changed. Socket/log diagnostics used `lsof`, `nc`, `xxd` and
 Most recent test results:
 
 - Python/pytest: 45 passed, 0 failed (49 deprecation warnings).
-- Java/Gradle: 48 passed, 0 failed across `ChunkLifecycleTest`,
+- Java/Gradle: 49 passed, 0 failed across `ChunkLifecycleTest`,
   `CursorCaptureStateTest`, `DirectPatchInstallerTest`, `FirstPersonInputTest`,
   `FirstPersonCharacterCameraTest`, `FirstPersonModelCameraTest`,
   `InputStateTest`, `InteractionTargetTest`, `MovementDiagnosticsTest`,
@@ -330,7 +334,7 @@ Most recent test results:
 - Live-tested staged bridge JAR SHA-256:
   `c0904da6d2f775c6dcd8bfac90ccc1096093640fff7fc05d61149cc8bd8946d2`.
 - Newest built but not live-tested bridge JAR SHA-256:
-  `862e2d7110c75de2dc831b0f60980adb023ea5308ce50b61db7bfa99af2f2462`.
+  `3829380cc1ecf861f1a14bda131953d9250cfe7f1f4341a438ff322fb3d8c874`.
 - Offline canonical report:
   `.local/canonical-bed-v64/store/objects/5107aa94b47977535039da77ac4018329c238388ad51c94829dc5a69d01d1a0a/report.json`.
 - Geometry source SHA-256:
@@ -408,6 +412,10 @@ update rates have not been reported as achieved performance.
     name. The declaration was aligned with the actual bridge package; the
     corrected 48-test build, including advice inlining against installed
     `IsoPlayer`, passed. No failed artifact was staged or loaded.
+12. An initial read-only `javap` extraction loop for the stair methods failed
+    before inspection because zsh interpreted the method parentheses as a glob
+    pattern. Exact `rg` line selection followed by `sed` inspected the installed
+    methods successfully; no game or project file was changed by either command.
 
 ## Next smallest experiment
 
@@ -448,6 +456,9 @@ Without restarting the current accepted visual session merely to inspect it:
    action without revealing the local head/torso or drawing through nearby
    world geometry. Treat a badly placed third-person attachment as a viewmodel
    calibration failure, not as accepted first-person hands.
+8. Revisit the downward stairwell and verify that the former solid floor plane
+   is now an actual opening, that upward stairs retain their supporting floor,
+   and that the indexed stair geometry remains traversable and depth-occluded.
 
 The later appearance experiment is one identity-stable real asset carried
 through constrained completion and inspected from multiple moving views. It is

@@ -41,19 +41,21 @@ public final class WorldMeshBuilder {
     public record Coverage(
             int sourceTexturedFloors,
             int flatFallbackFloors,
+            int stairFloorOpenings,
             int authoredGeometryObjects,
             int structuralFallbackObjects,
             int nativeWorldItems,
             int unsupportedObjects,
             int truncatedChunks) {
         public static Coverage none() {
-            return new Coverage(0, 0, 0, 0, 0, 0, 0);
+            return new Coverage(0, 0, 0, 0, 0, 0, 0, 0);
         }
 
         public Coverage plus(Coverage other) {
             return new Coverage(
                     sourceTexturedFloors + other.sourceTexturedFloors,
                     flatFallbackFloors + other.flatFallbackFloors,
+                    stairFloorOpenings + other.stairFloorOpenings,
                     authoredGeometryObjects + other.authoredGeometryObjects,
                     structuralFallbackObjects + other.structuralFallbackObjects,
                     nativeWorldItems + other.nativeWorldItems,
@@ -81,6 +83,7 @@ public final class WorldMeshBuilder {
         int primitiveCount = 0;
         int sourceTexturedFloors = 0;
         int flatFallbackFloors = 0;
+        int stairFloorOpenings = 0;
         int authoredGeometryObjects = 0;
         int structuralFallbackObjects = 0;
         int nativeWorldItems = 0;
@@ -94,7 +97,11 @@ public final class WorldMeshBuilder {
             float baseY = square.z() * LEVEL_HEIGHT;
             float baseZ = chunkZ + square.localY();
             float[] light = squareLight(square);
-            if (square.solidFloor()) {
+            // B42 reports an upper square as a solid floor even when a staircase on the level
+            // below enters through it. HasStairsBelow is authoritative topology for that opening;
+            // drawing the generic full-tile floor here creates the observed solid plane over the
+            // stairwell. Stairs on this square do not imply a hole beneath themselves.
+            if (square.solidFloor() && !square.stairsBelow()) {
                 String floorSprite = floorSprite(square);
                 if (!floorSprite.isEmpty()) {
                     sourceTexturedFloors++;
@@ -138,6 +145,8 @@ public final class WorldMeshBuilder {
                             light[1] * 0.78f,
                             light[2] * 0.67f);
                 }
+            } else if (square.solidFloor()) {
+                stairFloorOpenings++;
             }
             for (WorldState.TileObject object : square.objects()) {
                 if (object.sprite().startsWith("floors_")) continue;
@@ -220,6 +229,7 @@ public final class WorldMeshBuilder {
                 new Coverage(
                         sourceTexturedFloors,
                         flatFallbackFloors,
+                        stairFloorOpenings,
                         authoredGeometryObjects,
                         structuralFallbackObjects,
                         nativeWorldItems,

@@ -132,6 +132,32 @@ final class WorldMeshBuilderTest {
     }
 
     @Test
+    void leavesAuthoritativeOpeningWhereStairsEnterFromTheLevelBelow() throws Exception {
+        Path registryPath = temporary.resolve("stair-opening.json");
+        Files.writeString(
+                registryPath,
+                "{\"schema_version\":1,\"source_sha256\":\"x\",\"tiles\":{}}");
+        WorldState.TileObject floor = new WorldState.TileObject(
+                0, "zombie.iso.IsoObject", "floor", "floors_fixture_01_13",
+                false, false, false, false, false, false, false);
+        WorldState.Square opening = new WorldState.Square(
+                0, 0, 1, 4, 7, 255, 255, 255,
+                true, false, true, false, true, false, List.of(floor));
+        WorldState.Square stairsOnThisLevel = new WorldState.Square(
+                1, 0, 1, 4, 7, 255, 255, 255,
+                true, false, true, true, false, true, List.of(floor));
+        WorldState.Chunk chunk = new WorldState.Chunk(
+                0, 0, 1, 1, List.of(opening, stairsOnThisLevel));
+
+        WorldMeshBuilder.MeshData mesh =
+                new WorldMeshBuilder(TileGeometryRegistry.load(registryPath)).build(chunk);
+
+        assertEquals(1, mesh.coverage().stairFloorOpenings());
+        assertEquals(1, mesh.coverage().sourceTexturedFloors());
+        assertEquals(6, mesh.vertexCount());
+    }
+
+    @Test
     void doesNotInterpretWorldItemSpriteAsMapTileGeometry() throws Exception {
         Path registryPath = temporary.resolve("world-item.json");
         Files.writeString(

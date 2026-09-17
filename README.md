@@ -12,11 +12,13 @@ Keep the actual Project Zomboid client authoritative while replacing its visual 
 The canonical compiler uses known geometry, calibrated source images/sprite manifests and optional depth, rejects unsupported backface/occluded evidence, and writes one persistent GLB with shared surface appearance. Optional local neural inpainting completes novel views only into still-unknown texels; source observations are locked. No Godot dependency or screen capture is needed by the compiler.
 
 The live renderer now reports scene coverage from completed visible frames:
-source-textured floors, unavoidable flat floor fallbacks, indexed object
-geometry, structural fallbacks, native world items, unsupported objects and any
-chunk truncated by the safety vertex cap. These are counts of representation
-paths—not inferred visual quality or game FPS—and make the remaining holes a
-measurable asset backlog instead of an anecdotal one.
+source-textured floors, unavoidable flat floor fallbacks, authoritative stair
+openings, indexed object geometry, structural fallbacks, native world items,
+unsupported objects and any chunk truncated by the safety vertex cap. A square
+with B42's `HasStairsBelow` topology no longer receives a generic solid floor
+plane across the stairwell. These are counts of representation paths—not
+inferred visual quality or game FPS—and make the remaining holes a measurable
+asset backlog instead of an anecdotal one.
 
 `pzcanonical from-pz` directly reads the actual B42 geometry registry and sprite extraction manifest formats, including primitive rotations, tapered cylinders and concave polygons. It fits the source image anchor by silhouette overlap and refuses bad matches rather than warping known geometry. This connects the new compiler to the published asset indexers without a manual schema rewrite.
 

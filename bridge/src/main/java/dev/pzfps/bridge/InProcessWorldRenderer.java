@@ -184,7 +184,7 @@ public final class InProcessWorldRenderer {
                 CullingCounts culling = state.lastCulling;
                 WorldMeshBuilder.Coverage coverage = state.lastCoverage;
                 System.out.printf(
-                        "[PZFPS renderer] completedFrames=%d enqueuedFrames=%d completedCallbackHz=%s meshes=%d visible=%d empty=%d distanceCulled=%d frustumCulled=%d built=%d dropped=%d stateAgeMs=%d sourceFloors=%d flatFloors=%d indexedObjects=%d structuralFallbacks=%d nativeItems=%d unsupportedObjects=%d truncatedChunks=%d%n",
+                        "[PZFPS renderer] completedFrames=%d enqueuedFrames=%d completedCallbackHz=%s meshes=%d visible=%d empty=%d distanceCulled=%d frustumCulled=%d built=%d dropped=%d stateAgeMs=%d sourceFloors=%d flatFloors=%d stairOpenings=%d indexedObjects=%d structuralFallbacks=%d nativeItems=%d unsupportedObjects=%d truncatedChunks=%d%n",
                         completed,
                         ENQUEUED_FRAMES.get(),
                         Double.isFinite(completedHz)
@@ -200,6 +200,7 @@ public final class InProcessWorldRenderer {
                         stateAge,
                         coverage.sourceTexturedFloors(),
                         coverage.flatFallbackFloors(),
+                        coverage.stairFloorOpenings(),
                         coverage.authoredGeometryObjects(),
                         coverage.structuralFallbackObjects(),
                         coverage.nativeWorldItems(),
