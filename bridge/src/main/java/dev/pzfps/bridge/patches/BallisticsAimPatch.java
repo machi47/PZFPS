@@ -29,5 +29,12 @@ public final class BallisticsAimPatch {
                 @Advice.FieldValue("isoGameCharacter") IsoGameCharacter owner) {
             PerspectiveBallistics.configureNativeCameraRay(controller, owner);
         }
+
+        @Advice.OnMethodExit
+        public static void exit(
+                @Advice.This BallisticsController controller,
+                @Advice.FieldValue("isoGameCharacter") IsoGameCharacter owner) {
+            PerspectiveBallistics.observeNativeCameraTargets(controller, owner);
+        }
     }
 }

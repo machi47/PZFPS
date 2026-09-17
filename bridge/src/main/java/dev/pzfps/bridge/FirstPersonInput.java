@@ -23,6 +23,7 @@ public final class FirstPersonInput {
     private static float yaw;
     private static float pitch;
     private static MovementRequest lastMovementRequest = MovementRequest.inactive();
+    private static MovementRequest deferredMovementRequest = MovementRequest.inactive();
     private static float lastLoggedForward = Float.NaN;
     private static float lastLoggedStrafe = Float.NaN;
     private static boolean lastLoggedCaptured;
@@ -260,8 +261,16 @@ public final class FirstPersonInput {
         return lastMovementRequest;
     }
 
+    static MovementRequest deferredMovementRequest() {
+        return deferredMovementRequest;
+    }
+
     static void beginMovementSample() {
         lastMovementRequest = MovementRequest.inactive();
+    }
+
+    static void finishMovementSample() {
+        deferredMovementRequest = lastMovementRequest;
     }
 
     record MovementRequest(

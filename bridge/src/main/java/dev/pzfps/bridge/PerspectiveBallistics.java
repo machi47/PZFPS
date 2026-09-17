@@ -48,23 +48,18 @@ public final class PerspectiveBallistics {
 
     public static void overrideMuzzleDirection(IsoGameCharacter owner, Vector3 direction) {
         if (!isLocalPlayer(owner) || direction == null) return;
-        InputState.Sample input = InputState.current();
-        if (input.active()) {
-            pzDirection(input.yaw(), input.pitch(), direction);
-        } else if (FirstPersonInput.isPerspectiveActive()) {
-            pzDirection(FirstPersonInput.yaw(), FirstPersonInput.pitch(), direction);
-        }
+        PerspectiveViewRay.Orientation view = PerspectiveViewRay.currentOrientation();
+        if (view != null) pzDirection(view.yaw(), view.pitch(), direction);
     }
 
     /** Runs immediately before B42 asks native Bullet for camera/body-part targets. */
     public static void configureNativeCameraRay(
             BallisticsController controller, IsoGameCharacter owner) {
         if (!isLocalPlayer(owner) || controller == null || GameServer.server) return;
-        InputState.Sample input = InputState.current();
-        boolean external = input.active();
-        if (!external && !FirstPersonInput.isPerspectiveActive()) return;
-        float yaw = external ? input.yaw() : FirstPersonInput.yaw();
-        float pitch = external ? input.pitch() : FirstPersonInput.pitch();
+        PerspectiveViewRay.Orientation view = PerspectiveViewRay.currentOrientation();
+        if (view == null) return;
+        float yaw = view.yaw();
+        float pitch = view.pitch();
 
         Vector3 muzzle = controller.getMuzzlePosition();
         pzDirection(yaw, pitch, PZ_DIRECTION);
@@ -95,6 +90,13 @@ public final class PerspectiveBallistics {
             System.out.println(
                     "[PZFPS aim] perspective muzzle and native Bullet camera ray active; PZ target validation retained");
         }
+    }
+
+    /** Reports only B42-accepted camera candidates; it does not select or damage a target. */
+    public static void observeNativeCameraTargets(
+            BallisticsController controller, IsoGameCharacter owner) {
+        if (!isLocalPlayer(owner) || controller == null || GameServer.server) return;
+        ReticleTracker.observeCombatTargets(controller.getNumberOfCameraTargets());
     }
 
     private static boolean isLocalPlayer(IsoGameCharacter owner) {

@@ -40,9 +40,9 @@ public final class InputState {
     }
 
     public static Vector2 aimVector(Vector2 result) {
-        Sample sample = current();
-        if (!sample.active()) return FirstPersonInput.aimVector(result);
-        return result.set((float) Math.cos(sample.yaw()), (float) Math.sin(sample.yaw()));
+        PerspectiveViewRay.Orientation view = PerspectiveViewRay.currentOrientation();
+        if (view == null) return result;
+        return result.set(view.horizontalX(), view.horizontalY());
     }
 
     public static boolean isButtonDown(int mask) {

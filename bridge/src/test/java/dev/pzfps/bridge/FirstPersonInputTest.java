@@ -78,6 +78,24 @@ final class FirstPersonInputTest {
         assertFalse(FirstPersonInput.shouldAdvanceDisposableLoadingScreen(true, true, true));
     }
 
+    @Test
+    void handsCurrentIntentToTheNextDeferredMovementUpdate() {
+        FirstPersonInput.beginMovementSample();
+        FirstPersonInput.rotateDigitalMovement(new Vector2(0, -1), 0.4f, 1, 1);
+        FirstPersonInput.finishMovementSample();
+
+        FirstPersonInput.MovementRequest deferred =
+                FirstPersonInput.deferredMovementRequest();
+        assertTrue(deferred.active());
+        float diagonal = (float) (1.0 / Math.sqrt(2.0));
+        assertEquals(diagonal, deferred.forward(), 0.0001f);
+        assertEquals(diagonal, deferred.strafe(), 0.0001f);
+
+        FirstPersonInput.beginMovementSample();
+        assertFalse(FirstPersonInput.lastMovementRequest().active());
+        assertTrue(FirstPersonInput.deferredMovementRequest().active());
+    }
+
     private static Vector2 pzWorldMovement(Vector2 input) {
         return new Vector2(input.y + input.x, input.y - input.x);
     }

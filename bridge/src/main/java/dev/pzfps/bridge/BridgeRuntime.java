@@ -70,6 +70,7 @@ public final class BridgeRuntime {
     public static void onPlayerUpdate(IsoPlayer player) {
         if (!isAuthoritativeLocalPlayer(player)) return;
         MovementDiagnostics.end(player);
+        FirstPersonInput.finishMovementSample();
         capture(player);
     }
 
@@ -78,6 +79,8 @@ public final class BridgeRuntime {
         if (!STARTED.get() || !isAuthoritativeLocalPlayer(player)) return;
         updateAndApplyLookInput(player);
         MovementDiagnostics.begin(player);
+        FirstPersonInput.beginMovementSample();
+        updateReticleTracking(player);
         observeInteractionRequest(player);
         openPerspectiveContextMenu(player);
     }
@@ -152,16 +155,16 @@ public final class BridgeRuntime {
         } else {
             player.setIsAiming((input.buttons() & InputState.AIM) != 0);
         }
-        applyPerspectivePitch(player, input);
+        applyPerspectivePitch(player);
         if (player.isAiming() || player.isAttacking()) {
-            applyPerspectiveFacing(player, input);
+            applyPerspectiveFacing(player);
         }
     }
 
     /** Reasserts the view after setAngleFromAim's isometric reticle/ballistics calculation. */
     public static void restorePerspectiveAim(IsoPlayer player) {
         if (!STARTED.get() || !isAuthoritativeLocalPlayer(player)) return;
-        applyPerspectiveFacing(player, InputState.current());
+        applyPerspectiveFacing(player);
     }
 
     /**
@@ -197,32 +200,29 @@ public final class BridgeRuntime {
         }
     }
 
-    private static void applyPerspectiveFacing(IsoPlayer player, InputState.Sample input) {
-        float yaw;
-        if (input.active()) {
-            yaw = input.yaw();
-        } else {
-            if (!FirstPersonInput.isPerspectiveActive()) return;
-            yaw = FirstPersonInput.yaw();
-        }
-        float forwardX = (float) Math.cos(yaw);
-        float forwardY = (float) Math.sin(yaw);
-        player.setForwardDirection(forwardX, forwardY);
-        player.setTargetAndCurrentDirection(forwardX, forwardY);
-        applyPerspectivePitch(player, input);
+    private static void applyPerspectiveFacing(IsoPlayer player) {
+        PerspectiveViewRay.Orientation view = PerspectiveViewRay.currentOrientation();
+        if (view == null) return;
+        player.setForwardDirection(view.horizontalX(), view.horizontalY());
+        player.setTargetAndCurrentDirection(view.horizontalX(), view.horizontalY());
+        applyPerspectivePitch(player);
     }
 
-    private static void applyPerspectivePitch(IsoPlayer player, InputState.Sample input) {
-        float pitch;
-        if (input.active()) {
-            pitch = input.pitch();
-        } else {
-            if (!FirstPersonInput.isPerspectiveActive()) return;
-            pitch = FirstPersonInput.pitch();
-        }
-        float pitchDegrees = (float) Math.toDegrees(pitch);
+    private static void applyPerspectivePitch(IsoPlayer player) {
+        PerspectiveViewRay.Orientation view = PerspectiveViewRay.currentOrientation();
+        if (view == null) return;
+        float pitchDegrees = (float) Math.toDegrees(view.pitch());
         player.setTargetVerticalAimAngle(pitchDegrees);
         player.setCurrentVerticalAimAngle(pitchDegrees);
+    }
+
+    private static void updateReticleTracking(IsoPlayer player) {
+        if (!FirstPersonInput.isCaptured() && !InputState.current().active()) return;
+        long now = System.nanoTime();
+        WorldState.Player viewpoint = WorldCapture.player(
+                player, FRAME_SEQUENCE.get(), now, System.currentTimeMillis());
+        ReticleTracker.updateWorld(
+                player, viewpoint, ACCEPTED_CHUNKS.values(), INTERACTION_REACH, now);
     }
 
     /**

@@ -102,10 +102,25 @@ function PZFPS_DrawReticle()
     end
     if not PZFPS_reticle then return end
 
-    local size = 20
+    -- The image remains fixed at the optical centre; the Java bridge publishes what that exact
+    -- shared ray resolves. A subtle size/opacity change confirms tracking without inventing hit
+    -- validity: PZ's own context/combat code still authorizes every action.
+    local targetKind = PZFPS_ReticleTargetKind or "none"
+    local size = 18
+    local alpha = 0.60
+    if targetKind == "world" then
+        size = 20
+        alpha = 0.72
+    elseif targetKind == "interact" then
+        size = 22
+        alpha = 0.92
+    elseif targetKind == "combat" then
+        size = 24
+        alpha = 1.0
+    end
     local x = getPlayerScreenLeft(0) + (getPlayerScreenWidth(0) - size) / 2
     local y = getPlayerScreenTop(0) + (getPlayerScreenHeight(0) - size) / 2
-    UIManager.DrawTexture(PZFPS_reticle, x, y, size, size, 0.85)
+    UIManager.DrawTexture(PZFPS_reticle, x, y, size, size, alpha)
 end
 
 Events.OnPostUIDraw.Add(PZFPS_DrawReticle)

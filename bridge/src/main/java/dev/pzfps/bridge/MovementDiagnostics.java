@@ -8,6 +8,8 @@ final class MovementDiagnostics {
     private static final float MINIMUM_DISPLACEMENT = 0.00001f;
     private static float startX;
     private static float startY;
+    private static FirstPersonInput.MovementRequest deferredRequest =
+            FirstPersonInput.MovementRequest.inactive();
     private static boolean sampling;
     private static int requestedSamples;
     private static int movingSamples;
@@ -19,21 +21,25 @@ final class MovementDiagnostics {
     private MovementDiagnostics() {}
 
     static void begin(IsoPlayer player) {
-        FirstPersonInput.beginMovementSample();
         sampling = player != null;
         if (!sampling) return;
-        startX = player.getX();
-        startY = player.getY();
+        // Animation evaluates the current intent near the end of one player update and applies
+        // its deferred/root displacement at the start of the next. nextX/nextY are the
+        // collision-owned movement target changed by moveUnmodded(); getX/getY are not committed
+        // at this boundary and made the old same-update report read stationary while moving.
+        deferredRequest = FirstPersonInput.deferredMovementRequest();
+        startX = player.getNextX();
+        startY = player.getNextY();
     }
 
     static void end(IsoPlayer player) {
         if (!sampling || player == null) return;
         sampling = false;
-        FirstPersonInput.MovementRequest request = FirstPersonInput.lastMovementRequest();
+        FirstPersonInput.MovementRequest request = deferredRequest;
         if (!request.active()) return;
 
-        float actualX = player.getX() - startX;
-        float actualY = player.getY() - startY;
+        float actualX = player.getNextX() - startX;
+        float actualY = player.getNextY() - startY;
         float actualLength = (float) Math.hypot(actualX, actualY);
         requestedSamples++;
         if (actualLength <= MINIMUM_DISPLACEMENT) {

@@ -45,12 +45,10 @@ public final class WorldCapture {
 
     public static WorldState.Player player(
             IsoPlayer player, long sequence, long captureNanos, long captureEpochMillis) {
-        CameraDirection camera = cameraDirection(
+        PerspectiveViewRay.Orientation view = PerspectiveViewRay.captureOrientation(
                 player.getForwardDirectionX(),
                 player.getForwardDirectionY(),
-                InputState.current(),
-                FirstPersonInput.isPerspectiveActive(),
-                FirstPersonInput.yaw());
+                (float) Math.toRadians(player.getCurrentVerticalAimAngle()));
         return new WorldState.Player(
                 sequence,
                 captureNanos,
@@ -59,9 +57,9 @@ public final class WorldCapture {
                 player.getX(),
                 player.getY(),
                 player.getZ(),
-                camera.x(),
-                camera.y(),
-                cameraPitchRadians(player),
+                view.horizontalX(),
+                view.horizontalY(),
+                view.pitch(),
                 nonNull(player.getCurrentActionContextStateName()),
                 player.isAiming(),
                 player.isAttacking(),
@@ -74,38 +72,12 @@ public final class WorldCapture {
      * toward a camera-relative movement vector so its native walk/run/sprint root motion remains
      * authoritative; the rendered camera and reticle remain owned by mouse yaw.
      */
-    static CameraDirection cameraDirection(
-            float bodyX,
-            float bodyY,
-            InputState.Sample input,
-            boolean nativePerspectiveActive,
-            float nativeYaw) {
-        if (input.active()) {
-            return new CameraDirection(
-                    (float) Math.cos(input.yaw()), (float) Math.sin(input.yaw()));
-        }
-        if (nativePerspectiveActive) {
-            return new CameraDirection(
-                    (float) Math.cos(nativeYaw), (float) Math.sin(nativeYaw));
-        }
-        return new CameraDirection(bodyX, bodyY);
-    }
-
-    record CameraDirection(float x, float y) {}
-
     private static float eyeHeight(IsoPlayer player) {
         if (player.getVehicle() != null) return 1.25f;
         if (player.isCrawling() || player.isOnFloor()) return 0.48f;
         if (player.isSitOnGround() || player.isSittingOnFurniture()) return 0.88f;
         if (player.isSneaking()) return 1.16f;
         return 1.62f;
-    }
-
-    private static float cameraPitchRadians(IsoPlayer player) {
-        InputState.Sample input = InputState.current();
-        if (input.active()) return input.pitch();
-        if (FirstPersonInput.isPerspectiveActive()) return FirstPersonInput.pitch();
-        return (float) Math.toRadians(player.getCurrentVerticalAimAngle());
     }
 
     public static WorldState.Entities entities(

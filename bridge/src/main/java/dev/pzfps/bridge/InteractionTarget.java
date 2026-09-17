@@ -17,7 +17,6 @@ import zombie.util.list.PZArrayList;
 
 /** Perspective selection plus identity-checked re-resolution of a live PZ object. */
 final class InteractionTarget {
-    private static final float LEVEL_HEIGHT = 3.0f;
     private static final float EDGE_HALF_THICKNESS = 0.08f;
     private static final float TARGET_PADDING = 0.06f;
     private static final float MINIMUM_TARGET_DISTANCE = 0.05f;
@@ -71,13 +70,7 @@ final class InteractionTarget {
             Predicate<WorldState.TileObject> accepted,
             int limit) {
         if (maximumReach <= 0.0f) throw new IllegalArgumentException("maximumReach must be positive");
-        float forwardLength = (float) Math.hypot(player.forwardX(), player.forwardY());
-        if (forwardLength < 0.0001f) return List.of();
-        float horizontal = (float) Math.cos(player.verticalAim());
-        float directionX = player.forwardX() / forwardLength * horizontal;
-        float directionY = (float) Math.sin(player.verticalAim());
-        float directionZ = player.forwardY() / forwardLength * horizontal;
-        float originY = player.z() * LEVEL_HEIGHT + player.eyeHeight();
+        PerspectiveViewRay.Ray ray = PerspectiveViewRay.fromPlayer(player);
         ArrayList<Hit> hits = new ArrayList<>();
         int chunkSize = zombie.iso.IsoChunkMap.CHUNK_SIZE_IN_SQUARES;
 
@@ -91,12 +84,12 @@ final class InteractionTarget {
                     if (!accepted.test(object)) continue;
                     float[] bounds = bounds(squareX, squareY, square.z(), object);
                     float distance = rayBoxDistance(
-                            player.x(),
-                            originY,
-                            player.y(),
-                            directionX,
-                            directionY,
-                            directionZ,
+                            ray.originX(),
+                            ray.originY(),
+                            ray.originZ(),
+                            ray.directionX(),
+                            ray.directionY(),
+                            ray.directionZ(),
                             bounds,
                             maximumReach);
                     if (!Float.isFinite(distance)) continue;
@@ -200,10 +193,10 @@ final class InteractionTarget {
 
     private static float[] bounds(
             int squareX, int squareY, int z, WorldState.TileObject object) {
-        float baseY = z * LEVEL_HEIGHT;
+        float baseY = z * PerspectiveViewRay.LEVEL_HEIGHT;
         if (object.worldItem().present()) {
             WorldState.WorldItem item = object.worldItem();
-            float centreY = item.worldZ() * LEVEL_HEIGHT;
+            float centreY = item.worldZ() * PerspectiveViewRay.LEVEL_HEIGHT;
             return new float[] {
                 item.worldX() - WORLD_ITEM_HALF_EXTENT,
                 centreY - WORLD_ITEM_HALF_EXTENT,
@@ -235,7 +228,7 @@ final class InteractionTarget {
             maximumX = squareX + EDGE_HALF_THICKNESS;
         }
         float minimumY = baseY;
-        float maximumY = minimumY + LEVEL_HEIGHT;
+        float maximumY = minimumY + PerspectiveViewRay.LEVEL_HEIGHT;
         return new float[] {
             minimumX, minimumY, minimumZ, maximumX, maximumY, maximumZ
         };

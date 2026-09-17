@@ -156,14 +156,13 @@ public final class InProcessWorldRenderer {
             WorldState.Player player, float eyeHeight, int viewportWidth, int viewportHeight) {
         int width = Math.max(1, viewportWidth);
         int height = Math.max(1, viewportHeight);
-        float eyeX = player.x();
-        float eyeY = player.z() * LEVEL_HEIGHT + eyeHeight;
-        float eyeZ = player.y();
-        float pitch = Math.max(-1.45f, Math.min(1.45f, player.verticalAim()));
-        float horizontal = (float) Math.cos(pitch);
-        float directionX = player.forwardX() * horizontal;
-        float directionY = (float) Math.sin(pitch);
-        float directionZ = player.forwardY() * horizontal;
+        PerspectiveViewRay.Ray ray = PerspectiveViewRay.fromPlayer(player, eyeHeight);
+        float eyeX = ray.originX();
+        float eyeY = ray.originY();
+        float eyeZ = ray.originZ();
+        float directionX = ray.directionX();
+        float directionY = ray.directionY();
+        float directionZ = ray.directionZ();
         if (Math.abs(directionX) + Math.abs(directionZ) < 0.001f) directionZ = 1.0f;
         Matrix4f projection = new Matrix4f().perspective(
                 (float) Math.toRadians(82.0), (float) width / height, 0.035f, 400.0f);

@@ -19,10 +19,11 @@ PZ simulation/update -> immutable authoritative snapshot
 PZ render thread     -> PZFPS perspective world -> PZ text/UI
 ```
 
-No PZ process is currently running; the isolated launcher metadata still names
-PID 22725, but the process inventory is empty. The source tree is ahead of the
-last live-tested process; the hashes below distinguish the live-tested JAR from
-the newest built JAR.
+Exactly one isolated PZ process is currently running as PID 23376. It loaded the
+staged bridge JAR `9a96314174656c3e6c7a9228c6fc03e5073cab4560b52dea0406e4c140ef2cdc`
+from the project-local disposable profile. The source tree is ahead of that
+process; the hashes below distinguish the live-loaded JAR from the newest built
+JAR. No normal save, installed game binary or unrelated mod was changed.
 
 ## Truthful acceptance state
 
@@ -46,9 +47,10 @@ the newest built JAR.
   live build because W+D moved forward-left and Shift+A/Shift+D collapsed to
   forward sprinting. The source fix now separates mouse-owned camera/reticle
   facing from PZ-owned body locomotion facing and removes the forced-strafe
-  hook; it has not yet been loaded into a game process. Cursor/UI transitions,
-  center-view interaction, aiming/combat and ordinary inventory/container play
-  also remain unaccepted.
+  hook. That fix is loaded in PID 23376 but has not yet received an owner
+  acceptance result. Cursor/UI transitions, continuously tracked centre-view
+  selection, aiming/combat and ordinary inventory/container play also remain
+  unaccepted.
 - **Performance checkpoint:** unavailable. The log records completed render
   callbacks and queue behavior, not game FPS. At its last unpaused fresh-state
   sample it reported `completedFrames=300`, `enqueuedFrames=300`, `meshes=169`,
@@ -70,7 +72,9 @@ gameplay:
    player is stationary. The former 169 -> 117/104 -> 169 oscillation is gone.
 5. The perspective room uses source PZ textures on known geometry and retains
    the normal PZ text/UI pass. The owner reported no further whole-world flash.
-6. The current source build passes 66 Java tests and 45 Python tests.
+6. The current source build passes 70 Java tests and 45 Python tests. The newest
+   native-actor activation, deferred-movement measurement and shared reticle-ray
+   changes are source-built but not loaded into PID 23376.
 
 No source/enhanced video pair or matched gameplay performance capture has yet
 been accepted.
@@ -133,6 +137,18 @@ been accepted.
   transform so camera-space WASD remains in world space. `Toggle Inventory`
   releases capture on the same mouse-input poll instead of waiting for the Lua
   UI visibility change.
+- `bridge/src/main/java/dev/pzfps/bridge/PerspectiveViewRay.java` — defines the
+  single normalized centre-view contract used by the renderer camera,
+  interaction ray, PZ aim-vector override and native ballistics adapter. It
+  removes the prior independent yaw/pitch reconstructions, including the
+  renderer's old pitch clamp that could make its optical centre disagree with
+  the action ray near a steep look angle.
+- `bridge/src/main/java/dev/pzfps/bridge/ReticleTracker.java` — probes the same
+  ray at a bounded 20 Hz, re-resolves a snapshot hit to the live PZ object and
+  publishes only presentation state to the Lua UI. Interactable objects and
+  dropped items are distinguished from ordinary world surfaces. After B42's
+  native ballistics query, its accepted camera-target count can supersede that
+  geometric state. This tracker never authorizes, executes or damages a target.
 - `bridge/src/main/java/dev/pzfps/bridge/WorldCapture.java` now publishes the
   mouse-owned perspective yaw as camera/reticle direction independently of the
   local character's locomotion direction. During ordinary non-aim movement PZ
@@ -153,7 +169,9 @@ been accepted.
   displacement over bounded 180-input-update windows. It reports directional
   alignment, opposed displacement and stationary updates separately; the last
   category explicitly includes collision/action constraints and is not called
-  renderer or gameplay FPS.
+  renderer or gameplay FPS. It now samples PZ's collision-owned `nextX/nextY`
+  boundary against the previous update's deferred request; the old same-update
+  `getX/getY` report incorrectly called every moving update stationary.
 - `bridge/src/main/java/dev/pzfps/bridge/patches/AimVectorPatch.java` and
   `AimStatePatch.java` — cover both B42 aim-vector routes: the public
   `getAimVector(Vector2)` used during movement and the private
@@ -185,8 +203,10 @@ been accepted.
   visible result is positioned at the centre of the first-person viewport.
   Its post-UI callback reuses the
   installed `media/ui/Reticle/crosshair00.png` at the viewport centre and hides
-  it whenever the real cursor is visible; no proprietary texture is copied into
-  the project.
+  it whenever the real cursor is visible. Its size and opacity now report
+  `none`, ordinary world, identity-resolved interactable, or B42-native combat
+  target states from the shared view ray; no proprietary texture is copied into
+  the project and the UI state is not action validity.
 - `WorldState.WorldItem` and `WorldCapture.worldItem(...)` — preserve a dropped
   item's real ID/type, static/world model identities, world texture, absolute
   placement, rotations, scale and extended-placement state. The mesh builder
@@ -209,8 +229,9 @@ been accepted.
   callbacks are logged separately. The prior engine value is restored in
   `finally`. This is source-built and unit-tested, not yet live-accepted.
 - `bridge/src/main/java/dev/pzfps/bridge/NativeActorPass.java` and
-  `FirstPersonCharacterCamera.java` — select visible nonlocal characters with
-  validated active model slots, snapshot them through B42's own
+  `FirstPersonCharacterCamera.java` — select nearby nonlocal characters,
+  activate their native model slots through B42's own `setSceneCulled(false)`
+  lifecycle seam, and snapshot them through B42's own
   `ModelSlotRenderData`, and queue them after the replacement world so they use
   its perspective depth. This preserves the client's already-evaluated
   animation matrices, clothing, attachments, held models, seated transforms,
@@ -220,7 +241,11 @@ been accepted.
   deliberately excluded to prevent head/neck/shoulder clipping until a
   first-person body treatment is implemented. Isometric chunk `targetDepth` is
   disabled only around the synchronous native draw and restored in `finally`.
-  The producer retains actors across headings within its horizontal range; the
+  The replacement draw skips `IsoWorld.sceneCullZombies/Animals`, so relying on
+  a pre-existing active slot left every actor as a red box. The pass now owns
+  only the bounded set it activated, releases that ownership when an actor
+  leaves range, and caps nearest-first activation at 256. The producer retains
+  actors across headings within its horizontal range; the
   render callback performs final culling against the same 3D camera frustum as
   the world, including pitch and elevation. Queued, completed and frustum-
   culled callbacks are logged separately and are not called game FPS. This path
@@ -390,17 +415,20 @@ The latest context pass also used installed B42 Lua read-only to verify that
 non-visible action-discovery path and that one selected object expands to every
 object on its square. No installed script was modified.
 
+The same installed-game Lua parser was rerun after adding tracked-reticle UI
+states and returned `PZFPS_LUA_PARSE_OK`.
+
 Most recent test results:
 
 - Python/pytest: 45 passed, 0 failed (49 deprecation warnings).
-- Java/Gradle: 59 passed, 0 failed across `ChunkLifecycleTest`,
+- Java/Gradle: 70 passed, 0 failed across `ChunkLifecycleTest`,
   `CursorCaptureStateTest`, `DirectPatchInstallerTest`, `FirstPersonInputTest`,
   `FirstPersonCharacterCameraTest`, `FirstPersonModelCameraTest`,
   `InputStateTest`, `InteractionTargetTest`, `MovementDiagnosticsTest`,
   `NativeActorPassTest`, `NativeFirstPersonHandsPassTest`,
   `NativeVehiclePassTest`, `NativeWorldItemPassTest`,
   `PerspectiveBallisticsTest`, `PerspectiveInteractTest`,
-  `PerspectiveVisibilityTest`,
+  `PerspectiveViewRayTest`, `PerspectiveVisibilityTest`, `ReticleTrackerTest`,
   `RepresentationBacklogTest`,
   `WireProtocolTest` and `WorldMeshBuilderTest`.
 
@@ -416,10 +444,14 @@ Most recent test results:
 - Live console: `.local/pz-runtime/user-cache/Zomboid/console.txt`.
 - Disposable save:
   `.local/pz-runtime/user-cache/Zomboid/Saves/Top Of The World/46507890207760758489`.
-- Live-tested staged bridge JAR SHA-256:
-  `04e34f98c6052e20bbced5e2c3cebc862368665060f9674576328945863dfa7f`.
-- Newest built but not live-tested bridge JAR SHA-256:
+- Live-loaded staged bridge JAR SHA-256:
   `9a96314174656c3e6c7a9228c6fc03e5073cab4560b52dea0406e4c140ef2cdc`.
+- Newest built but not live-tested bridge JAR SHA-256:
+  `2795bf48d555dcd12740af3b6c9a9955ccdf40efd47518e592f645e7dd9abcee`.
+- Current live screenshots:
+  `.local/captures/current-window.png`, `.local/captures/pz-front.png`,
+  `.local/captures/pz-clicked-close.png` and
+  `.local/captures/pz-ui-closed.png`.
 - Offline canonical report:
   `.local/canonical-bed-v64/store/objects/5107aa94b47977535039da77ac4018329c238388ad51c94829dc5a69d01d1a0a/report.json`.
 - Geometry source SHA-256:
@@ -474,16 +506,23 @@ update rates have not been reported as achieved performance.
    similarly exposed ballistics entry points are now public, with reflection
    regression tests; this repair is built but not live-tested.
 5. Nonlocal native characters are now wired to B42's evaluated model render
-   data rather than reanimated or approximated in the renderer. This has not
-   been loaded into the live process. It still needs a disposable-session check
+   data rather than reanimated or approximated in the renderer. The live-loaded
+   build still reports `queued=0` because skipping `IsoWorld.render()` also
+   skipped the isometric `sceneCullZombies/Animals` methods that normally create
+   model slots. The newest source activates a bounded nearest-first set through
+   PZ's own model lifecycle seam; it has not been loaded into the live process.
+   It still needs a disposable-session check
    of standing, walking, crawling, held equipment, occlusion and at least one
    seated actor; an exception disables only this pass and restores diagnostic
    boxes on the next frame. The local body remains intentionally absent.
 6. The native neural overlay is blocked by the host/toolchain/model prerequisites
    above. No other renderer/model rewrite has been substituted for it.
-7. Visible holes and unsupported backs/ceilings are now honestly exposed. Their
-   constrained completion is intentionally deferred until the live controls and
-   authoritative interaction seam are coherent enough to judge moving views.
+7. Visible holes and unsupported backs/ceilings are now honestly exposed. The
+   owner has accepted this as the starting point for structured hole filling.
+   The current visible backlog is led by `roofs_04_37`, `roofs_04_35`,
+   `roofs_04_36`, indoor-light sprites, `fixtures_counters_01_3` and the
+   `location_business_office_generic_01_40-47` family. This is measured scene
+   coverage, not proof that each identity needs the same representation rule.
 8. A Java validation attempt using a project-relative `ZOMBIE_BUDDY_JAR` failed
    because Gradle resolves file dependencies relative to `bridge/`. The
    corrected absolute project-local path above produced a clean build with all
@@ -547,18 +586,33 @@ update rates have not been reported as achieved performance.
     the renderer also consumes the new floor identity instead of relying on a
     sprite-name convention. This source checkpoint has not been staged or
     live-accepted.
+18. The centre reticle was previously only a fixed image while rendering,
+    interaction and ballistics reconstructed its ray independently. That could
+    make the displayed centre disagree with steep-pitch selection. One
+    normalized `PerspectiveViewRay` now supplies all four consumers, and a
+    bounded tracker reports identity-resolved world/interactable hits plus
+    B42-native combat-target counts to the UI. The 70-test build and installed
+    Lua parser pass succeeded; the changing reticle state and target agreement
+    still require live acceptance.
+19. The first shared-ray compilation retained one old `LEVEL_HEIGHT` reference
+    in `InteractionTarget` and failed before producing a JAR. It was replaced by
+    the shared constant; the subsequent clean build passed all 70 tests. No
+    failed artifact was staged or loaded.
 
 ## Next smallest experiment
 
-Without restarting the current accepted visual session merely to inspect it:
+Keep PID 23376 available for the owner to finish evaluating the live-loaded
+camera/body locomotion split. The next restart has three specific new artifacts
+to test together: native actor lifecycle activation, corrected deferred-motion
+measurement and shared reticle tracking.
 
 1. Stage one batched build and live-test simultaneous W+A/W+D, A/D,
    Shift+W/A/D and backward movement while keeping mouse view fixed. Confirm
    that ordinary locomotion turns PZ's body root toward the requested movement
    while the rendered camera/reticle retains mouse yaw, and that aim mode alone
-   locks action facing to that ray. The existing same-update movement diagnostic
-   is not accepted evidence for deferred/root movement and must be corrected
-   before its counters are used.
+   locks action facing to that ray. Use the corrected previous-request versus
+   `nextX/nextY` diagnostic; its direction alignment is evidence about movement,
+   not gameplay FPS.
 2. Aim at each of two neighboring doors/windows in turn and verify that the
    normal `Interact` key executes only the identity-matched reticle object's
    PZ-generated contextual action. Then aim at a locked/non-actionable target
@@ -568,9 +622,11 @@ Without restarting the current accepted visual session merely to inspect it:
    curtain, dropped item, and floor while looking down. Verify the hidden test
    skips a nearer decorative object with no options, B42's own non-empty menu
    opens only for an actionable hit, one normal option executes, and capture
-   returns only after the menu clears. Also verify that the fixed reticle hides
-   while the cursor owns the menu and returns after recapture. The source path
-   is built but not live-tested.
+   returns only after the menu clears. Verify that the reticle changes for an
+   ordinary surface, an identity-resolved interactable and a B42-accepted combat
+   target, remains at optical centre while looking steeply up/down, hides while
+   the cursor owns the menu, and returns after recapture. The source path is
+   built but not live-tested.
 4. Inspect one real dropped item from several angles and verify the new native
    item pass selects PZ's installed model/texture, placement and scale, shares
    the perspective depth buffer, and leaves unresolved identities as honest
@@ -598,12 +654,15 @@ Without restarting the current accepted visual session merely to inspect it:
 8. Revisit the downward stairwell and verify that the former solid floor plane
    is now an actual opening, that upward stairs retain their supporting floor,
    and that the indexed stair geometry remains traversable and depth-occluded.
-9. Capture one completed-frame coverage report and preserve its
-   `topUnsupported` and `topCollisionHoles` rankings. Confirm visually that at
-   least the first repeated sprite corresponds to a real visible hole, and
-   reproduce one collision-critical hole by walking against it, before
-   selecting it for the later persistent completion experiment.
+9. Start the architectural hole pass with the real current scene rather than an
+   isolated neural demo: classify the measured roof, indoor-light, counter and
+   office-furniture families; add structural ceiling/roof rules that preserve
+   stairwell/window openings and continuous material coordinates; then inspect
+   the same rules across multiple real rooms. Confirm visually that a ranked
+   collision hole corresponds to the invisible blocker before replacing its
+   presentation. Do not infer geometry solely from the collision flag.
 
-The later appearance experiment is one identity-stable real asset carried
-through constrained completion and inspected from multiple moving views. It is
-not started until the owner returns to choose and judge that hole-filling pass.
+Irregular assets that remain after deterministic family compilation are then
+the candidates for identity-stable constrained completion and multi-view
+inspection. Neural generation is not the default for known planes, openings or
+usable native meshes.

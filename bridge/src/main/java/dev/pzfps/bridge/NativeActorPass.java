@@ -1,6 +1,9 @@
 package dev.pzfps.bridge;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -23,11 +26,15 @@ public final class NativeActorPass {
     private static final float MODEL_BOUND_RADIUS = 2.5f;
     private static final int MAXIMUM_ACTORS_PER_FRAME = 256;
     private static final ConcurrentLinkedQueue<Drawer> DRAWER_POOL = new ConcurrentLinkedQueue<>();
+    private static final Set<IsoGameCharacter> ACTIVATED_BY_PASS =
+            Collections.newSetFromMap(new IdentityHashMap<>());
     private static final AtomicBoolean FAILED = new AtomicBoolean();
     private static final AtomicLong QUEUED = new AtomicLong();
     private static final AtomicLong COMPLETED_CALLBACKS = new AtomicLong();
     private static final AtomicLong FRUSTUM_CULLED = new AtomicLong();
     private static final AtomicLong NO_ACTIVE_MODEL = new AtomicLong();
+    private static final AtomicLong ACTIVATED_MODELS = new AtomicLong();
+    private static final AtomicLong RELEASED_MODELS = new AtomicLong();
     private static long frames;
 
     private NativeActorPass() {}
@@ -41,6 +48,7 @@ public final class NativeActorPass {
                 player, 0L, now, System.currentTimeMillis());
         ArrayList<Drawer> drawers = new ArrayList<>();
         LinkedHashSet<Integer> entityIds = new LinkedHashSet<>();
+        ArrayList<Candidate> candidates = new ArrayList<>();
         for (IsoMovingObject object : player.getCell().getObjectList()) {
             if (!(object instanceof IsoGameCharacter character)
                     || character == player
@@ -50,6 +58,18 @@ public final class NativeActorPass {
                             viewpoint, character.getX(), character.getY())) {
                 continue;
             }
+            float dx = character.getX() - viewpoint.x();
+            float dy = character.getY() - viewpoint.y();
+            candidates.add(new Candidate(character, dx * dx + dy * dy));
+        }
+        candidates.sort(Comparator.comparingDouble(Candidate::distanceSquared));
+
+        Set<IsoGameCharacter> desired = Collections.newSetFromMap(new IdentityHashMap<>());
+        int count = Math.min(candidates.size(), MAXIMUM_ACTORS_PER_FRAME);
+        for (int index = 0; index < count; index++) {
+            IsoGameCharacter character = candidates.get(index).character();
+            desired.add(character);
+            ensurePerspectiveModel(character);
             ModelManager.ModelSlot slot = character.legsSprite == null
                     ? null
                     : character.legsSprite.modelSlot;
@@ -69,9 +89,36 @@ public final class NativeActorPass {
                 releaseAll(drawers);
                 return PreparedFrame.empty();
             }
-            if (drawers.size() >= MAXIMUM_ACTORS_PER_FRAME) break;
         }
+        releaseActorsOutside(desired);
         return new PreparedFrame(drawers, Set.copyOf(entityIds));
+    }
+
+    /**
+     * IsoWorld.render normally performs an isometric screen-space scene cull before drawing.
+     * The replacement world deliberately skips that draw, so activate only the bounded set the
+     * perspective renderer may use. setSceneCulled is PZ's own ModelManager lifecycle seam and
+     * runs here at the same render boundary as the original culler.
+     */
+    private static void ensurePerspectiveModel(IsoGameCharacter character) {
+        if (!character.isSceneCulled()
+                && character.isAddedToModelManager()
+                && character.hasActiveModel()) {
+            return;
+        }
+        character.setSceneCulled(false);
+        if (ACTIVATED_BY_PASS.add(character)) ACTIVATED_MODELS.incrementAndGet();
+    }
+
+    private static void releaseActorsOutside(Set<IsoGameCharacter> desired) {
+        var iterator = ACTIVATED_BY_PASS.iterator();
+        while (iterator.hasNext()) {
+            IsoGameCharacter character = iterator.next();
+            if (desired.contains(character)) continue;
+            iterator.remove();
+            character.setSceneCulled(true);
+            RELEASED_MODELS.incrementAndGet();
+        }
     }
 
     static boolean withinHorizontalRange(
@@ -142,12 +189,15 @@ public final class NativeActorPass {
             }
             if (++frames % 300 == 0) {
                 System.out.printf(
-                        "[PZFPS actors] queuedThisFrame=%d queuedTotal=%d completedCallbacks=%d frustumCulled=%d noActiveModel=%d%n",
+                        "[PZFPS actors] queuedThisFrame=%d queuedTotal=%d completedCallbacks=%d frustumCulled=%d noActiveModel=%d activated=%d released=%d managed=%d%n",
                         queuedThisFrame,
                         QUEUED.get(),
                         COMPLETED_CALLBACKS.get(),
                         FRUSTUM_CULLED.get(),
-                        NO_ACTIVE_MODEL.get());
+                        NO_ACTIVE_MODEL.get(),
+                        ACTIVATED_MODELS.get(),
+                        RELEASED_MODELS.get(),
+                        ACTIVATED_BY_PASS.size());
             }
         }
 
@@ -157,6 +207,8 @@ public final class NativeActorPass {
             releaseAll(drawers);
         }
     }
+
+    private record Candidate(IsoGameCharacter character, float distanceSquared) {}
 
     private static final class Drawer extends TextureDraw.GenericDrawer {
         private ModelSlotRenderData renderData;
