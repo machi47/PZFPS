@@ -331,6 +331,23 @@ public final class WorldCapture {
                 chunk.wx, chunk.wy, chunk.revision, fingerprint, squares);
     }
 
+    /** Game-thread only: native lightInfo() refreshes the lazy lighting cache before raw RGB. */
+    static ChunkLighting lighting(IsoChunk chunk, int playerIndex) {
+        byte[] values = new byte[ChunkLighting.BYTES];
+        for (int z = chunk.getMinLevel(); z <= chunk.getMaxLevel(); z++) {
+            for (int y = 0; y < ChunkLighting.WIDTH; y++) {
+                for (int x = 0; x < ChunkLighting.WIDTH; x++) {
+                    IsoGridSquare square = chunk.getGridSquare(x, y, z);
+                    if (square == null || square.lighting[playerIndex] == null) continue;
+                    square.lighting[playerIndex].lightInfo();
+                    ChunkLighting.put(values, x, y, z,
+                            square.GetRLightLevel(), square.GetGLightLevel(), square.GetBLightLevel());
+                }
+            }
+        }
+        return new ChunkLighting(values, System.nanoTime());
+    }
+
     private static WorldState.TileObject tileObject(int index, IsoObject object) {
         boolean door = object instanceof IsoDoor
                 || (object instanceof IsoThumpable thumpable && thumpable.isDoor());

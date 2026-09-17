@@ -10,8 +10,8 @@ import java.util.Set;
 
 /** Converts immutable PZ snapshots into renderer-owned triangles without touching live objects. */
 public final class WorldMeshBuilder {
-    public static final int FLOATS_PER_VERTEX = 9;
-    public static final int TEXTURED_FLOATS_PER_VERTEX = 12;
+    public static final int FLOATS_PER_VERTEX = 10;
+    public static final int TEXTURED_FLOATS_PER_VERTEX = 13;
     private static final float LEVEL_HEIGHT = 3.0f;
     // PZ's tile-depth scene uses 2*sqrt(1.5) authored units per floor, not 3.
     static final float AUTHORED_HEIGHT_TO_WORLD = (float) Math.sqrt(1.5);
@@ -131,7 +131,10 @@ public final class WorldMeshBuilder {
             float baseX = chunkX + square.localX();
             float baseY = square.z() * LEVEL_HEIGHT;
             float baseZ = chunkZ + square.localY();
-            float[] light = squareLight(square);
+            // Appearance and topology are persistent; live light is a separate GPU grid.
+            float[] light = {1, 1, 1};
+            int lightingIndex = ChunkLighting.index(square.localX(), square.localY(), square.z());
+            output.lightingIndex = lightingIndex;
             // B42 reports an upper square as a solid floor even when a staircase on the level
             // below enters through it. HasStairsBelow is authoritative topology for that opening;
             // drawing the generic full-tile floor here creates the observed solid plane over the
@@ -145,6 +148,7 @@ public final class WorldMeshBuilder {
                             floorSprite,
                             ignored -> new FloatBuilder(512, TEXTURED_FLOATS_PER_VERTEX));
                     batch.layer = 0;
+                    batch.lightingIndex = lightingIndex;
                     addTexturedQuad(
                             batch,
                             new float[] {baseX, baseY, baseZ},
@@ -189,6 +193,7 @@ public final class WorldMeshBuilder {
                 FloatBuilder ceiling = materials.computeIfAbsent(
                         "interior-plaster",
                         ignored -> new FloatBuilder(512, FLOATS_PER_VERTEX));
+                ceiling.lightingIndex = lightingIndex;
                 addInteriorCeiling(ceiling, baseX, baseY + LEVEL_HEIGHT, baseZ, light);
                 completedInteriorCeilings++;
                 primitiveCount++;
@@ -214,6 +219,7 @@ public final class WorldMeshBuilder {
                             object.sprite(),
                             ignored -> new FloatBuilder(512, TEXTURED_FLOATS_PER_VERTEX));
                     batch.layer = Math.min(16, Math.max(1, object.index() + 1));
+                    batch.lightingIndex = lightingIndex;
                     for (TileGeometryRegistry.Primitive primitive : geometry) {
                         addTexturedPrimitive(batch, baseX, baseY, baseZ, primitive, light);
                         if (primitive.kind().equals("box")) {
@@ -232,6 +238,7 @@ public final class WorldMeshBuilder {
                             object.sprite(),
                             ignored -> new FloatBuilder(512, TEXTURED_FLOATS_PER_VERTEX));
                     batch.layer = Math.min(16, Math.max(1, object.index() + 1));
+                    batch.lightingIndex = lightingIndex;
                     boolean emitted = false;
                     if (object.edgeNorth()) {
                         addSourceEdgePanel(
@@ -1045,12 +1052,14 @@ public final class WorldMeshBuilder {
         output.add(c[0]); output.add(c[1]); output.add(c[2]);
         output.add(sourcePixel[0]); output.add(sourcePixel[1]);
         output.add(output.layer);
+        output.add(output.lightingIndex);
     }
 
     private static void addVertex(FloatBuilder output, float[] p, float[] n, float[] c) {
         output.add(p[0]); output.add(p[1]); output.add(p[2]);
         output.add(n[0]); output.add(n[1]); output.add(n[2]);
         output.add(c[0]); output.add(c[1]); output.add(c[2]);
+        output.add(output.lightingIndex);
     }
 
     private static float[] normal(float[] a, float[] b, float[] c) {
@@ -1066,14 +1075,6 @@ public final class WorldMeshBuilder {
         float length = (float) Math.sqrt(x * x + y * y + z * z);
         if (length < 0.000001f) return new float[] {0, 1, 0};
         return new float[] {x / length, y / length, z / length};
-    }
-
-    private static float[] squareLight(WorldState.Square square) {
-        return new float[] {
-            Math.max(0.42f, Math.min(1, square.lightR() / 255.0f)),
-            Math.max(0.42f, Math.min(1, square.lightG() / 255.0f)),
-            Math.max(0.42f, Math.min(1, square.lightB() / 255.0f))
-        };
     }
 
     private static float[] identityColor(String value, float[] light) {
@@ -1110,6 +1111,7 @@ public final class WorldMeshBuilder {
         private int size;
         private final int stride;
         private float layer;
+        private int lightingIndex;
 
         FloatBuilder(int capacity, int stride) {
             values = new float[capacity];

@@ -47,6 +47,7 @@ public final class InProcessWorldRenderer {
     private static final AtomicBoolean REPLACEMENT_ANNOUNCED = new AtomicBoolean();
     private static final AtomicReference<WorldState.Player> PLAYER = new AtomicReference<>();
     private static final AtomicReference<WorldState.Entities> ENTITIES = new AtomicReference<>();
+    private static final ChunkLighting.Store LIGHTING = new ChunkLighting.Store(4096);
     private static final ConcurrentHashMap<Long, WorldMeshBuilder.MeshData> MESHES =
             new ConcurrentHashMap<>();
     private static final ChunkQueue PENDING = new ChunkQueue(MAX_PENDING_CHUNKS);
@@ -81,12 +82,18 @@ public final class InProcessWorldRenderer {
 
     public static void submitChunk(WorldState.Chunk chunk) {
         if (!ENABLED) return;
+        LIGHTING.put(chunk.key(), ChunkLighting.fromChunk(chunk));
         if (!PENDING.offer(chunk)) DROPPED_CHUNKS.incrementAndGet();
+    }
+
+    static void acceptLighting(long key, ChunkLighting lighting) {
+        if (ENABLED) LIGHTING.put(key, lighting);
     }
 
     public static void removeChunk(long key) {
         PENDING.remove(key);
         MESHES.remove(key);
+        LIGHTING.remove(key);
     }
 
     /** Called by advice on the game/render-state producer thread. */
@@ -102,7 +109,7 @@ public final class InProcessWorldRenderer {
                 PLAYER.get(),
                 ENTITIES.get(),
                 List.copyOf(MESHES.values()),
-                Set.copyOf(nativeEntityIds));
+                Set.copyOf(nativeEntityIds), LIGHTING.snapshot());
         SpriteRenderer.instance.drawGeneric(new WorldDrawer(snapshot));
         ENQUEUED_FRAMES.incrementAndGet();
         if (REPLACEMENT_ANNOUNCED.compareAndSet(false, true)) {
@@ -261,6 +268,9 @@ public final class InProcessWorldRenderer {
                         coverage.unsupportedObjects(),
                         coverage.collisionCriticalUnsupportedObjects(),
                         coverage.truncatedChunks());
+                System.out.printf("[PZFPS lighting] textures=%d uploads=%d visibleMaxAgeMs=%d bytesPerUpload=%d%n",
+                        state.lightingTextures.size(), state.lightingUploads,
+                        state.visibleLightAgeMillis, ChunkLighting.BYTES);
                 List<SpriteCount> unsupported =
                         topUnsupportedSprites(state.lastVisibleMeshes, 8);
                 if (!unsupported.isEmpty()) {
@@ -294,7 +304,8 @@ public final class InProcessWorldRenderer {
             WorldState.Player player,
             WorldState.Entities entities,
             List<WorldMeshBuilder.MeshData> meshes,
-            Set<Integer> nativeEntityIds) {}
+            Set<Integer> nativeEntityIds,
+            Map<Long, ChunkLighting> lighting) {}
 
     private record CullingCounts(int visible, int empty, int distance, int frustum) {
         private static CullingCounts none() {
@@ -362,6 +373,12 @@ public final class InProcessWorldRenderer {
         private final int cropUniform;
         private final int surfaceKindUniform;
         private final int originUniform;
+        private final int lightingUniform;
+        private final int lightingEnabledUniform;
+        private final Map<Long, GpuLighting> lightingTextures = new HashMap<>();
+        private final java.nio.ByteBuffer lightingUpload = BufferUtils.createByteBuffer(ChunkLighting.BYTES);
+        private long lightingUploads;
+        private long visibleLightAgeMillis;
         private final Map<String, Texture> sourceTextures = new HashMap<>();
         private final Set<String> reportedMissingTextures = ConcurrentHashMap.newKeySet();
         private boolean entityBufferCreated;
@@ -383,12 +400,15 @@ public final class InProcessWorldRenderer {
             cropUniform = GL20.glGetUniformLocation(program, "uCrop");
             surfaceKindUniform = GL20.glGetUniformLocation(program, "uSurfaceKind");
             originUniform = GL20.glGetUniformLocation(program, "uOrigin");
+            lightingUniform = GL20.glGetUniformLocation(program, "uLighting");
+            lightingEnabledUniform = GL20.glGetUniformLocation(program, "uLightingEnabled");
             if (mvpUniform < 0
                     || texturedUniform < 0
                     || materialUniform < 0
                     || textureUniform < 0
                     || uvBoundsUniform < 0
-                    || cropUniform < 0 || surfaceKindUniform < 0 || originUniform < 0) {
+                    || cropUniform < 0 || surfaceKindUniform < 0 || originUniform < 0
+                    || lightingUniform < 0 || lightingEnabledUniform < 0) {
                 throw new IllegalStateException("one or more source-texture shader uniforms are absent");
             }
         }
@@ -410,11 +430,23 @@ public final class InProcessWorldRenderer {
             java.nio.DoubleBuffer previousDepthRange = BufferUtils.createDoubleBuffer(2);
             GL11.glGetDoublev(GL11.GL_DEPTH_RANGE, previousDepthRange);
             int previousActiveTexture = GL11.glGetInteger(GL13.GL_ACTIVE_TEXTURE);
+            GL13.glActiveTexture(GL13.GL_TEXTURE1);
+            int previousLightingTexture = GL11.glGetInteger(GL11.GL_TEXTURE_BINDING_2D);
             GL13.glActiveTexture(GL13.GL_TEXTURE0);
             int previousTexture = GL11.glGetInteger(GL11.GL_TEXTURE_BINDING_2D);
             boolean previousTexture2d = GL11.glIsEnabled(GL11.GL_TEXTURE_2D);
+            int previousUnpackBuffer = GL11.glGetInteger(org.lwjgl.opengl.GL21.GL_PIXEL_UNPACK_BUFFER_BINDING);
+            int previousUnpackAlignment = GL11.glGetInteger(GL11.GL_UNPACK_ALIGNMENT);
+            int previousUnpackRowLength = GL11.glGetInteger(GL11.GL_UNPACK_ROW_LENGTH);
+            int previousUnpackSkipRows = GL11.glGetInteger(GL11.GL_UNPACK_SKIP_ROWS);
+            int previousUnpackSkipPixels = GL11.glGetInteger(GL11.GL_UNPACK_SKIP_PIXELS);
             GL11.glPushClientAttrib(GL11.GL_CLIENT_VERTEX_ARRAY_BIT);
             try {
+                GL15.glBindBuffer(org.lwjgl.opengl.GL21.GL_PIXEL_UNPACK_BUFFER, 0);
+                GL11.glPixelStorei(GL11.GL_UNPACK_ALIGNMENT, 4);
+                GL11.glPixelStorei(GL11.GL_UNPACK_ROW_LENGTH, 0);
+                GL11.glPixelStorei(GL11.GL_UNPACK_SKIP_ROWS, 0);
+                GL11.glPixelStorei(GL11.GL_UNPACK_SKIP_PIXELS, 0);
                 GL11.glClearColor(0.025f, 0.03f, 0.04f, 1.0f);
                 GL11.glClearDepth(1.0);
                 GL11.glDepthMask(true);
@@ -430,6 +462,7 @@ public final class InProcessWorldRenderer {
                 GL11.glFrontFace(GL11.GL_CCW);
                 GL20.glUseProgram(program);
                 GL20.glUniform1i(textureUniform, 0);
+                GL20.glUniform1i(lightingUniform, 1);
 
                 CameraMatrices camera = cameraMatrices(
                         snapshot.player, smoothEyeHeight(snapshot.player));
@@ -441,6 +474,13 @@ public final class InProcessWorldRenderer {
                 FrustumIntersection frustum = new FrustumIntersection(matrix);
                 cameraFrustum = frustum;
                 synchronizeMeshes(snapshot.meshes);
+                Iterator<Map.Entry<Long, GpuLighting>> lightIterator = lightingTextures.entrySet().iterator();
+                while (lightIterator.hasNext()) {
+                    var entry = lightIterator.next();
+                    if (snapshot.lighting.containsKey(entry.getKey())) continue;
+                    GL11.glDeleteTextures(entry.getValue().texture);
+                    lightIterator.remove();
+                }
                 VisibleMeshes culled = visibleMeshes(snapshot, frustum);
                 lastCulling = culled.counts();
                 List<WorldMeshBuilder.MeshData> visible = culled.meshes();
@@ -452,9 +492,14 @@ public final class InProcessWorldRenderer {
                 lastVisibleMeshes = List.copyOf(visible);
                 visible.sort(java.util.Comparator.comparingDouble(
                         source -> distanceSquared(source, snapshot.player)));
+                visibleLightAgeMillis = -1;
                 for (WorldMeshBuilder.MeshData source : visible) {
                     GpuMesh mesh = meshes.get(source.key());
                     if (mesh == null) continue;
+                    ChunkLighting light = snapshot.lighting.get(source.key());
+                    bindLighting(source.key(), light);
+                    if (light != null) visibleLightAgeMillis = Math.max(visibleLightAgeMillis,
+                            Math.max(0, System.nanoTime() - light.capturedNanos) / 1_000_000L);
                     matrixBuffer.clear();
                     relativeMatrix(camera, snapshot.player, renderedEyeHeight, mesh.originX, mesh.originZ)
                             .get(matrixBuffer);
@@ -486,6 +531,7 @@ public final class InProcessWorldRenderer {
                 matrix.get(matrixBuffer);
                 GL20.glUniformMatrix4fv(mvpUniform, false, matrixBuffer);
                 GL20.glUniform3f(originUniform, 0, 0, 0);
+                GL20.glUniform1i(lightingEnabledUniform, 0);
                 GL11.glDisable(GL11.GL_BLEND);
                 GL11.glDisable(GL11.GL_TEXTURE_2D);
                 drawEntities(snapshot.entities, snapshot.nativeEntityIds);
@@ -504,11 +550,49 @@ public final class InProcessWorldRenderer {
                 GL11.glDepthRange(previousDepthRange.get(0), previousDepthRange.get(1));
                 setEnabled(GL11.GL_POLYGON_OFFSET_FILL, previousPolygonOffset);
                 setEnabled(GL11.GL_ALPHA_TEST, previousAlphaTest);
+                GL13.glActiveTexture(GL13.GL_TEXTURE1);
+                GL11.glBindTexture(GL11.GL_TEXTURE_2D, previousLightingTexture);
                 GL13.glActiveTexture(GL13.GL_TEXTURE0);
                 GL11.glBindTexture(GL11.GL_TEXTURE_2D, previousTexture);
                 setEnabled(GL11.GL_TEXTURE_2D, previousTexture2d);
                 GL13.glActiveTexture(previousActiveTexture);
+                GL15.glBindBuffer(org.lwjgl.opengl.GL21.GL_PIXEL_UNPACK_BUFFER, previousUnpackBuffer);
+                GL11.glPixelStorei(GL11.GL_UNPACK_ALIGNMENT, previousUnpackAlignment);
+                GL11.glPixelStorei(GL11.GL_UNPACK_ROW_LENGTH, previousUnpackRowLength);
+                GL11.glPixelStorei(GL11.GL_UNPACK_SKIP_ROWS, previousUnpackSkipRows);
+                GL11.glPixelStorei(GL11.GL_UNPACK_SKIP_PIXELS, previousUnpackSkipPixels);
             }
+        }
+
+        private record GpuLighting(int texture, ChunkLighting source) {}
+
+        private void bindLighting(long key, ChunkLighting source) {
+            GL20.glUniform1i(lightingEnabledUniform, source == null ? 0 : 1);
+            if (source == null) return;
+            GL13.glActiveTexture(GL13.GL_TEXTURE1);
+            GpuLighting current = lightingTextures.get(key);
+            int texture = current == null ? GL11.glGenTextures() : current.texture;
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, texture);
+            if (current == null || !source.sameContent(current.source)) {
+                lightingUpload.clear();
+                source.writeTo(lightingUpload);
+                lightingUpload.flip();
+                if (current == null) {
+                    GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_NEAREST);
+                    GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
+                    GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, org.lwjgl.opengl.GL12.GL_CLAMP_TO_EDGE);
+                    GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, org.lwjgl.opengl.GL12.GL_CLAMP_TO_EDGE);
+                    GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGBA8,
+                            ChunkLighting.WIDTH, ChunkLighting.HEIGHT, 0, GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, lightingUpload);
+                } else {
+                    GL11.glTexSubImage2D(GL11.GL_TEXTURE_2D, 0, 0, 0,
+                            ChunkLighting.WIDTH, ChunkLighting.HEIGHT, GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, lightingUpload);
+                }
+                lightingUploads++;
+            }
+            if (current == null || current.source != source)
+                lightingTextures.put(key, new GpuLighting(texture, source));
+            GL13.glActiveTexture(GL13.GL_TEXTURE0);
         }
 
         private void drawTexturedBatch(GpuTexturedBatch batch) {
@@ -695,6 +779,9 @@ public final class InProcessWorldRenderer {
         }
 
         private static void configureAttributes(int strideBytes, boolean textured) {
+            GL20.glEnableVertexAttribArray(5);
+            GL20.glVertexAttribPointer(5, 1, GL11.GL_FLOAT, false, strideBytes,
+                    (textured ? 12L : 9L) * Float.BYTES);
             GL20.glEnableVertexAttribArray(0);
             GL20.glVertexAttribPointer(0, 3, GL11.GL_FLOAT, false, strideBytes, 0L);
             GL20.glEnableVertexAttribArray(1);
@@ -743,6 +830,7 @@ public final class InProcessWorldRenderer {
                     attribute vec3 inColor;
                     attribute vec2 inSourcePixel;
                     attribute float inLayer;
+                    attribute float inLightingIndex;
                     uniform mat4 uMvp;
                     uniform vec3 uOrigin;
                     uniform int uTextured;
@@ -751,6 +839,7 @@ public final class InProcessWorldRenderer {
                     varying vec2 sourcePixel;
                     varying vec3 worldPosition;
                     varying vec3 surfaceNormal;
+                    varying vec2 lightingUv;
                     void main() {
                         vec3 sun = normalize(vec3(-0.45, 0.82, -0.35));
                         float light = uMaterial == 1
@@ -760,6 +849,8 @@ public final class InProcessWorldRenderer {
                         sourcePixel = inSourcePixel;
                         worldPosition = inPosition + uOrigin;
                         surfaceNormal = inNormal;
+                        lightingUv = vec2(mod(inLightingIndex, 8.0) + 0.5,
+                                floor(inLightingIndex / 8.0) + 0.5) / vec2(8.0, 512.0);
                         gl_Position = uMvp * vec4(inPosition, 1.0);
                         // PZ object order resolves layered sprites. Preserve a bounded
                         // sub-centimetre depth order without moving their XY silhouette.
@@ -779,10 +870,13 @@ public final class InProcessWorldRenderer {
                     uniform vec4 uUvBounds;
                     uniform vec4 uCrop;
                     uniform int uSurfaceKind;
+                    uniform sampler2D uLighting;
+                    uniform int uLightingEnabled;
                     varying vec3 vertexColor;
                     varying vec2 sourcePixel;
                     varying vec3 worldPosition;
                     varying vec3 surfaceNormal;
+                    varying vec2 lightingUv;
                     vec4 sampleSprite(vec2 pixel) {
                         vec2 lo = uCrop.xy + vec2(0.5);
                         vec2 hi = uCrop.xy + uCrop.zw - vec2(0.5);
@@ -790,6 +884,13 @@ public final class InProcessWorldRenderer {
                         return texture2D(uTexture, mix(uUvBounds.xy, uUvBounds.zw, cropUv));
                     }
                     void main() {
+                        // Preserve the preceding diagnostic exposure floor for this transport
+                        // change. No seen-state/darkMulti multiplier; physical calibration pending.
+                        vec3 liveLight = vec3(1.0);
+                        if (uLightingEnabled == 1) {
+                            vec4 sampleLight = texture2D(uLighting, lightingUv);
+                            liveLight = sampleLight.a > 0.5 ? max(vec3(0.42), sampleLight.rgb) : vec3(0.42);
+                        }
                         if (uTextured == 1) {
                             vec2 cropUv = (sourcePixel - uCrop.xy) / uCrop.zw;
                             bool outside = any(lessThan(cropUv, vec2(0.0))) || any(greaterThan(cropUv, vec2(1.0)));
@@ -828,7 +929,7 @@ public final class InProcessWorldRenderer {
                                 }
                             }
                             if (source.a < 0.02) discard;
-                            gl_FragColor = vec4(source.rgb * vertexColor, source.a);
+                            gl_FragColor = vec4(source.rgb * vertexColor * liveLight, source.a);
                             return;
                         }
                         if (uMaterial == 1) {
@@ -836,10 +937,10 @@ public final class InProcessWorldRenderer {
                                     * sin(worldPosition.x * 0.73 - worldPosition.z * 1.11);
                             float broad = sin(worldPosition.x * 0.37 - worldPosition.z * 0.53);
                             float variation = 0.985 + 0.010 * fine + 0.005 * broad;
-                            gl_FragColor = vec4(vertexColor * variation, 1.0);
+                            gl_FragColor = vec4(vertexColor * variation * liveLight, 1.0);
                             return;
                         }
-                        gl_FragColor = vec4(vertexColor, 1.0);
+                        gl_FragColor = vec4(vertexColor * liveLight, 1.0);
                     }
                     """;
             int vertexShader = compile(GL20.GL_VERTEX_SHADER, vertex);
@@ -852,6 +953,7 @@ public final class InProcessWorldRenderer {
             GL20.glBindAttribLocation(result, 2, "inColor");
             GL20.glBindAttribLocation(result, 3, "inSourcePixel");
             GL20.glBindAttribLocation(result, 4, "inLayer");
+            GL20.glBindAttribLocation(result, 5, "inLightingIndex");
             GL20.glLinkProgram(result);
             if (GL20.glGetProgrami(result, GL20.GL_LINK_STATUS) == GL11.GL_FALSE) {
                 throw new IllegalStateException("shader link failed: " + GL20.glGetProgramInfoLog(result));
@@ -964,6 +1066,7 @@ public final class InProcessWorldRenderer {
         output.add(p[0]); output.add(p[1]); output.add(p[2]);
         output.add(normal[0]); output.add(normal[1]); output.add(normal[2]);
         output.add(color[0]); output.add(color[1]); output.add(color[2]);
+        output.add(-1); // diagnostic entity boxes do not sample the static chunk light grid
     }
 
     private static final class EntityFloatBuilder {

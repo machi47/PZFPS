@@ -325,6 +325,51 @@ No fullbright workaround or gameplay visibility mutation was applied.
 
 ## Truthful acceptance state
 
+### Independent lighting transport (new source/GPU-tested batch)
+
+`ChunkLighting`, `WorldCapture.lighting`, `BridgeRuntime.captureLighting` and
+the world shader now refresh illumination separately from geometry. On the
+verified game thread, the native `lighting[playerIndex].lightInfo()` getter
+refreshes PZ's lazy cache before the bridge copies raw square RGB. No visibility,
+darkMulti, collision or action state is overridden. Capture visits up to four
+chunks per update and checks a 2 ms time budget between chunks (not a hard
+preemption guarantee for one slow chunk). Latest immutable values coalesce in
+a bounded 4096-chunk store; unload removes them.
+
+Geometry retains material colours plus an explicit source-square lighting index.
+GPU lighting uses a separate 8x512 RGBA grid per chunk (16 KiB, B42 levels
+-32..31); only changed grids upload, and only visible chunks need GPU resources.
+Sampling is source-square-owned, avoiding accidental sampling of the upper floor
+at wall/ceiling vertices. Texture unit 1 and unpack state are restored after the
+pass. The wire-protocol diagnostic frontend is unchanged; this is the live
+in-process renderer's lighting path.
+
+All **99 Java tests pass**, including light/visibility-independent geometry,
+immutable copies, changed versus unchanged content, negative elevations,
+source-square assignment, coalescing, removal and bounded storage.
+`tools/check_world_shader.cpp` compiles the actual Java-embedded GLSL in an
+accelerated offscreen macOS context and reads rendered pixels back. Commands:
+
+```sh
+clang++ -std=c++17 -Wno-deprecated-declarations -framework OpenGL tools/check_world_shader.cpp -o .local/build/check_world_shader
+.local/build/check_world_shader bridge/src/main/java/dev/pzfps/bridge/InProcessWorldRenderer.java
+```
+
+Result on Apple M4 Max, `2.1 Metal - 89.4`: shader compile/link passed; material
+pixel brightness changed 251 -> 126 after only a light-grid update; textured
+surface pixel became 128. One geometry upload, two light uploads in this fixed
+test. Evidence: `.local/reports/dynamic-lighting-gpu-probe.txt`. The first probe
+reported an incomplete unused source sampler; binding a valid white source
+texture removed that warning and both rendering branches passed without GL
+errors. This synthetic GPU test is not a concurrent gameplay benchmark.
+
+The prior 0.42 exposure floor is deliberately retained in the shader for this
+transport change. Raw RGB remains unmodified in the snapshot. This does **not**
+yet establish physically correct lighting, eliminate all view-arc effects,
+smooth square boundaries or add a sky. Live upload counts and visible maximum
+light age are logged independently; actual light changes in gameplay still need
+acceptance. No new live acceptance is inferred from these tests.
+
 - **Offline appearance:** implemented and diagnostic only. The actual installed
   B42 geometry registry and `Tiles2x.pack` feed the persistent `canonical/`
   compiler. The recorded bed prototype has 36 triangles, 24,309 surface texels,

@@ -123,6 +123,22 @@ public final class BridgeRuntime {
         return NativeFirstPersonHandsPass.prepare(IsoPlayer.getInstance());
     }
 
+    private static int lightingCursor;
+
+    private static void captureLighting(IsoPlayer player) {
+        if (!InProcessWorldRenderer.isReady()) return;
+        List<IsoChunk> chunks = WorldCapture.loadedChunks(player, config.chunkRadius());
+        if (chunks.isEmpty()) return;
+        long deadline = System.nanoTime() + 2_000_000L;
+        for (int count = 0; count < Math.min(4, chunks.size()); count++) {
+            lightingCursor = Math.floorMod(lightingCursor, chunks.size());
+            IsoChunk chunk = chunks.get(lightingCursor++);
+            InProcessWorldRenderer.acceptLighting(chunkKey(chunk), WorldCapture.lighting(chunk, player.getIndex()));
+            // Budget checked between chunks: never leave a half-copied light grid.
+            if (System.nanoTime() >= deadline) break;
+        }
+    }
+
     private static void capture(IsoPlayer player) {
         if (!STARTED.get() || server == null || player == null) return;
         long now = System.nanoTime();
@@ -131,6 +147,7 @@ public final class BridgeRuntime {
         WorldState.Player playerSnapshot = WorldCapture.player(player, sequence, now, epochMillis);
         server.publishPlayer(playerSnapshot);
         InProcessWorldRenderer.acceptPlayer(playerSnapshot);
+        captureLighting(player);
         if (FIRST_SNAPSHOT_SEEN.compareAndSet(false, true)) {
             System.out.printf(
                     "[PZFPS] first authoritative snapshot player=(%.3f,%.3f,%.3f)%n",
