@@ -48,6 +48,9 @@ final class WorldMeshBuilderTest {
         assertEquals(1, registry.tileCount());
         assertEquals("fixture-sha", registry.sourceSha256());
         assertEquals(1, mesh.primitiveCount());
+        assertEquals(1, mesh.coverage().authoredGeometryObjects());
+        assertEquals(1, mesh.coverage().flatFallbackFloors());
+        assertEquals(0, mesh.coverage().unsupportedObjects());
         assertEquals(24, mesh.vertexCount());
         assertTrue(mesh.vertices().length > 0);
         assertEquals(1, mesh.texturedBatches().size());
@@ -72,6 +75,7 @@ final class WorldMeshBuilderTest {
                 new WorldMeshBuilder(TileGeometryRegistry.load(registryPath)).build(chunk);
 
         assertEquals(2, mesh.primitiveCount());
+        assertEquals(1, mesh.coverage().structuralFallbackObjects());
         assertEquals(12, mesh.vertexCount());
         float[] vertices = mesh.texturedBatches().getFirst().vertices();
         for (int vertex = 0; vertex < 6; vertex++) {
@@ -100,6 +104,7 @@ final class WorldMeshBuilderTest {
                 new WorldMeshBuilder(TileGeometryRegistry.load(registryPath)).build(chunk);
 
         assertEquals(0, mesh.vertices().length);
+        assertEquals(1, mesh.coverage().sourceTexturedFloors());
         assertEquals(6, mesh.vertexCount());
         assertEquals("floors_fixture_01_13", mesh.texturedBatches().getFirst().sprite());
         float[] vertices = mesh.texturedBatches().getFirst().vertices();
@@ -188,5 +193,29 @@ final class WorldMeshBuilderTest {
 
         assertEquals(0, mesh.primitiveCount());
         assertEquals(0, mesh.vertexCount());
+        assertEquals(1, mesh.coverage().nativeWorldItems());
+        assertEquals(0, mesh.coverage().unsupportedObjects());
+    }
+
+    @Test
+    void accountsForUnsupportedObjectsAsVisibleHoles() throws Exception {
+        Path registryPath = temporary.resolve("unsupported.json");
+        Files.writeString(
+                registryPath,
+                "{\"schema_version\":1,\"source_sha256\":\"x\",\"tiles\":{}}");
+        WorldState.TileObject decor = new WorldState.TileObject(
+                0, "zombie.iso.IsoObject", "normal", "fixtures_unknown_01_7",
+                false, false, false, false, false, false, false);
+        WorldState.Square square = new WorldState.Square(
+                0, 0, 0, -1, 0, 255, 255, 255,
+                false, true, false, false, false, false, List.of(decor));
+
+        WorldMeshBuilder.MeshData mesh = new WorldMeshBuilder(
+                TileGeometryRegistry.load(registryPath))
+                .build(new WorldState.Chunk(0, 0, 1, 1, List.of(square)));
+
+        assertEquals(0, mesh.vertexCount());
+        assertEquals(1, mesh.coverage().unsupportedObjects());
+        assertEquals(0, mesh.coverage().structuralFallbackObjects());
     }
 }

@@ -67,7 +67,7 @@ gameplay:
    player is stationary. The former 169 -> 117/104 -> 169 oscillation is gone.
 5. The perspective room uses source PZ textures on known geometry and retains
    the normal PZ text/UI pass. The owner reported no further whole-world flash.
-6. The current source build passes 40 Java tests and 45 Python tests.
+6. The current source build passes 41 Java tests and 45 Python tests.
 
 No source/enhanced video pair or matched gameplay performance capture has yet
 been accepted.
@@ -88,10 +88,16 @@ been accepted.
   restores state for PZ's later UI pass. Its periodic evidence now separates
   measured completed-callback rate from gameplay FPS and reports visible,
   empty, distance-culled and frustum-culled chunk counts for the completed frame.
+  It now also aggregates representation coverage only across that completed
+  frame's visible chunks; these counts are not presented as visual quality.
 - `bridge/src/main/java/dev/pzfps/bridge/WorldMeshBuilder.java` — converts
   immutable chunk snapshots into source-textured indexed geometry, puts
   structural north/west faces on square boundaries instead of centered slabs,
-  and retains conservative fallbacks for unsupported objects.
+  and retains conservative fallbacks for unsupported objects. Each built chunk
+  carries explicit counts for source-textured versus flat floors, indexed
+  objects, structural fallbacks, native items, unsupported-object holes and
+  safety-cap truncation so later completion work can be prioritized from real
+  scene evidence.
 - `bridge/src/main/java/dev/pzfps/bridge/WorldCapture.java` and
   `WorldState.java` — capture geometry/state plus authoritative stair, stairs-
   below and stair-top flags. These flags preserve portal facts; they do not yet
@@ -280,7 +286,7 @@ native binary was changed. Socket/log diagnostics used `lsof`, `nc`, `xxd` and
 Most recent test results:
 
 - Python/pytest: 45 passed, 0 failed (49 deprecation warnings).
-- Java/Gradle: 40 passed, 0 failed across `ChunkLifecycleTest`,
+- Java/Gradle: 41 passed, 0 failed across `ChunkLifecycleTest`,
   `CursorCaptureStateTest`, `DirectPatchInstallerTest`, `FirstPersonInputTest`,
   `FirstPersonCharacterCameraTest`, `FirstPersonModelCameraTest`,
   `InputStateTest`, `InteractionTargetTest`, `MovementDiagnosticsTest`,
@@ -303,7 +309,7 @@ Most recent test results:
 - Live-tested staged bridge JAR SHA-256:
   `c0904da6d2f775c6dcd8bfac90ccc1096093640fff7fc05d61149cc8bd8946d2`.
 - Newest built but not live-tested bridge JAR SHA-256:
-  `8be620440cbd8c5202bc2b9918d83f8fd75cc5f09987e8e005e6cecdb14c232c`.
+  `62a878ceb55189ab3193e5e2e971fafb31925f6078915e004491251103bedcb9`.
 - Offline canonical report:
   `.local/canonical-bed-v64/store/objects/5107aa94b47977535039da77ac4018329c238388ad51c94829dc5a69d01d1a0a/report.json`.
 - Geometry source SHA-256:

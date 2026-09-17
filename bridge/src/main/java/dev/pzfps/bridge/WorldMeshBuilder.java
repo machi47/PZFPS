@@ -19,6 +19,7 @@ public final class WorldMeshBuilder {
             float[] vertices,
             List<TexturedBatch> texturedBatches,
             int primitiveCount,
+            Coverage coverage,
             float minX,
             float minY,
             float minZ,
@@ -33,6 +34,31 @@ public final class WorldMeshBuilder {
             int count = vertices.length / FLOATS_PER_VERTEX;
             for (TexturedBatch batch : texturedBatches) count += batch.vertexCount();
             return count;
+        }
+    }
+
+    /** Explicitly accounts for what became geometry and what remains an honest hole. */
+    public record Coverage(
+            int sourceTexturedFloors,
+            int flatFallbackFloors,
+            int authoredGeometryObjects,
+            int structuralFallbackObjects,
+            int nativeWorldItems,
+            int unsupportedObjects,
+            int truncatedChunks) {
+        public static Coverage none() {
+            return new Coverage(0, 0, 0, 0, 0, 0, 0);
+        }
+
+        public Coverage plus(Coverage other) {
+            return new Coverage(
+                    sourceTexturedFloors + other.sourceTexturedFloors,
+                    flatFallbackFloors + other.flatFallbackFloors,
+                    authoredGeometryObjects + other.authoredGeometryObjects,
+                    structuralFallbackObjects + other.structuralFallbackObjects,
+                    nativeWorldItems + other.nativeWorldItems,
+                    unsupportedObjects + other.unsupportedObjects,
+                    truncatedChunks + other.truncatedChunks);
         }
     }
 
@@ -53,6 +79,13 @@ public final class WorldMeshBuilder {
         FloatBuilder output = new FloatBuilder(16_384, FLOATS_PER_VERTEX);
         Map<String, FloatBuilder> textured = new LinkedHashMap<>();
         int primitiveCount = 0;
+        int sourceTexturedFloors = 0;
+        int flatFallbackFloors = 0;
+        int authoredGeometryObjects = 0;
+        int structuralFallbackObjects = 0;
+        int nativeWorldItems = 0;
+        int unsupportedObjects = 0;
+        boolean truncated = false;
         int blockSize = zombie.iso.IsoChunkMap.CHUNK_SIZE_IN_SQUARES;
         float chunkX = chunk.worldX() * blockSize;
         float chunkZ = chunk.worldY() * blockSize;
@@ -64,6 +97,7 @@ public final class WorldMeshBuilder {
             if (square.solidFloor()) {
                 String floorSprite = floorSprite(square);
                 if (!floorSprite.isEmpty()) {
+                    sourceTexturedFloors++;
                     FloatBuilder batch = textured.computeIfAbsent(
                             floorSprite,
                             ignored -> new FloatBuilder(512, TEXTURED_FLOATS_PER_VERTEX));
@@ -82,6 +116,7 @@ public final class WorldMeshBuilder {
                                 sourcePixel(0.5f, 0, -0.5f)
                             });
                 } else {
+                    flatFallbackFloors++;
                     addQuad(
                             output,
                             baseX,
@@ -110,9 +145,13 @@ public final class WorldMeshBuilder {
                 // generated IsoSprite name as a map-tile identity produced repeated unrelated
                 // geometry (the observed "brown pots"). Preserve the authoritative item/model
                 // metadata, but leave an honest hole until the model consumer is connected.
-                if (object.worldItem().present()) continue;
+                if (object.worldItem().present()) {
+                    nativeWorldItems++;
+                    continue;
+                }
                 List<TileGeometryRegistry.Primitive> geometry = registry.geometry(object.sprite());
                 if (!geometry.isEmpty()) {
+                    authoredGeometryObjects++;
                     FloatBuilder batch = textured.computeIfAbsent(
                             object.sprite(),
                             ignored -> new FloatBuilder(512, TEXTURED_FLOATS_PER_VERTEX));
@@ -121,6 +160,7 @@ public final class WorldMeshBuilder {
                         primitiveCount++;
                     }
                 } else if (isStructuralPanel(object)) {
+                    structuralFallbackObjects++;
                     FloatBuilder batch = textured.computeIfAbsent(
                             object.sprite(),
                             ignored -> new FloatBuilder(512, TEXTURED_FLOATS_PER_VERTEX));
@@ -150,10 +190,18 @@ public final class WorldMeshBuilder {
                                 light);
                         primitiveCount++;
                     }
+                } else {
+                    unsupportedObjects++;
                 }
-                if (totalVertexCount(output, textured) >= MAX_VERTICES_PER_CHUNK) break;
+                if (totalVertexCount(output, textured) >= MAX_VERTICES_PER_CHUNK) {
+                    truncated = true;
+                    break;
+                }
             }
-            if (totalVertexCount(output, textured) >= MAX_VERTICES_PER_CHUNK) break;
+            if (totalVertexCount(output, textured) >= MAX_VERTICES_PER_CHUNK) {
+                truncated = true;
+                break;
+            }
         }
         float[] vertices = output.toArray();
         ArrayList<TexturedBatch> texturedBatches = new ArrayList<>(textured.size());
@@ -169,6 +217,14 @@ public final class WorldMeshBuilder {
                 vertices,
                 texturedBatches,
                 primitiveCount,
+                new Coverage(
+                        sourceTexturedFloors,
+                        flatFallbackFloors,
+                        authoredGeometryObjects,
+                        structuralFallbackObjects,
+                        nativeWorldItems,
+                        unsupportedObjects,
+                        truncated ? 1 : 0),
                 bounds[0],
                 bounds[1],
                 bounds[2],

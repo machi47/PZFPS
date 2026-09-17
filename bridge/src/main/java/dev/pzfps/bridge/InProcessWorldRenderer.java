@@ -182,8 +182,9 @@ public final class InProcessWorldRenderer {
                 long stateAge = Math.max(
                         0L, System.currentTimeMillis() - snapshot.player.captureEpochMillis());
                 CullingCounts culling = state.lastCulling;
+                WorldMeshBuilder.Coverage coverage = state.lastCoverage;
                 System.out.printf(
-                        "[PZFPS renderer] completedFrames=%d enqueuedFrames=%d completedCallbackHz=%s meshes=%d visible=%d empty=%d distanceCulled=%d frustumCulled=%d built=%d dropped=%d stateAgeMs=%d%n",
+                        "[PZFPS renderer] completedFrames=%d enqueuedFrames=%d completedCallbackHz=%s meshes=%d visible=%d empty=%d distanceCulled=%d frustumCulled=%d built=%d dropped=%d stateAgeMs=%d sourceFloors=%d flatFloors=%d indexedObjects=%d structuralFallbacks=%d nativeItems=%d unsupportedObjects=%d truncatedChunks=%d%n",
                         completed,
                         ENQUEUED_FRAMES.get(),
                         Double.isFinite(completedHz)
@@ -196,7 +197,14 @@ public final class InProcessWorldRenderer {
                         culling.frustum(),
                         BUILT_CHUNKS.get(),
                         DROPPED_CHUNKS.get(),
-                        stateAge);
+                        stateAge,
+                        coverage.sourceTexturedFloors(),
+                        coverage.flatFallbackFloors(),
+                        coverage.authoredGeometryObjects(),
+                        coverage.structuralFallbackObjects(),
+                        coverage.nativeWorldItems(),
+                        coverage.unsupportedObjects(),
+                        coverage.truncatedChunks());
             }
         } catch (Throwable error) {
             if (RENDER_FAILED.compareAndSet(false, true)) {
@@ -247,6 +255,8 @@ public final class InProcessWorldRenderer {
         private boolean entityBufferCreated;
         private int entityVbo;
         private volatile CullingCounts lastCulling = CullingCounts.none();
+        private volatile WorldMeshBuilder.Coverage lastCoverage =
+                WorldMeshBuilder.Coverage.none();
         private float renderedEyeHeight = Float.NaN;
         private long lastEyeHeightNanos;
 
@@ -308,6 +318,11 @@ public final class InProcessWorldRenderer {
                 VisibleMeshes culled = visibleMeshes(snapshot, frustum);
                 lastCulling = culled.counts();
                 List<WorldMeshBuilder.MeshData> visible = culled.meshes();
+                WorldMeshBuilder.Coverage visibleCoverage = WorldMeshBuilder.Coverage.none();
+                for (WorldMeshBuilder.MeshData source : visible) {
+                    visibleCoverage = visibleCoverage.plus(source.coverage());
+                }
+                lastCoverage = visibleCoverage;
                 visible.sort(java.util.Comparator.comparingDouble(
                         source -> distanceSquared(source, snapshot.player)));
                 for (WorldMeshBuilder.MeshData source : visible) {
