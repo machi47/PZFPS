@@ -106,6 +106,11 @@ public final class WorldMeshBuilder {
             }
             for (WorldState.TileObject object : square.objects()) {
                 if (object.sprite().startsWith("floors_")) continue;
+                // PZ chooses a dedicated InventoryItem static/world model here. Treating its
+                // generated IsoSprite name as a map-tile identity produced repeated unrelated
+                // geometry (the observed "brown pots"). Preserve the authoritative item/model
+                // metadata, but leave an honest hole until the model consumer is connected.
+                if (object.worldItem().present()) continue;
                 List<TileGeometryRegistry.Primitive> geometry = registry.geometry(object.sprite());
                 if (!geometry.isEmpty()) {
                     FloatBuilder batch = textured.computeIfAbsent(
@@ -174,6 +179,7 @@ public final class WorldMeshBuilder {
 
     private static String floorSprite(WorldState.Square square) {
         for (WorldState.TileObject object : square.objects()) {
+            if (object.worldItem().present()) continue;
             String sprite = object.sprite();
             if (sprite.startsWith("floors_")) return sprite;
         }

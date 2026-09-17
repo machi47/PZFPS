@@ -42,10 +42,10 @@ newest built JAR.
   shapes, missing unseen surfaces, crude actor/world-item representations and
   material/projection errors remain visible.
 - **Accepted live first-person gameplay:** **NO**. Forward running was observed,
-  but simultaneous camera-relative diagonal movement, cursor/UI transitions,
-  center-view interaction, aiming/combat and ordinary inventory/container play
-  are not yet accepted. The newest simultaneous-key fix is built but not loaded
-  in the running process.
+  but simultaneous camera-relative diagonal movement, the newly implemented
+  cursor/UI transitions, center-view interaction, aiming/combat and ordinary
+  inventory/container play are not yet accepted. The newest input/UI build is
+  not loaded in the running process.
 - **Performance checkpoint:** unavailable. The log records completed render
   callbacks and queue behavior, not game FPS. At its last unpaused fresh-state
   sample it reported `completedFrames=300`, `enqueuedFrames=300`, `meshes=169`,
@@ -67,7 +67,7 @@ gameplay:
    player is stationary. The former 169 -> 117/104 -> 169 oscillation is gone.
 5. The perspective room uses source PZ textures on known geometry and retains
    the normal PZ text/UI pass. The owner reported no further whole-world flash.
-6. The current source build passes 15 Java tests and 42 Python tests.
+6. The current source build passes 21 Java tests and 42 Python tests.
 
 No source/enhanced video pair or matched gameplay performance capture has yet
 been accepted.
@@ -98,15 +98,23 @@ been accepted.
   relative mouse deltas without macOS cursor warping, reads PZ's actual physical
   key bindings simultaneously, and returns the inverse of B42's isometric input
   transform so camera-space WASD remains in world space.
+- `bridge/src/main/java/dev/pzfps/bridge/CursorCaptureState.java` — distinguishes
+  gameplay capture, deliberate F8 release and temporary UI ownership. Modal or
+  forced-cursor UI releases mouse-look and requires two consecutive clear input
+  updates before automatic recapture; manual release never auto-recaptures.
 - `bridge/src/main/java/dev/pzfps/bridge/patches/StrafingPatch.java` — preserves
   FPS view/actor facing while the authoritative PZ movement path handles left,
   right and backward movement.
 - `bridge/mod/42/media/lua/client/PZFPS_KeyBinding.lua` — registers the F8 mouse
   capture action through PZ's key-binding system.
+- `WorldState.WorldItem` and `WorldCapture.worldItem(...)` — preserve a dropped
+  item's real ID/type, static/world model identities, world texture, absolute
+  placement, rotations, scale and extended-placement state. The mesh builder
+  now refuses to treat its generated item sprite as map-tile geometry.
 - `bridge/src/main/java/dev/pzfps/bridge/WireProtocol.java`,
   `renderer/scripts/bridge_client.gd`, and `src/pzfps/runtime.py` — protocol
-  version 3, including eye height/actor pose and stair-state flags; Godot is
-  retained only as an offline/protocol consumer.
+  version 4, including eye height/actor pose, stair-state flags and world-item
+  identity/placement; Godot is retained only as an offline/protocol consumer.
 - `canonical/` — persistent, identity-keyed geometry/material compilation with
   hard bounds, protected source observations, shared-atlas completion evidence
   and immutable reuse. A learned provider interface exists but no actual neural
@@ -157,9 +165,9 @@ and `rg`; these did not modify the installation.
 Most recent test results:
 
 - Python/pytest: 42 passed, 0 failed (49 deprecation warnings).
-- Java/Gradle: 15 passed, 0 failed across `ChunkLifecycleTest`,
-  `DirectPatchInstallerTest`, `FirstPersonInputTest`, `InputStateTest`,
-  `WireProtocolTest` and `WorldMeshBuilderTest`.
+- Java/Gradle: 21 passed, 0 failed across `ChunkLifecycleTest`,
+  `CursorCaptureStateTest`, `DirectPatchInstallerTest`, `FirstPersonInputTest`,
+  `InputStateTest`, `WireProtocolTest` and `WorldMeshBuilderTest`.
 
 ## Evidence and identities
 
@@ -174,7 +182,7 @@ Most recent test results:
 - Live-tested staged bridge JAR SHA-256:
   `c0904da6d2f775c6dcd8bfac90ccc1096093640fff7fc05d61149cc8bd8946d2`.
 - Newest built but not live-tested bridge JAR SHA-256:
-  `a4b0d24064b7b8bb974898e1446e577ef053225bf22ae3a4d6a05dad425029e7`.
+  `a91a25981b64265794853106fe94f829b3734d96eaa40317048d5a0fd6af150a`.
 - Offline canonical report:
   `.local/canonical-bed-v64/store/objects/5107aa94b47977535039da77ac4018329c238388ad51c94829dc5a69d01d1a0a/report.json`.
 - Geometry source SHA-256:
@@ -198,12 +206,12 @@ update rates have not been reported as achieved performance.
    whole-world flicker.
 2. The earlier mouse path used PZ/offscreen coordinates and could throw the
    native macOS cursor outside the window. It now uses GLFW grabbed relative
-   motion. A complete state machine for context menus, inventory/modal UI,
-   Escape and automatic recapture remains to be implemented and live-tested.
-3. Current fallback capture treats dropped inventory objects like generic tile
-   sprites. It does not yet carry `InventoryItem` model identity, offsets,
-   rotations and world scale into the renderer, so dropped/placed/held objects
-   cannot yet be correct.
+   motion. The cursor state machine is unit-tested but still needs a live F8,
+   Escape, inventory/modal and context-menu acceptance pass.
+3. Dropped-item capture now carries `InventoryItem` model identity, position,
+   rotations and world scale. The renderer deliberately omits the old wrong
+   tile-geometry substitution; consuming PZ's real static model remains the
+   exact prerequisite for drawing the item rather than leaving an honest hole.
 4. Center-view doors/containers/context menus and combat must resolve a stable
    snapshot reference back to the exact live PZ object on the game thread and
    request PZ's own validated action. Direct position or state mutation is not
@@ -218,17 +226,16 @@ update rates have not been reported as achieved performance.
 
 Without restarting the current accepted visual session merely to inspect it:
 
-1. Add and unit-test explicit cursor states: gameplay-captured, manually
-   released, and UI-released; make modal/context UI release the cursor and
-   recapture only after the UI has been clear for consecutive updates.
-2. Capture dropped-item identity and authoritative placement transforms rather
-   than treating them as anonymous tile sprites.
-3. Stage one batched build and live-test simultaneous W+A/W+D, backward/strafe
+1. Stage one batched build and live-test simultaneous W+A/W+D, backward/strafe
    movement, F8, Escape/UI release, and stable rendering in the disposable save.
-4. Then implement one center-view door or container interaction by re-resolving
+2. Verify that PZ's normal `Interact` action follows the mouse-controlled actor
+   direction for a door; PZ's own `doContext()` already owns validation/action.
+3. Then implement one center-view container/context-menu interaction by re-resolving
    and validating the live object on PZ's game thread. Acceptance requires PZ's
    real action/context code to run; a visual or locally simulated interaction
    does not count.
+4. Connect one captured `worldStaticModel` to the live model consumer, retaining
+   omission rather than reverting to a false tile proxy when a model is absent.
 
 The later appearance experiment is one identity-stable real asset carried
 through constrained completion and inspected from multiple moving views. It is

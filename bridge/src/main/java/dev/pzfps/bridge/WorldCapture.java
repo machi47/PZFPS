@@ -16,6 +16,7 @@ import zombie.core.skinnedmodel.animation.AnimationTrack;
 import zombie.core.skinnedmodel.model.Model;
 import zombie.core.skinnedmodel.model.ModelInstance;
 import zombie.core.skinnedmodel.model.SkinningData;
+import zombie.inventory.InventoryItem;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoChunk;
 import zombie.iso.IsoChunkMap;
@@ -26,6 +27,7 @@ import zombie.iso.Vector3;
 import zombie.iso.objects.IsoDoor;
 import zombie.iso.objects.IsoThumpable;
 import zombie.iso.objects.IsoWindow;
+import zombie.iso.objects.IsoWorldInventoryObject;
 import zombie.iso.SpriteDetails.IsoFlagType;
 import zombie.iso.sprite.IsoSprite;
 import zombie.util.list.PZArrayList;
@@ -277,8 +279,10 @@ public final class WorldCapture {
                             hash = mix(hash, -1);
                             continue;
                         }
-                        hash = mix(hash, stringHash(spriteName(object)));
-                        hash = mix(hash, objectFlags(object));
+                        WorldState.TileObject value = tileObject(index, object);
+                        hash = mix(hash, stringHash(value.sprite()));
+                        hash = mix(hash, objectFlags(value));
+                        hash = mix(hash, worldItemFingerprint(value.worldItem()));
                     }
                 }
             }
@@ -357,7 +361,8 @@ public final class WorldCapture {
                 edgeNorth,
                 edgeWest,
                 open,
-                object.isHoppable());
+                object.isHoppable(),
+                worldItem(object));
     }
 
     private static int visibility(IsoGridSquare square, int playerIndex) {
@@ -368,8 +373,7 @@ public final class WorldCapture {
         return flags;
     }
 
-    private static int objectFlags(IsoObject object) {
-        WorldState.TileObject value = tileObject(0, object);
+    private static int objectFlags(WorldState.TileObject value) {
         int flags = 0;
         if (value.door()) flags |= 1;
         if (value.window()) flags |= 1 << 1;
@@ -379,6 +383,48 @@ public final class WorldCapture {
         if (value.edgeNorth()) flags |= 1 << 5;
         if (value.edgeWest()) flags |= 1 << 6;
         return flags;
+    }
+
+    private static WorldState.WorldItem worldItem(IsoObject object) {
+        if (!(object instanceof IsoWorldInventoryObject worldObject)) {
+            return WorldState.WorldItem.none();
+        }
+        InventoryItem item = worldObject.getItem();
+        if (item == null) return WorldState.WorldItem.none();
+        return new WorldState.WorldItem(
+                true,
+                item.getID(),
+                nonNull(item.getFullType()),
+                nonNull(item.getStaticModel()),
+                nonNull(item.getWorldStaticModel()),
+                nonNull(item.getWorldObjectSprite()),
+                nonNull(item.getWorldTexture()),
+                worldObject.getWorldPosX(),
+                worldObject.getWorldPosY(),
+                worldObject.getWorldPosZ(),
+                item.getWorldXRotation(),
+                item.getWorldYRotation(),
+                item.getWorldZRotation(),
+                item.worldScale,
+                worldObject.isExtendedPlacement());
+    }
+
+    private static long worldItemFingerprint(WorldState.WorldItem item) {
+        if (!item.present()) return 0;
+        long hash = mix(FNV_OFFSET, item.itemId());
+        hash = mix(hash, stringHash(item.fullType()));
+        hash = mix(hash, stringHash(item.staticModel()));
+        hash = mix(hash, stringHash(item.worldStaticModel()));
+        hash = mix(hash, stringHash(item.worldObjectSprite()));
+        hash = mix(hash, stringHash(item.worldTexture()));
+        hash = mix(hash, Float.floatToIntBits(item.worldX()));
+        hash = mix(hash, Float.floatToIntBits(item.worldY()));
+        hash = mix(hash, Float.floatToIntBits(item.worldZ()));
+        hash = mix(hash, Float.floatToIntBits(item.rotationX()));
+        hash = mix(hash, Float.floatToIntBits(item.rotationY()));
+        hash = mix(hash, Float.floatToIntBits(item.rotationZ()));
+        hash = mix(hash, Float.floatToIntBits(item.scale()));
+        return mix(hash, item.extendedPlacement() ? 1 : 0);
     }
 
     private static int squareTopologyFlags(IsoGridSquare square) {

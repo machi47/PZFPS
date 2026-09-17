@@ -16,8 +16,9 @@ public final class FirstPersonInput {
     private static final float MOUSE_RADIANS_PER_PIXEL =
             Float.parseFloat(System.getProperty("pzfps.mouseSensitivity", "0.0025"));
     private static final float MAX_PITCH = (float) Math.toRadians(89.0);
+    private static final CursorCaptureState CURSOR = new CursorCaptureState(2);
     private static boolean initialized;
-    private static boolean captured = true;
+    private static boolean hardwareCaptured;
     private static float yaw;
     private static float pitch;
     private static boolean menuContinueRequested;
@@ -35,7 +36,7 @@ public final class FirstPersonInput {
                     -MAX_PITCH,
                     MAX_PITCH);
             initialized = true;
-            setCaptured(true);
+            applyCaptureState();
             System.out.printf(
                     "[PZFPS input] mouse look captured; %s releases/captures the UI cursor%n",
                     Keyboard.getKeyName(captureKey()));
@@ -50,19 +51,17 @@ public final class FirstPersonInput {
             maybeContinueDisposableSave();
             return;
         }
-        boolean releaseForUi = GameKeyboard.isKeyPressed(Keyboard.KEY_ESCAPE)
-                || UIManager.isModalVisible();
-        if (releaseForUi && captured) {
-            setCaptured(false);
-            System.out.println("[PZFPS input] mouse look released for UI");
-            return;
+        boolean togglePressed = GameKeyboard.isKeyPressed(captureKey());
+        boolean uiWantsCursor = GameKeyboard.isKeyPressed(Keyboard.KEY_ESCAPE)
+                || UIManager.isModalVisible()
+                || UIManager.isForceCursorVisible();
+        CursorCaptureState.Mode previousMode = CURSOR.mode();
+        if (CURSOR.update(togglePressed, uiWantsCursor)) {
+            applyCaptureState();
+            System.out.printf(
+                    "[PZFPS input] cursor mode %s -> %s%n", previousMode, CURSOR.mode());
         }
-        if (GameKeyboard.isKeyPressed(captureKey())) {
-            setCaptured(!captured);
-            System.out.printf("[PZFPS input] mouse look captured=%s%n", captured);
-            return;
-        }
-        if (!captured) return;
+        if (!CURSOR.captured()) return;
 
         // GLFW's disabled-cursor mode supplies unbounded, window-relative deltas and
         // restores the prior pointer position when released.  Do not warp through
@@ -111,7 +110,18 @@ public final class FirstPersonInput {
     }
 
     public static boolean isCaptured() {
-        return initialized && captured;
+        return initialized && CURSOR.captured();
+    }
+
+    /** Called immediately before opening a PZ-owned context/menu surface. */
+    public static void releaseForUi() {
+        if (!initialized) return;
+        CursorCaptureState.Mode previousMode = CURSOR.mode();
+        if (CURSOR.releaseForUi()) {
+            applyCaptureState();
+            System.out.printf(
+                    "[PZFPS input] cursor mode %s -> %s%n", previousMode, CURSOR.mode());
+        }
     }
 
     public static float yaw() {
@@ -179,8 +189,10 @@ public final class FirstPersonInput {
         return key != Keyboard.KEY_NONE && Keyboard.isKeyDown(key);
     }
 
-    private static void setCaptured(boolean value) {
-        captured = value;
+    private static void applyCaptureState() {
+        boolean value = CURSOR.captured();
+        if (hardwareCaptured == value) return;
+        hardwareCaptured = value;
         org.lwjglx.input.Mouse.setGrabbed(value);
         Mouse.setCursorVisible(!value);
     }

@@ -100,7 +100,63 @@ public final class WorldState {
             boolean edgeNorth,
             boolean edgeWest,
             boolean open,
-            boolean hoppable) {}
+            boolean hoppable,
+            WorldItem worldItem) {
+        public TileObject {
+            worldItem = worldItem == null ? WorldItem.none() : worldItem;
+        }
+
+        public TileObject(
+                int index,
+                String javaType,
+                String objectType,
+                String sprite,
+                boolean door,
+                boolean window,
+                boolean north,
+                boolean edgeNorth,
+                boolean edgeWest,
+                boolean open,
+                boolean hoppable) {
+            this(
+                    index,
+                    javaType,
+                    objectType,
+                    sprite,
+                    door,
+                    window,
+                    north,
+                    edgeNorth,
+                    edgeWest,
+                    open,
+                    hoppable,
+                    WorldItem.none());
+        }
+    }
+
+    /** Authoritative identity and placement for a dropped/placed inventory item. */
+    public record WorldItem(
+            boolean present,
+            int itemId,
+            String fullType,
+            String staticModel,
+            String worldStaticModel,
+            String worldObjectSprite,
+            String worldTexture,
+            float worldX,
+            float worldY,
+            float worldZ,
+            float rotationX,
+            float rotationY,
+            float rotationZ,
+            float scale,
+            boolean extendedPlacement) {
+        public static WorldItem none() {
+            return new WorldItem(
+                    false, -1, "", "", "", "", "", 0.0f, 0.0f, 0.0f,
+                    0.0f, 0.0f, 0.0f, 1.0f, false);
+        }
+    }
 
     public record Square(
             int localX,

@@ -2,7 +2,7 @@ class_name PZFPSBridgeClient
 extends RefCounted
 
 const MAGIC := 0x505A4650
-const VERSION := 3
+const VERSION := 4
 const MAX_PACKET_BYTES := 64 * 1024 * 1024
 
 const HELLO := 1
@@ -289,6 +289,9 @@ func _read_chunk(packet: StreamPeerBuffer) -> Dictionary:
 			object["north"] = (object_flags & 4) != 0
 			object["open"] = (object_flags & 8) != 0
 			object["hoppable"] = (object_flags & 16) != 0
+			object["edge_north"] = (object_flags & 32) != 0
+			object["edge_west"] = (object_flags & 64) != 0
+			object["world_item"] = _read_world_item(packet)
 			objects[object_index] = object
 		square["objects"] = objects
 		squares[square_index] = square
@@ -298,6 +301,29 @@ func _read_chunk(packet: StreamPeerBuffer) -> Dictionary:
 		"source_revision": source_revision,
 		"fingerprint": fingerprint,
 		"squares": squares,
+	}
+
+
+func _read_world_item(packet: StreamPeerBuffer) -> Dictionary:
+	var present := packet.get_u8() != 0
+	if not present:
+		return {"present": false}
+	return {
+		"present": true,
+		"item_id": _signed32(packet.get_u32()),
+		"full_type": _read_string(packet),
+		"static_model": _read_string(packet),
+		"world_static_model": _read_string(packet),
+		"world_object_sprite": _read_string(packet),
+		"world_texture": _read_string(packet),
+		"world_x": packet.get_float(),
+		"world_y": packet.get_float(),
+		"world_z": packet.get_float(),
+		"rotation_x": packet.get_float(),
+		"rotation_y": packet.get_float(),
+		"rotation_z": packet.get_float(),
+		"scale": packet.get_float(),
+		"extended_placement": packet.get_u8() != 0,
 	}
 
 

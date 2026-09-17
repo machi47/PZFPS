@@ -10,7 +10,7 @@ import java.nio.charset.StandardCharsets;
 
 public final class WireProtocol {
     public static final int MAGIC = 0x505a4650; // PZFP
-    public static final short VERSION = 3;
+    public static final short VERSION = 4;
 
     public static final short HELLO = 1;
     public static final short PLAYER = 2;
@@ -144,9 +144,30 @@ public final class WireProtocol {
                             | (object.edgeNorth() ? 1 << 5 : 0)
                             | (object.edgeWest() ? 1 << 6 : 0);
                     out.writeByte(objectFlags);
+                    writeWorldItem(out, object.worldItem());
                 }
             }
         });
+    }
+
+    private static void writeWorldItem(DataOutputStream out, WorldState.WorldItem item)
+            throws IOException {
+        out.writeBoolean(item.present());
+        if (!item.present()) return;
+        out.writeInt(item.itemId());
+        writeString(out, item.fullType());
+        writeString(out, item.staticModel());
+        writeString(out, item.worldStaticModel());
+        writeString(out, item.worldObjectSprite());
+        writeString(out, item.worldTexture());
+        out.writeFloat(item.worldX());
+        out.writeFloat(item.worldY());
+        out.writeFloat(item.worldZ());
+        out.writeFloat(item.rotationX());
+        out.writeFloat(item.rotationY());
+        out.writeFloat(item.rotationZ());
+        out.writeFloat(item.scale());
+        out.writeBoolean(item.extendedPlacement());
     }
 
     public static synchronized void writeChunkRemove(

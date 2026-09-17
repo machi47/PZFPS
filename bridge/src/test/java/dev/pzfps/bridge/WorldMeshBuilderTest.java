@@ -125,4 +125,67 @@ final class WorldMeshBuilderTest {
 
         assertEquals(6, mesh.vertexCount());
     }
+
+    @Test
+    void doesNotInterpretWorldItemSpriteAsMapTileGeometry() throws Exception {
+        Path registryPath = temporary.resolve("world-item.json");
+        Files.writeString(
+                registryPath,
+                """
+                {
+                  "schema_version": 1,
+                  "source_sha256": "fixture-sha",
+                  "tiles": {
+                    "Item_Pot": {
+                      "geometry": [{
+                        "kind": "box",
+                        "min": [-0.5, 0.0, -0.5],
+                        "max": [0.5, 1.0, 0.5],
+                        "translate": [0.0, 0.0, 0.0],
+                        "rotate_degrees": [0.0, 0.0, 0.0]
+                      }]
+                    }
+                  }
+                }
+                """);
+        WorldState.WorldItem placement = new WorldState.WorldItem(
+                true,
+                42,
+                "Base.Hammer",
+                "Hammer",
+                "WorldItem_Hammer",
+                "",
+                "media/inventory/world/WItem_Hammer.png",
+                2.25f,
+                3.75f,
+                1.0f,
+                0.0f,
+                0.0f,
+                31.0f,
+                1.0f,
+                false);
+        WorldState.TileObject item = new WorldState.TileObject(
+                0,
+                "zombie.iso.objects.IsoWorldInventoryObject",
+                "WorldInventoryItem",
+                "Item_Pot",
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                placement);
+        WorldState.Square square = new WorldState.Square(
+                2, 3, 1, -1, 0, 255, 255, 255,
+                false, true, false, false, false, false, List.of(item));
+        WorldState.Chunk chunk = new WorldState.Chunk(0, 0, 1, 1, List.of(square));
+
+        WorldMeshBuilder.MeshData mesh =
+                new WorldMeshBuilder(TileGeometryRegistry.load(registryPath)).build(chunk);
+
+        assertEquals(0, mesh.primitiveCount());
+        assertEquals(0, mesh.vertexCount());
+    }
 }
