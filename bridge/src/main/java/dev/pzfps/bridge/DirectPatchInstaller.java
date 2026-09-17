@@ -38,7 +38,6 @@ public final class DirectPatchInstaller {
         ContextActionPatch.Scope.class,
         ContextActionPatch.PickBest.class,
         ContextActionPatch.Execute.class,
-        StrafingPatch.class,
         KeyboardInputPatch.Down.class,
         KeyboardInputPatch.Pressed.class,
         MouseUpdatePatch.class,
@@ -65,7 +64,6 @@ public final class DirectPatchInstaller {
                 .with(new HookListener())
                 .type(namedOneOf(
                         "zombie.iso.IsoWorld",
-                        "zombie.characters.IsoGameCharacter",
                         "zombie.characters.IsoPlayer",
                         "zombie.core.physics.BallisticsController",
                         "zombie.input.GameKeyboard",
@@ -129,12 +127,6 @@ public final class DirectPatchInstaller {
                         .visit(advice(ContextActionPatch.Scope.class).on(doContext))
                         .visit(advice(ContextActionPatch.PickBest.class).on(pickContext))
                         .visit(advice(ContextActionPatch.Execute.class).on(performContext));
-            }
-            case "zombie.characters.IsoGameCharacter" -> {
-                ElementMatcher.Junction<MethodDescription> strafing =
-                        named("isStrafing").and(takesArguments(0));
-                requireOneTarget(type, strafing, "isStrafing()Z");
-                yield builder.visit(advice(StrafingPatch.class).on(strafing));
             }
             case "zombie.core.physics.BallisticsController" -> {
                 ElementMatcher.Junction<MethodDescription> muzzle = ballisticsMuzzleMatcher();

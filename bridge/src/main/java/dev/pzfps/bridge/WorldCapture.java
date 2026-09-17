@@ -45,6 +45,12 @@ public final class WorldCapture {
 
     public static WorldState.Player player(
             IsoPlayer player, long sequence, long captureNanos, long captureEpochMillis) {
+        CameraDirection camera = cameraDirection(
+                player.getForwardDirectionX(),
+                player.getForwardDirectionY(),
+                InputState.current(),
+                FirstPersonInput.isPerspectiveActive(),
+                FirstPersonInput.yaw());
         return new WorldState.Player(
                 sequence,
                 captureNanos,
@@ -53,8 +59,8 @@ public final class WorldCapture {
                 player.getX(),
                 player.getY(),
                 player.getZ(),
-                player.getForwardDirectionX(),
-                player.getForwardDirectionY(),
+                camera.x(),
+                camera.y(),
                 cameraPitchRadians(player),
                 nonNull(player.getCurrentActionContextStateName()),
                 player.isAiming(),
@@ -62,6 +68,30 @@ public final class WorldCapture {
                 player.getVehicle() != null,
                 eyeHeight(player));
     }
+
+    /**
+     * The FPS view is not the character locomotion direction. PZ may turn the lower/body root
+     * toward a camera-relative movement vector so its native walk/run/sprint root motion remains
+     * authoritative; the rendered camera and reticle remain owned by mouse yaw.
+     */
+    static CameraDirection cameraDirection(
+            float bodyX,
+            float bodyY,
+            InputState.Sample input,
+            boolean nativePerspectiveActive,
+            float nativeYaw) {
+        if (input.active()) {
+            return new CameraDirection(
+                    (float) Math.cos(input.yaw()), (float) Math.sin(input.yaw()));
+        }
+        if (nativePerspectiveActive) {
+            return new CameraDirection(
+                    (float) Math.cos(nativeYaw), (float) Math.sin(nativeYaw));
+        }
+        return new CameraDirection(bodyX, bodyY);
+    }
+
+    record CameraDirection(float x, float y) {}
 
     private static float eyeHeight(IsoPlayer player) {
         if (player.getVehicle() != null) return 1.25f;

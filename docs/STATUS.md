@@ -19,9 +19,10 @@ PZ simulation/update -> immutable authoritative snapshot
 PZ render thread     -> PZFPS perspective world -> PZ text/UI
 ```
 
-No PZ process is currently running. The source tree is ahead of the last
-live-tested process; the hashes below distinguish the live-tested JAR from the
-newest built JAR.
+No PZ process is currently running; the isolated launcher metadata still names
+PID 22725, but the process inventory is empty. The source tree is ahead of the
+last live-tested process; the hashes below distinguish the live-tested JAR from
+the newest built JAR.
 
 ## Truthful acceptance state
 
@@ -41,11 +42,13 @@ newest built JAR.
   visible over the perspective world. Expected holes, wrong/incomplete object
   shapes, missing unseen surfaces, crude actor/world-item representations and
   material/projection errors remain visible.
-- **Accepted live first-person gameplay:** **NO**. Forward running was observed,
-  but simultaneous camera-relative diagonal movement, the newly implemented
-  cursor/UI transitions, center-view interaction, aiming/combat and ordinary
-  inventory/container play are not yet accepted. The newest input/UI build has
-  not been loaded into a game process.
+- **Accepted live first-person gameplay:** **NO**. The owner rejected the last
+  live build because W+D moved forward-left and Shift+A/Shift+D collapsed to
+  forward sprinting. The source fix now separates mouse-owned camera/reticle
+  facing from PZ-owned body locomotion facing and removes the forced-strafe
+  hook; it has not yet been loaded into a game process. Cursor/UI transitions,
+  center-view interaction, aiming/combat and ordinary inventory/container play
+  also remain unaccepted.
 - **Performance checkpoint:** unavailable. The log records completed render
   callbacks and queue behavior, not game FPS. At its last unpaused fresh-state
   sample it reported `completedFrames=300`, `enqueuedFrames=300`, `meshes=169`,
@@ -67,7 +70,7 @@ gameplay:
    player is stationary. The former 169 -> 117/104 -> 169 oscillation is gone.
 5. The perspective room uses source PZ textures on known geometry and retains
    the normal PZ text/UI pass. The owner reported no further whole-world flash.
-6. The current source build passes 59 Java tests and 45 Python tests.
+6. The current source build passes 66 Java tests and 45 Python tests.
 
 No source/enhanced video pair or matched gameplay performance capture has yet
 been accepted.
@@ -130,6 +133,14 @@ been accepted.
   transform so camera-space WASD remains in world space. `Toggle Inventory`
   releases capture on the same mouse-input poll instead of waiting for the Lua
   UI visibility change.
+- `bridge/src/main/java/dev/pzfps/bridge/WorldCapture.java` now publishes the
+  mouse-owned perspective yaw as camera/reticle direction independently of the
+  local character's locomotion direction. During ordinary non-aim movement PZ
+  may therefore turn its body root toward the requested camera-relative WASD
+  vector and retain its own walk/run/sprint root motion, collision and stamina.
+  Actual aim/attack paths still align action facing to the camera ray. This
+  replaces the rejected forced-camera-facing/forced-strafe behavior and is
+  source-built but not live-accepted.
 - `bridge/src/main/java/dev/pzfps/bridge/CursorCaptureState.java` — distinguishes
   gameplay capture, deliberate F8 release and temporary UI ownership. Modal or
   explicitly force-cursor UI releases mouse-look and requires two consecutive
@@ -143,9 +154,6 @@ been accepted.
   alignment, opposed displacement and stationary updates separately; the last
   category explicitly includes collision/action constraints and is not called
   renderer or gameplay FPS.
-- `bridge/src/main/java/dev/pzfps/bridge/patches/StrafingPatch.java` — preserves
-  FPS view/actor facing while the authoritative PZ movement path handles left,
-  right and backward movement.
 - `bridge/src/main/java/dev/pzfps/bridge/patches/AimVectorPatch.java` and
   `AimStatePatch.java` — cover both B42 aim-vector routes: the public
   `getAimVector(Vector2)` used during movement and the private
@@ -409,9 +417,9 @@ Most recent test results:
 - Disposable save:
   `.local/pz-runtime/user-cache/Zomboid/Saves/Top Of The World/46507890207760758489`.
 - Live-tested staged bridge JAR SHA-256:
-  `c0904da6d2f775c6dcd8bfac90ccc1096093640fff7fc05d61149cc8bd8946d2`.
+  `04e34f98c6052e20bbced5e2c3cebc862368665060f9674576328945863dfa7f`.
 - Newest built but not live-tested bridge JAR SHA-256:
-  `5b2f9353b5c4ad15f9d080250230212fb0e6e1c5b82d16cd78483bf8de952ee6`.
+  `9a96314174656c3e6c7a9228c6fc03e5073cab4560b52dea0406e4c140ef2cdc`.
 - Offline canonical report:
   `.local/canonical-bed-v64/store/objects/5107aa94b47977535039da77ac4018329c238388ad51c94829dc5a69d01d1a0a/report.json`.
 - Geometry source SHA-256:
@@ -460,6 +468,11 @@ update rates have not been reported as achieved performance.
    The 3D selector and identity re-resolution are unit-tested, while visible
    menu opening and an executed real option still require live acceptance.
    Direct position or state mutation is not an acceptable substitute.
+   The last live F7/context request reached this seam but terminated on
+   `IllegalAccessError` because inlined `IsoPlayer` advice referenced the
+   package-private `PerspectiveInteract` type. `PerspectiveInteract` and the
+   similarly exposed ballistics entry points are now public, with reflection
+   regression tests; this repair is built but not live-tested.
 5. Nonlocal native characters are now wired to B42's evaluated model render
    data rather than reanimated or approximated in the renderer. This has not
    been loaded into the live process. It still needs a disposable-session check
@@ -539,11 +552,13 @@ update rates have not been reported as achieved performance.
 
 Without restarting the current accepted visual session merely to inspect it:
 
-1. Stage one batched build and live-test simultaneous W+A/W+D, backward/strafe
-   movement, F8, Escape/UI release, and stable rendering in the disposable save.
-   Use the new post-update movement-alignment report to distinguish a coordinate
-   transform failure from valid collision/action blocking; do not infer either
-   from camera motion alone.
+1. Stage one batched build and live-test simultaneous W+A/W+D, A/D,
+   Shift+W/A/D and backward movement while keeping mouse view fixed. Confirm
+   that ordinary locomotion turns PZ's body root toward the requested movement
+   while the rendered camera/reticle retains mouse yaw, and that aim mode alone
+   locks action facing to that ray. The existing same-update movement diagnostic
+   is not accepted evidence for deferred/root movement and must be corrected
+   before its counters are used.
 2. Aim at each of two neighboring doors/windows in turn and verify that the
    normal `Interact` key executes only the identity-matched reticle object's
    PZ-generated contextual action. Then aim at a locked/non-actionable target

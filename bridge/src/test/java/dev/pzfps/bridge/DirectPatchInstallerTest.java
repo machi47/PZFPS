@@ -7,6 +7,7 @@ import net.bytebuddy.ByteBuddy;
 import net.bytebuddy.asm.Advice;
 import net.bytebuddy.description.type.TypeDescription;
 import org.junit.jupiter.api.Test;
+import zombie.characters.ContextualAction;
 import zombie.characters.IsoPlayer;
 import zombie.core.physics.BallisticsController;
 
@@ -97,6 +98,39 @@ final class DirectPatchInstallerTest {
                 NativeFirstPersonHandsPass.class,
                 NativeFirstPersonHandsPass.PreparedFrame.class,
                 false);
+    }
+
+    @Test
+    void exposesEveryTypeAndOperationReferencedByInlinedInteractionAndBallisticsAdvice()
+            throws Exception {
+        assertTrue(Modifier.isPublic(PerspectiveInteract.class.getModifiers()));
+        assertTrue(Modifier.isPublic(
+                PerspectiveInteract.class.getDeclaredMethod("end").getModifiers()));
+        assertTrue(Modifier.isPublic(
+                PerspectiveInteract.class
+                        .getDeclaredMethod(
+                                "preferTarget", java.util.List.class, ContextualAction.class)
+                        .getModifiers()));
+        assertTrue(Modifier.isPublic(
+                PerspectiveInteract.class
+                        .getDeclaredMethod("allowsExecution", ContextualAction.class)
+                        .getModifiers()));
+
+        assertTrue(Modifier.isPublic(PerspectiveBallistics.class.getModifiers()));
+        assertTrue(Modifier.isPublic(
+                PerspectiveBallistics.class
+                        .getDeclaredMethod(
+                                "overrideMuzzleDirection",
+                                zombie.characters.IsoGameCharacter.class,
+                                zombie.iso.Vector3.class)
+                        .getModifiers()));
+        assertTrue(Modifier.isPublic(
+                PerspectiveBallistics.class
+                        .getDeclaredMethod(
+                                "configureNativeCameraRay",
+                                BallisticsController.class,
+                                zombie.characters.IsoGameCharacter.class)
+                        .getModifiers()));
     }
 
     private static void assertWorldAdviceApi(

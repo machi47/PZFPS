@@ -149,14 +149,19 @@ public final class BridgeRuntime {
         InputState.Sample input = InputState.current();
         if (!input.active()) {
             FirstPersonInput.update(player);
+        } else {
+            player.setIsAiming((input.buttons() & InputState.AIM) != 0);
         }
-        applyPerspectiveAim(player, input);
+        applyPerspectivePitch(player, input);
+        if (player.isAiming() || player.isAttacking()) {
+            applyPerspectiveFacing(player, input);
+        }
     }
 
     /** Reasserts the view after setAngleFromAim's isometric reticle/ballistics calculation. */
     public static void restorePerspectiveAim(IsoPlayer player) {
         if (!STARTED.get() || !isAuthoritativeLocalPlayer(player)) return;
-        applyPerspectiveAim(player, InputState.current());
+        applyPerspectiveFacing(player, InputState.current());
     }
 
     /**
@@ -192,25 +197,32 @@ public final class BridgeRuntime {
         }
     }
 
-    private static void applyPerspectiveAim(IsoPlayer player, InputState.Sample input) {
+    private static void applyPerspectiveFacing(IsoPlayer player, InputState.Sample input) {
         float yaw;
-        float pitch;
         if (input.active()) {
             yaw = input.yaw();
-            pitch = input.pitch();
         } else {
             if (!FirstPersonInput.isPerspectiveActive()) return;
             yaw = FirstPersonInput.yaw();
-            pitch = FirstPersonInput.pitch();
         }
         float forwardX = (float) Math.cos(yaw);
         float forwardY = (float) Math.sin(yaw);
         player.setForwardDirection(forwardX, forwardY);
         player.setTargetAndCurrentDirection(forwardX, forwardY);
+        applyPerspectivePitch(player, input);
+    }
+
+    private static void applyPerspectivePitch(IsoPlayer player, InputState.Sample input) {
+        float pitch;
+        if (input.active()) {
+            pitch = input.pitch();
+        } else {
+            if (!FirstPersonInput.isPerspectiveActive()) return;
+            pitch = FirstPersonInput.pitch();
+        }
         float pitchDegrees = (float) Math.toDegrees(pitch);
         player.setTargetVerticalAimAngle(pitchDegrees);
         player.setCurrentVerticalAimAngle(pitchDegrees);
-        if (input.active()) player.setIsAiming((input.buttons() & InputState.AIM) != 0);
     }
 
     /**

@@ -5,27 +5,27 @@ import zombie.characters.ContextualAction;
 import zombie.iso.IsoObject;
 
 /** Pins B42's own validated short-press contextual action to the FPS reticle object. */
-final class PerspectiveInteract {
+public final class PerspectiveInteract {
     private static final ThreadLocal<IsoObject> TARGET = new ThreadLocal<>();
 
     private PerspectiveInteract() {}
 
-    static void begin(IsoObject target) {
+    public static void begin(IsoObject target) {
         if (target == null) TARGET.remove();
         else TARGET.set(target);
     }
 
-    static void end() {
+    public static void end() {
         TARGET.remove();
     }
 
-    static ContextualAction preferTarget(
+    public static ContextualAction preferTarget(
             List<ContextualAction> actions, ContextualAction original) {
         return preferTarget(actions, original, TARGET.get());
     }
 
     /** Prevents a different nearby isometric action from firing when the target has no action. */
-    static boolean allowsExecution(ContextualAction action) {
+    public static boolean allowsExecution(ContextualAction action) {
         return allowsExecution(action, TARGET.get());
     }
 

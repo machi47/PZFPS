@@ -10,7 +10,7 @@ import zombie.iso.Vector3;
 import zombie.network.GameServer;
 
 /** Adapts the perspective view ray to PZ's existing muzzle and native target queries. */
-final class PerspectiveBallistics {
+public final class PerspectiveBallistics {
     static final float LEVEL_HEIGHT = 3.0f;
     static final float BALLISTICS_VERTICAL_SCALE = 2.44949f;
     /** Reused only at the verified PZ game-thread combat boundary. */
@@ -46,7 +46,7 @@ final class PerspectiveBallistics {
                 x * inverseLength, y * inverseLength, z * inverseLength);
     }
 
-    static void overrideMuzzleDirection(IsoGameCharacter owner, Vector3 direction) {
+    public static void overrideMuzzleDirection(IsoGameCharacter owner, Vector3 direction) {
         if (!isLocalPlayer(owner) || direction == null) return;
         InputState.Sample input = InputState.current();
         if (input.active()) {
@@ -57,7 +57,7 @@ final class PerspectiveBallistics {
     }
 
     /** Runs immediately before B42 asks native Bullet for camera/body-part targets. */
-    static void configureNativeCameraRay(
+    public static void configureNativeCameraRay(
             BallisticsController controller, IsoGameCharacter owner) {
         if (!isLocalPlayer(owner) || controller == null || GameServer.server) return;
         InputState.Sample input = InputState.current();
