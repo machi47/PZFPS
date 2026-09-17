@@ -223,8 +223,14 @@ public final class WorldMeshBuilder {
                     for (TileGeometryRegistry.Primitive primitive : geometry) {
                         addTexturedPrimitive(batch, baseX, baseY, baseZ, primitive, light);
                         if (primitive.kind().equals("box")) {
-                            int sideAxis = BoxSideCompletion.sideAxis(object.sprite(), object.appearanceFacing(), primitive);
-                            if (sideAxis >= 0) addOppositeBoxSide(batch, baseX, baseY, baseZ, primitive, light, sideAxis);
+                            if (BoxSideCompletion.closedCrate(object.sprite())) {
+                                addOppositeBoxSide(batch, baseX, baseY, baseZ, primitive, light, 0);
+                                addOppositeBoxSide(batch, baseX, baseY, baseZ, primitive, light, 2);
+                                addCrateBottom(batch, baseX, baseY, baseZ, primitive, light);
+                            } else {
+                                int sideAxis = BoxSideCompletion.sideAxis(object.sprite(), object.appearanceFacing(), primitive);
+                                if (sideAxis >= 0) addOppositeBoxSide(batch, baseX, baseY, baseZ, primitive, light, sideAxis);
+                            }
                         }
                         primitiveCount++;
                     }
@@ -667,6 +673,25 @@ public final class WorldMeshBuilder {
             }
             addTexturedQuad(output, world[0], world[1], world[2], world[3], n, light, uv);
         }
+    }
+
+    private static void addCrateBottom(
+            FloatBuilder output, float baseX, float baseY, float baseZ,
+            TileGeometryRegistry.Primitive box, float[] light) {
+        float[][] local = {{box.minX(), box.minY(), box.minZ()}, {box.maxX(), box.minY(), box.minZ()},
+                {box.maxX(), box.minY(), box.maxZ()}, {box.minX(), box.minY(), box.maxZ()}};
+        float[][] world = worldPoints(baseX, baseY, baseZ, transformedLocal(box, local));
+        float[] normal = normal(world[0], world[1], world[2]);
+        if (sourceFacing(normal) >= -0.05f) return;
+        // Completion prior, not recovered ground truth: a plain wooden bottom.
+        // Reuse a vertical panel rather than copying the metal-bound lid.
+        float[][] uv = new float[4][];
+        for (int i = 0; i < 4; i++) {
+            float fraction = (local[i][2] - box.minZ()) / (box.maxZ() - box.minZ());
+            uv[i] = sourcePixel(transformLocal(box, local[i][0],
+                    box.minY() + fraction * (box.maxY() - box.minY()), box.maxZ()));
+        }
+        addTexturedQuad(output, world[0], world[1], world[2], world[3], normal, light, uv);
     }
 
     private static void addTexturedCylinder(

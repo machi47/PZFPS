@@ -4,6 +4,26 @@ package dev.pzfps.bridge;
 final class BoxSideCompletion {
     private BoxSideCompletion() {}
 
+    static boolean closedCrate(String sprite) {
+        // Installed B42 Tiles2x17: whole cuboids with repeated wooden panels,
+        // not stacked fragment sprites 20/21 or the table/chair families.
+        return "carpentry_01_16".equals(sprite) || "carpentry_01_19".equals(sprite);
+    }
+
+    static float[] projectedBounds(float[] vertices) {
+        float minX = Float.POSITIVE_INFINITY, minY = Float.POSITIVE_INFINITY;
+        float maxX = Float.NEGATIVE_INFINITY, maxY = Float.NEGATIVE_INFINITY;
+        for (int i = 0; i < vertices.length; i += WorldMeshBuilder.TEXTURED_FLOATS_PER_VERTEX) {
+            minX = Math.min(minX, vertices[i + 9]);
+            minY = Math.min(minY, vertices[i + 10]);
+            maxX = Math.max(maxX, vertices[i + 9]);
+            maxY = Math.max(maxY, vertices[i + 10]);
+        }
+        if (!Float.isFinite(minX) || maxX <= minX || maxY <= minY)
+            throw new IllegalArgumentException("Empty/degenerate source projection");
+        return new float[] {minX, minY, maxX - minX, maxY - minY};
+    }
+
     static int sideAxis(String sprite, String facing, TileGeometryRegistry.Primitive box) {
         // A game's Facing property identifies the front without guessing from pixel colour
         // or tile numbers. Only copy faces perpendicular to that front: side -> side.

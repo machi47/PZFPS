@@ -372,6 +372,7 @@ public final class InProcessWorldRenderer {
         private final int uvBoundsUniform;
         private final int cropUniform;
         private final int surfaceKindUniform;
+        private final int projectedBoundsUniform;
         private final int originUniform;
         private final int lightingUniform;
         private final int lightingEnabledUniform;
@@ -399,6 +400,7 @@ public final class InProcessWorldRenderer {
             uvBoundsUniform = GL20.glGetUniformLocation(program, "uUvBounds");
             cropUniform = GL20.glGetUniformLocation(program, "uCrop");
             surfaceKindUniform = GL20.glGetUniformLocation(program, "uSurfaceKind");
+            projectedBoundsUniform = GL20.glGetUniformLocation(program, "uProjectedBounds");
             originUniform = GL20.glGetUniformLocation(program, "uOrigin");
             lightingUniform = GL20.glGetUniformLocation(program, "uLighting");
             lightingEnabledUniform = GL20.glGetUniformLocation(program, "uLightingEnabled");
@@ -407,7 +409,7 @@ public final class InProcessWorldRenderer {
                     || materialUniform < 0
                     || textureUniform < 0
                     || uvBoundsUniform < 0
-                    || cropUniform < 0 || surfaceKindUniform < 0 || originUniform < 0
+                    || cropUniform < 0 || surfaceKindUniform < 0 || projectedBoundsUniform < 0 || originUniform < 0
                     || lightingUniform < 0 || lightingEnabledUniform < 0) {
                 throw new IllegalStateException("one or more source-texture shader uniforms are absent");
             }
@@ -613,7 +615,10 @@ public final class InProcessWorldRenderer {
             GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, batch.vbo);
             configureAttributes(TEXTURED_STRIDE_BYTES, true);
             GL20.glUniform1i(materialUniform, 0);
-            GL20.glUniform1i(surfaceKindUniform, batch.solidFloor ? 1 : batch.wallEdges ? 2 : 0);
+            GL20.glUniform1i(surfaceKindUniform, batch.solidFloor ? 1 : batch.wallEdges ? 2
+                    : BoxSideCompletion.closedCrate(batch.sprite) ? 3 : 0);
+            GL20.glUniform4f(projectedBoundsUniform, batch.projectedBounds[0], batch.projectedBounds[1],
+                    batch.projectedBounds[2], batch.projectedBounds[3]);
             if (texture == null || texture.getID() == 0) {
                 GL20.glUniform1i(texturedUniform, 0);
                 GL11.glDisable(GL11.GL_TEXTURE_2D);
@@ -736,7 +741,9 @@ public final class InProcessWorldRenderer {
                 GL15.glBufferData(GL15.GL_ARRAY_BUFFER, vertices, GL15.GL_STATIC_DRAW);
                 textured.add(new GpuTexturedBatch(
                         sourceBatch.sprite(), texturedVbo, sourceBatch.vertexCount(),
-                        sourceBatch.solidFloor(), sourceBatch.wallEdges()));
+                        sourceBatch.solidFloor(), sourceBatch.wallEdges(),
+                        BoxSideCompletion.closedCrate(sourceBatch.sprite()) && sourceBatch.vertices().length > 0
+                                ? BoxSideCompletion.projectedBounds(sourceBatch.vertices()) : new float[] {0, 0, 1, 1}));
             }
             ArrayList<GpuMaterialBatch> materials = new ArrayList<>();
             for (WorldMeshBuilder.MaterialBatch sourceBatch : source.materialBatches()) {
@@ -870,6 +877,7 @@ public final class InProcessWorldRenderer {
                     uniform vec4 uUvBounds;
                     uniform vec4 uCrop;
                     uniform int uSurfaceKind;
+                    uniform vec4 uProjectedBounds;
                     uniform sampler2D uLighting;
                     uniform int uLightingEnabled;
                     varying vec3 vertexColor;
@@ -892,9 +900,29 @@ public final class InProcessWorldRenderer {
                             liveLight = sampleLight.a > 0.5 ? max(vec3(0.42), sampleLight.rgb) : vec3(0.42);
                         }
                         if (uTextured == 1) {
-                            vec2 cropUv = (sourcePixel - uCrop.xy) / uCrop.zw;
+                            vec2 samplePixel = sourcePixel;
+                            if (uSurfaceKind == 3) {
+                                // Verified whole wooden crates: fit the authored projection to
+                                // the actual cropped artwork, not a nominal 128px tile rectangle.
+                                vec2 fraction = (sourcePixel - uProjectedBounds.xy) / uProjectedBounds.zw;
+                                samplePixel = uCrop.xy + vec2(0.5) + fraction * (uCrop.zw - vec2(1.0));
+                            }
+                            vec2 cropUv = (samplePixel - uCrop.xy) / uCrop.zw;
                             bool outside = any(lessThan(cropUv, vec2(0.0))) || any(greaterThan(cropUv, vec2(1.0)));
-                            vec4 source = outside ? vec4(0.0) : sampleSprite(sourcePixel);
+                            vec4 source = outside ? vec4(0.0) : sampleSprite(samplePixel);
+                            if (uSurfaceKind == 3 && source.a < 0.999) {
+                                // The crate is a closed solid. Raster trim/bevel gaps must not
+                                // perforate it. This small edge extension is family-specific;
+                                // never apply it to open shelves, chairs, windows or vegetation.
+                                for (int dy = -4; dy <= 4; dy++) {
+                                    for (int dx = -4; dx <= 4; dx++) {
+                                        vec4 candidate = sampleSprite(samplePixel + vec2(float(dx), float(dy)));
+                                        if (candidate.a > source.a) source = candidate;
+                                    }
+                                }
+                                if (source.a < 0.5) source = sampleSprite(uCrop.xy + uCrop.zw * 0.5);
+                                source.a = 1.0;
+                            }
                             // Known solid floor diamonds have raster-trimmed/antialiased edges
                             // (e.g. 126x64 stored pixels for a 128x64 footprint). Extend only a
                             // two-pixel boundary band from its own opaque neighbours; never
@@ -981,7 +1009,8 @@ public final class InProcessWorldRenderer {
         }
     }
 
-    private record GpuTexturedBatch(String sprite, int vbo, int vertexCount, boolean solidFloor, boolean wallEdges) {
+    private record GpuTexturedBatch(String sprite, int vbo, int vertexCount, boolean solidFloor, boolean wallEdges,
+                                    float[] projectedBounds) {
         void destroy() {
             GL15.glDeleteBuffers(vbo);
         }

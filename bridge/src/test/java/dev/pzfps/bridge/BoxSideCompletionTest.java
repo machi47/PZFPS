@@ -35,6 +35,51 @@ final class BoxSideCompletionTest {
     }
 
     @Test
+    void closedCratesHaveSixUniqueFacesWithNoGeometryExpansion() throws Exception {
+        assertTrue(BoxSideCompletion.closedCrate("carpentry_01_16"));
+        assertTrue(BoxSideCompletion.closedCrate("carpentry_01_19"));
+        assertFalse(BoxSideCompletion.closedCrate("carpentry_01_20"));
+        assertFalse(BoxSideCompletion.closedCrate("location_business_machinery_01_32"));
+        for (String sprite : List.of("carpentry_01_16", "carpentry_01_19")) {
+            Path path = temporary.resolve(sprite + ".json");
+            Files.writeString(path, """
+                    {"schema_version":1,"source_sha256":"fixture","tiles":{"%s":{
+                      "geometry":[{"kind":"box","min":[-0.5,0,-0.5],"max":[0.5,0.8,0.5],
+                       "translate":[0,0,0],"rotate_degrees":[0,0,0]}]}}}
+                    """.formatted(sprite));
+            var object = new WorldState.TileObject(0, "IsoObject", "normal", sprite,
+                    false, false, false, false, false, false, false);
+            var square = new WorldState.Square(0, 0, 0, -1, 0, 255, 255, 255,
+                    false, true, false, false, false, false, List.of(object));
+            var batch = new WorldMeshBuilder(TileGeometryRegistry.load(path))
+                    .build(new WorldState.Chunk(0, 0, 1, 1, List.of(square))).texturedBatches().getFirst();
+            assertEquals(36, batch.vertexCount(), "Exactly six faces, not coplanar reverse duplicates");
+            int stride = WorldMeshBuilder.TEXTURED_FLOATS_PER_VERTEX;
+            var normalCounts = new java.util.HashMap<String, Integer>();
+            float[] v = batch.vertices();
+            for (int i = 0; i < v.length; i += stride) {
+                String normal = Math.round(v[i+3]) + "," + Math.round(v[i+4]) + "," + Math.round(v[i+5]);
+                normalCounts.merge(normal, 1, Integer::sum);
+                assertTrue(v[i] >= 0 && v[i] <= 1);
+                assertTrue(v[i+2] >= 0 && v[i+2] <= 1);
+                assertTrue(v[i+1] >= 0 && v[i+1] <= .8f * WorldMeshBuilder.AUTHORED_HEIGHT_TO_WORLD);
+            }
+            assertEquals(6, normalCounts.size());
+            for (int count : normalCounts.values()) assertEquals(6, count);
+            float[] bounds = BoxSideCompletion.projectedBounds(v);
+            assertEquals(128, bounds[2], .001);
+            assertTrue(bounds[3] > 120 && bounds[3] < 130);
+            // The completed bottom deliberately samples a vertical wood panel,
+            // not the top/lid pixels: at least one donor reaches the lowest source edge.
+            boolean bottomSamplesSideBase = false;
+            for (int i = 0; i < v.length; i += stride)
+                if (v[i+4] < -.99f && Math.abs(v[i+10] - (bounds[1] + bounds[3])) < .001)
+                    bottomSamplesSideBase = true;
+            assertTrue(bottomSamplesSideBase);
+        }
+    }
+
+    @Test
     void addsOnlyOppositeSideAndReusesDonorSidePixelsAcrossRotations() throws Exception {
         for (int variant = 32; variant <= 35; variant++) {
             String sprite = "location_business_machinery_01_" + variant;

@@ -325,6 +325,47 @@ No fullbright workaround or gameplay visibility mutation was applied.
 
 ## Truthful acceptance state
 
+### Closed wooden crates (source and offline/GPU-tested batch)
+
+The previous goal turn was progress: independent lighting transport was
+implemented, GPU-tested, loaded and measured in the real isolated client. This
+continuation returns to the owner's visible missing-face problem rather than
+treating lighting transport as completed presentation.
+
+Installed B42 `carpentry_01_16` and `carpentry_01_19` are complete, single authored
+boxes with min `(-.5,0,-.5)`, max `(.5,.8,.5)` and no local transform. Source
+Tiles2x17 was extracted and visually inspected; manifests and original atlas
+remain under `.local/assets/pz-42.20/crate-source/`, atlas SHA-256
+`c21ffdfc5a000d26a0b8b4a6288d93b51d30e4c66cccd855aff9accdb43cb9f6`.
+The source sprite widths are 110 and 113 pixels respectively, versus the
+authored box's 128-pixel projected width. Missing geometry and raster-trimmed
+alpha were both contributing to open-looking crates.
+
+`BoxSideCompletion.closedCrate` and `WorldMeshBuilder.addCrateBottom` now emit
+the missing opposite X/Z panels and bottom, exactly six faces / 36 vertices,
+without expanding geometry or duplicating observed faces. Bottom wood is an
+explicit completion prior sampled from a vertical panel, not a copied metal lid
+or recovered unseen surface. The whole-crate shader route fits the projection
+to the stored sprite bounds and extends edge colour within four source pixels.
+Only this inspected family gets closed-solid alpha treatment; stacked fragment
+sprites, shelves, chairs, windows and the drawer-bearing tool cabinet do not.
+
+`tools/check_crate_surfaces.py` unwraps the six faces as an offline CPU reference.
+Run with the project-local canonical venv and the two manifests, using
+`--output .local/reports/crate-surfaces`. Inspected images and counts are there
+and in `.local/reports/crate-surface-check.json`: each face has 36,864 samples;
+198–3,110 samples per face use edge extension, and none require the centre-colour
+fallback. The previews retain source painted shading and some skew/distortion;
+they are not photorealistic materials or live appearance acceptance.
+
+The expanded actual-shader GPU probe preserves an ordinary transparent hole
+(background red 51) while repairing the same sample only in closed-crate mode
+(lit surface red 128). Existing dynamic-light tests still pass. Evidence:
+`.local/reports/crate-shader-gpu-probe.txt`. Java regression checks six unique
+face normals, unchanged extents, bottom donor selection and family exclusions.
+No light, collision, interaction, save or object identity is invented by this
+completion rule. A live crate orbit remains the next acceptance check.
+
 ### Independent lighting transport (loaded; source/GPU and live execution tested)
 
 `ChunkLighting`, `WorldCapture.lighting`, `BridgeRuntime.captureLighting` and

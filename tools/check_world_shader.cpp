@@ -119,6 +119,8 @@ int main(int argc, char** argv) {
         glVertexAttrib1f(5, 0);
         glViewport(0, 0, 16, 16);
         auto draw = [&]() {
+            glClearColor(0.2f, 0.3f, 0.4f, 1);
+            glClear(GL_COLOR_BUFFER_BIT);
             glDrawArrays(GL_TRIANGLES, 0, 3);
             std::array<unsigned char, 4> pixel{};
             glReadPixels(8, 8, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel.data());
@@ -135,13 +137,28 @@ int main(int argc, char** argv) {
         glUniform1i(uniform("uSurfaceKind"), 0);
         glVertexAttrib2f(3, 0.5, 0.5);
         int sourceDim = draw();
+        // Raster-trimmed solid crate versus real alpha opening: only the verified
+        // closed family may repair alpha. The same texture remains a hole otherwise.
+        glActiveTexture(GL_TEXTURE0);
+        std::array<unsigned char, 36> trimmed{};
+        for (int channel = 0; channel < 4; channel++) trimmed[16 + channel] = 255;
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 3, 3, 0, GL_RGBA, GL_UNSIGNED_BYTE, trimmed.data());
+        glUniform4f(uniform("uCrop"), 0, 0, 3, 3);
+        glUniform4f(uniform("uProjectedBounds"), 0, 0, 1, 1);
+        glVertexAttrib2f(3, 0, 0);
+        int ordinaryHole = draw();
+        glUniform1i(uniform("uSurfaceKind"), 3);
+        int repairedCrate = draw();
         GLenum error = glGetError();
-        if (error != GL_NO_ERROR || bright < 240 || dim < 120 || dim > 135 || sourceDim != 128)
+        if (error != GL_NO_ERROR || bright < 240 || dim < 120 || dim > 135 || sourceDim != 128
+                || ordinaryHole != 51 || repairedCrate != 128)
             throw std::runtime_error("Light-only render failed: bright=" + std::to_string(bright)
                     + " dim=" + std::to_string(dim) + " GL=" + std::to_string(error));
         std::cout << "renderer=" << glGetString(GL_RENDERER) << "\nversion=" << glGetString(GL_VERSION)
                   << "\nshaderCompileLink=passed\nlightOnlyUpdate=passed bright=" << bright
                   << " dim=" << dim << " sourceDim=" << sourceDim << " geometryUploads=1 lightUploads=2\n";
+        std::cout << "closedCrateEdge=passed ordinaryHole=" << ordinaryHole
+                  << " repairedCrate=" << repairedCrate << '\n';
         CGLSetCurrentContext(nullptr);
         CGLDestroyContext(context);
         return 0;
