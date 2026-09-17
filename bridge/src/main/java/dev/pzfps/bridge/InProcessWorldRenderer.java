@@ -58,6 +58,7 @@ public final class InProcessWorldRenderer {
 
     private static volatile GpuState gpuState;
     private static volatile CameraMatrices cameraMatrices;
+    private static volatile FrustumIntersection cameraFrustum;
     private static volatile long lastReportNanos;
     private static volatile long lastReportCompleted;
 
@@ -119,6 +120,18 @@ public final class InProcessWorldRenderer {
         return cameraMatrices;
     }
 
+    /**
+     * Tests a native-model bound against the exact perspective frustum used by the most recently
+     * queued replacement-world draw. Native model callbacks run after that draw on the same render
+     * thread, so this is the final visibility decision rather than a producer-side isometric or
+     * same-floor approximation.
+     */
+    static boolean currentViewIntersectsSphere(
+            float worldX, float verticalY, float worldY, float radius) {
+        FrustumIntersection frustum = cameraFrustum;
+        return frustum != null && frustum.testSphere(worldX, verticalY, worldY, radius);
+    }
+
     record CameraMatrices(Matrix4f projection, Matrix4f view) {
         CameraMatrices {
             projection = new Matrix4f(projection);
@@ -136,6 +149,35 @@ public final class InProcessWorldRenderer {
         Matrix4fc worldView() {
             return view;
         }
+    }
+
+    /** Pure camera construction shared with tests; no OpenGL state is read here. */
+    static CameraMatrices perspectiveCamera(
+            WorldState.Player player, float eyeHeight, int viewportWidth, int viewportHeight) {
+        int width = Math.max(1, viewportWidth);
+        int height = Math.max(1, viewportHeight);
+        float eyeX = player.x();
+        float eyeY = player.z() * LEVEL_HEIGHT + eyeHeight;
+        float eyeZ = player.y();
+        float pitch = Math.max(-1.45f, Math.min(1.45f, player.verticalAim()));
+        float horizontal = (float) Math.cos(pitch);
+        float directionX = player.forwardX() * horizontal;
+        float directionY = (float) Math.sin(pitch);
+        float directionZ = player.forwardY() * horizontal;
+        if (Math.abs(directionX) + Math.abs(directionZ) < 0.001f) directionZ = 1.0f;
+        Matrix4f projection = new Matrix4f().perspective(
+                (float) Math.toRadians(82.0), (float) width / height, 0.035f, 400.0f);
+        Matrix4f view = new Matrix4f().lookAt(
+                eyeX,
+                eyeY,
+                eyeZ,
+                eyeX + directionX,
+                eyeY + directionY,
+                eyeZ + directionZ,
+                0,
+                1,
+                0);
+        return new CameraMatrices(projection, view);
     }
 
     private static void meshWorker(Path registryPath) {
@@ -345,6 +387,7 @@ public final class InProcessWorldRenderer {
                 matrix.get(matrixBuffer);
                 GL20.glUniformMatrix4fv(mvpUniform, false, matrixBuffer);
                 FrustumIntersection frustum = new FrustumIntersection(matrix);
+                cameraFrustum = frustum;
                 synchronizeMeshes(snapshot.meshes);
                 VisibleMeshes culled = visibleMeshes(snapshot, frustum);
                 lastCulling = culled.counts();
@@ -573,30 +616,7 @@ public final class InProcessWorldRenderer {
         private static CameraMatrices cameraMatrices(WorldState.Player player, float eyeHeight) {
             IntBuffer viewport = BufferUtils.createIntBuffer(4);
             GL11.glGetIntegerv(GL11.GL_VIEWPORT, viewport);
-            int width = Math.max(1, viewport.get(2));
-            int height = Math.max(1, viewport.get(3));
-            float eyeX = player.x();
-            float eyeY = player.z() * LEVEL_HEIGHT + eyeHeight;
-            float eyeZ = player.y();
-            float pitch = Math.max(-1.45f, Math.min(1.45f, player.verticalAim()));
-            float horizontal = (float) Math.cos(pitch);
-            float directionX = player.forwardX() * horizontal;
-            float directionY = (float) Math.sin(pitch);
-            float directionZ = player.forwardY() * horizontal;
-            if (Math.abs(directionX) + Math.abs(directionZ) < 0.001f) directionZ = 1.0f;
-            Matrix4f projection = new Matrix4f().perspective(
-                    (float) Math.toRadians(82.0), (float) width / height, 0.035f, 400.0f);
-            Matrix4f view = new Matrix4f().lookAt(
-                            eyeX,
-                            eyeY,
-                            eyeZ,
-                            eyeX + directionX,
-                            eyeY + directionY,
-                            eyeZ + directionZ,
-                            0,
-                            1,
-                            0);
-            return new CameraMatrices(projection, view);
+            return perspectiveCamera(player, eyeHeight, viewport.get(2), viewport.get(3));
         }
 
         private static int createProgram() {

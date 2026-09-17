@@ -10,12 +10,12 @@ import org.junit.jupiter.api.Test;
 
 final class NativeActorPassTest {
     @Test
-    void cullsByPerspectiveHeadingAndDistance() {
+    void retainsAllHeadingsWithinHorizontalRangeForExactRenderFrustum() {
         WorldState.Player player = player();
 
-        assertTrue(NativeActorPass.visible(player, 20.0f, 20.0f));
-        assertFalse(NativeActorPass.visible(player, 0.0f, 20.0f));
-        assertFalse(NativeActorPass.visible(player, 70.0f, 20.0f));
+        assertTrue(NativeActorPass.withinHorizontalRange(player, 20.0f, 20.0f));
+        assertTrue(NativeActorPass.withinHorizontalRange(player, 0.0f, 20.0f));
+        assertFalse(NativeActorPass.withinHorizontalRange(player, 70.0f, 20.0f));
     }
 
     @Test

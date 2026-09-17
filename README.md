@@ -54,8 +54,13 @@ declared scale and `attachment world` transform. The bridge now also contains a
 live consumer for dropped items: it identity-checks each captured item against
 the authoritative square, then asks PZ's own `ItemModelRenderer` to select and
 draw the installed mesh, texture, attachments, tint and item-state variants in
-the replacement perspective depth. That path is built and unit-tested but has
-not yet been accepted in a live session.
+the replacement perspective depth. Candidate items are ranked nearest-first
+without a same-floor restriction; the render callback then uses the exact 3D
+frustum from the replacement-world camera. Actors and vehicles use that same
+final frustum rather than the previous flat yaw cone, so a steep view from an
+upper floor can retain known ground-level content without submitting every
+loaded floor. Those paths are built and unit-tested but have not yet been
+accepted in a live session.
 
 Nonlocal characters have a parallel native path: the bridge snapshots B42's
 active `ModelSlot` into the same `ModelSlotRenderData` used by the game, then

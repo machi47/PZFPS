@@ -2,6 +2,7 @@ package dev.pzfps.bridge;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -23,12 +24,14 @@ import zombie.util.list.PZArrayList;
 /** Queues PZ's native static-model renderer for culled, identity-checked world items. */
 final class NativeWorldItemPass {
     private static final float MAXIMUM_DISTANCE = 48.0f;
-    private static final float MINIMUM_FORWARD_DOT = (float) Math.cos(Math.toRadians(50.0));
+    private static final float MODEL_BOUND_RADIUS = 3.0f;
     private static final int MAXIMUM_ITEMS_PER_FRAME = 512;
     private static final Map<Long, List<Reference>> CHUNKS = new ConcurrentHashMap<>();
     private static final ConcurrentLinkedQueue<Drawer> DRAWER_POOL = new ConcurrentLinkedQueue<>();
     private static final AtomicBoolean FAILED = new AtomicBoolean();
     private static final AtomicLong QUEUED = new AtomicLong();
+    private static final AtomicLong COMPLETED_CALLBACKS = new AtomicLong();
+    private static final AtomicLong FRUSTUM_CULLED = new AtomicLong();
     private static final AtomicLong UNRESOLVED = new AtomicLong();
     private static final AtomicLong NO_MODEL = new AtomicLong();
     private static long frames;
@@ -82,62 +85,65 @@ final class NativeWorldItemPass {
         long now = System.nanoTime();
         WorldState.Player viewpoint = WorldCapture.player(
                 player, 0L, now, System.currentTimeMillis());
-        int queuedThisFrame = 0;
+        ArrayList<Reference> candidates = new ArrayList<>();
         for (List<Reference> chunk : CHUNKS.values()) {
             for (Reference reference : chunk) {
-                if (!visible(viewpoint, reference)) continue;
-                IsoWorldInventoryObject worldObject = resolve(player, reference);
-                if (worldObject == null) {
-                    UNRESOLVED.incrementAndGet();
-                    continue;
-                }
-                Drawer drawer = DRAWER_POOL.poll();
-                if (drawer == null) drawer = new Drawer();
-                ItemModelRenderer.RenderStatus status;
-                try {
-                    status = drawer.prepare(worldObject);
-                } catch (Throwable error) {
-                    drawer.recycle();
-                    fail("model preparation", error);
-                    return;
-                }
-                if (status == ItemModelRenderer.RenderStatus.Ready) {
-                    SpriteRenderer.instance.drawGeneric(drawer);
-                    QUEUED.incrementAndGet();
-                    if (++queuedThisFrame >= MAXIMUM_ITEMS_PER_FRAME) break;
-                } else {
-                    drawer.recycle();
-                    if (status == ItemModelRenderer.RenderStatus.NoModel
-                            || status == ItemModelRenderer.RenderStatus.Failed) {
-                        NO_MODEL.incrementAndGet();
-                    }
+                if (withinHorizontalRange(viewpoint, reference)) candidates.add(reference);
+            }
+        }
+        candidates.sort(Comparator.comparingDouble(
+                reference -> horizontalDistanceSquared(viewpoint, reference)));
+        int queuedThisFrame = 0;
+        for (Reference reference : candidates) {
+            IsoWorldInventoryObject worldObject = resolve(player, reference);
+            if (worldObject == null) {
+                UNRESOLVED.incrementAndGet();
+                continue;
+            }
+            Drawer drawer = DRAWER_POOL.poll();
+            if (drawer == null) drawer = new Drawer();
+            ItemModelRenderer.RenderStatus status;
+            try {
+                status = drawer.prepare(worldObject);
+            } catch (Throwable error) {
+                drawer.recycle();
+                fail("model preparation", error);
+                return;
+            }
+            if (status == ItemModelRenderer.RenderStatus.Ready) {
+                SpriteRenderer.instance.drawGeneric(drawer);
+                QUEUED.incrementAndGet();
+                if (++queuedThisFrame >= MAXIMUM_ITEMS_PER_FRAME) break;
+            } else {
+                drawer.recycle();
+                if (status == ItemModelRenderer.RenderStatus.NoModel
+                        || status == ItemModelRenderer.RenderStatus.Failed) {
+                    NO_MODEL.incrementAndGet();
                 }
             }
-            if (queuedThisFrame >= MAXIMUM_ITEMS_PER_FRAME) break;
         }
         if (++frames % 300 == 0) {
             System.out.printf(
-                    "[PZFPS items] queuedThisFrame=%d indexed=%d queuedTotal=%d unresolvedTotal=%d noModelTotal=%d%n",
+                    "[PZFPS items] candidates=%d queuedThisFrame=%d indexed=%d queuedTotal=%d completedCallbacks=%d frustumCulled=%d unresolvedTotal=%d noModelTotal=%d%n",
+                    candidates.size(),
                     queuedThisFrame,
                     indexedCount(),
                     QUEUED.get(),
+                    COMPLETED_CALLBACKS.get(),
+                    FRUSTUM_CULLED.get(),
                     UNRESOLVED.get(),
                     NO_MODEL.get());
         }
     }
 
-    static boolean visible(WorldState.Player player, Reference item) {
+    static boolean withinHorizontalRange(WorldState.Player player, Reference item) {
+        return horizontalDistanceSquared(player, item) <= MAXIMUM_DISTANCE * MAXIMUM_DISTANCE;
+    }
+
+    static float horizontalDistanceSquared(WorldState.Player player, Reference item) {
         float dx = item.worldX() - player.x();
         float dy = item.worldY() - player.y();
-        float distanceSquared = dx * dx + dy * dy;
-        if (distanceSquared > MAXIMUM_DISTANCE * MAXIMUM_DISTANCE) return false;
-        if (distanceSquared < 1.0f) return true;
-        float distance = (float) Math.sqrt(distanceSquared);
-        float forwardLength = (float) Math.hypot(player.forwardX(), player.forwardY());
-        if (forwardLength < 0.0001f) return false;
-        float dot = (dx * player.forwardX() + dy * player.forwardY())
-                / (distance * forwardLength);
-        return dot >= MINIMUM_FORWARD_DOT;
+        return dx * dx + dy * dy;
     }
 
     private static IsoWorldInventoryObject resolve(IsoPlayer player, Reference reference) {
@@ -214,6 +220,14 @@ final class NativeWorldItemPass {
                     || InProcessWorldRenderer.currentCameraMatrices() == null) {
                 return;
             }
+            if (!InProcessWorldRenderer.currentViewIntersectsSphere(
+                    renderer.x,
+                    renderer.z * 3.0f,
+                    renderer.y,
+                    MODEL_BOUND_RADIUS)) {
+                FRUSTUM_CULLED.incrementAndGet();
+                return;
+            }
             boolean priorChunkFbo = PerformanceSettings.fboRenderChunk;
             try {
                 // PZ's model shader otherwise adds its isometric chunk depth to clip-space Z.
@@ -221,6 +235,7 @@ final class NativeWorldItemPass {
                 // around this perspective model and restore the engine flag before returning.
                 PerformanceSettings.fboRenderChunk = false;
                 renderer.DoRender(camera, false, false);
+                COMPLETED_CALLBACKS.incrementAndGet();
             } catch (Throwable error) {
                 fail("render", error);
             } finally {

@@ -67,7 +67,7 @@ gameplay:
    player is stationary. The former 169 -> 117/104 -> 169 oscillation is gone.
 5. The perspective room uses source PZ textures on known geometry and retains
    the normal PZ text/UI pass. The owner reported no further whole-world flash.
-6. The current source build passes 51 Java tests and 45 Python tests.
+6. The current source build passes 53 Java tests and 45 Python tests.
 
 No source/enhanced video pair or matched gameplay performance capture has yet
 been accepted.
@@ -168,16 +168,22 @@ been accepted.
   placement, rotations, scale and extended-placement state. The mesh builder
   now refuses to treat its generated item sprite as map-tile geometry.
 - `bridge/src/main/java/dev/pzfps/bridge/NativeWorldItemPass.java` and
-  `FirstPersonModelCamera.java` — cull captured dropped items in the perspective
-  view, re-resolve each by square/index/item ID on PZ's game thread, and queue
+  `FirstPersonModelCamera.java` — retain captured dropped items within the
+  loaded horizontal neighborhood, rank them nearest-first, re-resolve each by
+  square/index/item ID on PZ's game thread, and queue
   PZ's own `ItemModelRenderer` after the replacement world. This delegates
   state-specific static/world model choice, installed mesh/texture loading,
   attachments, tint and scale to the game instead of re-parsing FBX/X or
   drawing a sprite proxy. The camera adapter maps model space into the same
   perspective view and scopes `PerformanceSettings.fboRenderChunk=false` to
   each synchronous item draw so PZ's isometric `targetDepth` offset cannot
-  corrupt perspective depth. The prior value is restored in `finally`. This is
-  source-built and unit-tested, not yet live-accepted.
+  corrupt perspective depth. The final callback tests a conservative model
+  bound against the exact 3D frustum installed by that frame's perspective
+  world draw; it no longer uses a flat yaw cone or same-floor assumption.
+  Horizontal range remains separate from elevation so a steep upper-floor view
+  can retain loaded ground-level items. Queued, completed and frustum-culled
+  callbacks are logged separately. The prior engine value is restored in
+  `finally`. This is source-built and unit-tested, not yet live-accepted.
 - `bridge/src/main/java/dev/pzfps/bridge/NativeActorPass.java` and
   `FirstPersonCharacterCamera.java` — select visible nonlocal characters with
   validated active model slots, snapshot them through B42's own
@@ -190,8 +196,11 @@ been accepted.
   deliberately excluded to prevent head/neck/shoulder clipping until a
   first-person body treatment is implemented. Isometric chunk `targetDepth` is
   disabled only around the synchronous native draw and restored in `finally`.
-  Queued and completed callbacks are logged separately and are not called game
-  FPS. This path is source-built and unit-tested, not yet live-accepted.
+  The producer retains actors across headings within its horizontal range; the
+  render callback performs final culling against the same 3D camera frustum as
+  the world, including pitch and elevation. Queued, completed and frustum-
+  culled callbacks are logged separately and are not called game FPS. This path
+  is source-built and unit-tested, not yet live-accepted.
 - `bridge/src/main/java/dev/pzfps/bridge/NativeFirstPersonHandsPass.java` —
   snapshots the local player's real `ModelSlotRenderData` but submits only the
   evaluated primary/secondary hand-model roots and their descendants. The local
@@ -209,9 +218,11 @@ been accepted.
   sharing the perspective depth buffer. The camera adapter explicitly treats
   a vehicle root as B42 vehicle space (unit scale and no character foot offset),
   which `ModelSlotRenderData.inVehicle` alone cannot identify. Missing slots
-  keep the old box fallback, and render preparation/callback counts remain
-  separate. This is source-built and unit-tested, not live-accepted; a locally
-  occupied vehicle also needs a dedicated interior/near-camera visual check.
+  keep the old box fallback. As with actors/items, final selection now uses the
+  frame's exact 3D perspective frustum instead of a flat yaw cone, while render
+  preparation, completed and frustum-culled callback counts remain separate.
+  This is source-built and unit-tested, not live-accepted; a locally occupied
+  vehicle also needs a dedicated interior/near-camera visual check.
 - `bridge/src/main/java/dev/pzfps/bridge/InteractionTarget.java` — chooses only
   authoritative door/window/container candidates intersected by a short 3D
   perspective ray from the real eye height and pitch. Door/window volumes use
@@ -325,13 +336,14 @@ native binary was changed. Socket/log diagnostics used `lsof`, `nc`, `xxd` and
 Most recent test results:
 
 - Python/pytest: 45 passed, 0 failed (49 deprecation warnings).
-- Java/Gradle: 51 passed, 0 failed across `ChunkLifecycleTest`,
+- Java/Gradle: 53 passed, 0 failed across `ChunkLifecycleTest`,
   `CursorCaptureStateTest`, `DirectPatchInstallerTest`, `FirstPersonInputTest`,
   `FirstPersonCharacterCameraTest`, `FirstPersonModelCameraTest`,
   `InputStateTest`, `InteractionTargetTest`, `MovementDiagnosticsTest`,
   `NativeActorPassTest`, `NativeFirstPersonHandsPassTest`,
   `NativeVehiclePassTest`, `NativeWorldItemPassTest`,
   `PerspectiveBallisticsTest`, `PerspectiveInteractTest`,
+  `PerspectiveVisibilityTest`,
   `RepresentationBacklogTest`,
   `WireProtocolTest` and `WorldMeshBuilderTest`.
 
@@ -350,7 +362,7 @@ Most recent test results:
 - Live-tested staged bridge JAR SHA-256:
   `c0904da6d2f775c6dcd8bfac90ccc1096093640fff7fc05d61149cc8bd8946d2`.
 - Newest built but not live-tested bridge JAR SHA-256:
-  `f6245bf5d37397299ff1e68f1f3e46a0d33200ac077d02ab3c44ae354667103f`.
+  `f24829ee2e7e933ad9e5c1f7ff14c24fd1a318859959920ac69b07a7339a5ff7`.
 - Offline canonical report:
   `.local/canonical-bed-v64/store/objects/5107aa94b47977535039da77ac4018329c238388ad51c94829dc5a69d01d1a0a/report.json`.
 - Geometry source SHA-256:
@@ -444,6 +456,15 @@ update rates have not been reported as achieved performance.
     `IsoChunkMap.CHUNK_SIZE_IN_SQUARES` as eight; the test now derives all
     expected bounds from that authoritative constant. The corrected 51-test
     build passed, and no failed artifact was staged or loaded.
+15. Native world items, nonlocal actors and vehicles were still admitted by a
+    producer-side two-dimensional yaw cone. That approximation ignored camera
+    pitch and elevation and was unsuitable for upper-floor sightlines. Their
+    producer pass now retains the horizontally nearby authoritative candidates;
+    the native render callback uses the exact frustum established by the same
+    perspective world frame. A pure camera test from floor 12 verifies that a
+    steep downward view retains ground-level content and rejects a same-height
+    object behind the camera. This is a 53-test source checkpoint, not a live
+    visual acceptance result.
 
 ## Next smallest experiment
 
@@ -471,6 +492,9 @@ Without restarting the current accepted visual session merely to inspect it:
    holes. The offline model index remains independent reproducibility evidence;
    the live path intentionally uses PZ's state-aware renderer rather than
    duplicating its asset-selection rules.
+   Repeat from an upper-floor downward view and confirm the item is neither
+   rejected by a same-floor rule nor visible outside the true camera frustum;
+   preserve the completed/frustum-culled callback report.
 5. Approach one nonlocal actor and verify that B42's native evaluated model
    replaces only that actor's debug box with correct position, scale, facing,
    animation, clothing/held equipment and world-depth occlusion. Check standing,

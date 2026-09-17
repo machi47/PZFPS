@@ -32,13 +32,28 @@ final class NativeWorldItemPassTest {
     }
 
     @Test
-    void cullsByPerspectiveHeadingAndDistance() {
+    void retainsAllHeadingsWithinLoadedHorizontalRangeForExactRenderFrustum() {
         WorldState.Player player = new WorldState.Player(
                 1, 1, 1, 0, 10, 20, 0, 1, 0,
                 0, "Idle", false, false, false, 1.62f);
-        assertTrue(NativeWorldItemPass.visible(player, reference(20, 20)));
-        assertFalse(NativeWorldItemPass.visible(player, reference(0, 20)));
-        assertFalse(NativeWorldItemPass.visible(player, reference(70, 20)));
+        assertTrue(NativeWorldItemPass.withinHorizontalRange(player, reference(20, 20)));
+        assertTrue(NativeWorldItemPass.withinHorizontalRange(player, reference(0, 20)));
+        assertFalse(NativeWorldItemPass.withinHorizontalRange(player, reference(70, 20)));
+    }
+
+    @Test
+    void prioritizesNearestItemsWithoutTreatingElevationAsPlanarDistance() {
+        WorldState.Player player = new WorldState.Player(
+                1, 1, 1, 0, 10, 20, 12, 1, 0,
+                -1.2f, "Idle", false, false, false, 1.62f);
+        NativeWorldItemPass.Reference groundBelow =
+                new NativeWorldItemPass.Reference(10, 20, 0, 0, 1, 10.1f, 20.1f, 0);
+        NativeWorldItemPass.Reference fartherSameFloor =
+                new NativeWorldItemPass.Reference(20, 20, 12, 0, 2, 20, 20, 12);
+
+        assertTrue(NativeWorldItemPass.withinHorizontalRange(player, groundBelow));
+        assertTrue(NativeWorldItemPass.horizontalDistanceSquared(player, groundBelow)
+                < NativeWorldItemPass.horizontalDistanceSquared(player, fartherSameFloor));
     }
 
     private static NativeWorldItemPass.Reference reference(float x, float y) {

@@ -20,12 +20,13 @@ import zombie.iso.IsoMovingObject;
 /** Renders nonlocal characters through PZ's native evaluated model snapshots. */
 final class NativeActorPass {
     private static final float MAXIMUM_DISTANCE = 48.0f;
-    private static final float MINIMUM_FORWARD_DOT = (float) Math.cos(Math.toRadians(52.0));
+    private static final float MODEL_BOUND_RADIUS = 2.5f;
     private static final int MAXIMUM_ACTORS_PER_FRAME = 256;
     private static final ConcurrentLinkedQueue<Drawer> DRAWER_POOL = new ConcurrentLinkedQueue<>();
     private static final AtomicBoolean FAILED = new AtomicBoolean();
     private static final AtomicLong QUEUED = new AtomicLong();
     private static final AtomicLong COMPLETED_CALLBACKS = new AtomicLong();
+    private static final AtomicLong FRUSTUM_CULLED = new AtomicLong();
     private static final AtomicLong NO_ACTIVE_MODEL = new AtomicLong();
     private static long frames;
 
@@ -45,7 +46,8 @@ final class NativeActorPass {
                     || character == player
                     || character.isDestroyed()
                     || character.isInvisible()
-                    || !visible(viewpoint, character.getX(), character.getY())) {
+                    || !withinHorizontalRange(
+                            viewpoint, character.getX(), character.getY())) {
                 continue;
             }
             ModelManager.ModelSlot slot = character.legsSprite == null
@@ -72,18 +74,11 @@ final class NativeActorPass {
         return new PreparedFrame(drawers, Set.copyOf(entityIds));
     }
 
-    static boolean visible(WorldState.Player player, float worldX, float worldY) {
+    static boolean withinHorizontalRange(
+            WorldState.Player player, float worldX, float worldY) {
         float dx = worldX - player.x();
         float dy = worldY - player.y();
-        float distanceSquared = dx * dx + dy * dy;
-        if (distanceSquared > MAXIMUM_DISTANCE * MAXIMUM_DISTANCE) return false;
-        if (distanceSquared < 1.0f) return true;
-        float distance = (float) Math.sqrt(distanceSquared);
-        float forwardLength = (float) Math.hypot(player.forwardX(), player.forwardY());
-        if (forwardLength < 0.0001f) return false;
-        float dot = (dx * player.forwardX() + dy * player.forwardY())
-                / (distance * forwardLength);
-        return dot >= MINIMUM_FORWARD_DOT;
+        return dx * dx + dy * dy <= MAXIMUM_DISTANCE * MAXIMUM_DISTANCE;
     }
 
     private static boolean usable(ModelManager.ModelSlot slot, IsoGameCharacter character) {
@@ -147,10 +142,11 @@ final class NativeActorPass {
             }
             if (++frames % 300 == 0) {
                 System.out.printf(
-                        "[PZFPS actors] queuedThisFrame=%d queuedTotal=%d completedCallbacks=%d noActiveModel=%d%n",
+                        "[PZFPS actors] queuedThisFrame=%d queuedTotal=%d completedCallbacks=%d frustumCulled=%d noActiveModel=%d%n",
                         queuedThisFrame,
                         QUEUED.get(),
                         COMPLETED_CALLBACKS.get(),
+                        FRUSTUM_CULLED.get(),
                         NO_ACTIVE_MODEL.get());
             }
         }
@@ -177,6 +173,14 @@ final class NativeActorPass {
         @Override
         public void render() {
             if (renderData == null || FAILED.get()) return;
+            if (!InProcessWorldRenderer.currentViewIntersectsSphere(
+                    renderData.x,
+                    renderData.z * 3.0f + 0.9f,
+                    renderData.y,
+                    MODEL_BOUND_RADIUS)) {
+                FRUSTUM_CULLED.incrementAndGet();
+                return;
+            }
             boolean priorChunkFbo = PerformanceSettings.fboRenderChunk;
             ModelCamera priorCamera = ModelCamera.instance;
             try {
