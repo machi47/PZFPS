@@ -67,7 +67,7 @@ gameplay:
    player is stationary. The former 169 -> 117/104 -> 169 oscillation is gone.
 5. The perspective room uses source PZ textures on known geometry and retains
    the normal PZ text/UI pass. The owner reported no further whole-world flash.
-6. The current source build passes 24 Java tests and 42 Python tests.
+6. The current source build passes 24 Java tests and 45 Python tests.
 
 No source/enhanced video pair or matched gameplay performance capture has yet
 been accepted.
@@ -129,6 +129,12 @@ been accepted.
   model has been validated.
 - `src/pzfps/assets.py` and `src/pzfps/texture_packs.py` — index the installed B42
   geometry and texture packs without committing proprietary assets.
+- `src/pzfps/model_assets.py` — parses the installed B42 model scripts and
+  writes a deterministic identity index for PZ's actual FBX/X meshes, PNG
+  textures, scales and `attachment world` transforms. The 42.20 scan found
+  3,835 model definitions across 235 source files; 3,732 resolve to an exact
+  mesh and 3,442 to an explicit or exact same-identity texture. This is an
+  offline registry, not a live model renderer.
 - `src/pzfps/runtime.py` — enforces a single isolated process and project-local
   cache/mod staging. It does not alter Steam launch options, normal saves,
   installed game binaries or unrelated mods.
@@ -152,10 +158,11 @@ bin/pzfps upstream fetch
 bin/pzfps upstream verify --force-unsupported-host
 bin/pzfps assets index-geometry
 bin/pzfps assets index-textures --pack Tiles2x.pack
+bin/pzfps assets index-models
 bin/pzfps assets extract-sprite furniture_bedding_01_0
 
 PZ_JAR='/Users/machi/Library/Application Support/Steam/steamapps/common/ProjectZomboid/Project Zomboid.app/Contents/Java/projectzomboid.jar' \
-ZOMBIE_BUDDY_JAR='.local/upstream/ZombieBuddy/java/build/jdk26/libs/ZombieBuddy.jar' \
+ZOMBIE_BUDDY_JAR='/Users/machi/Code/MyProjects/PZFPS/.local/upstream/ZombieBuddy/java/build/jdk26/libs/ZombieBuddy.jar' \
 .local/toolchains/gradle-9.3.1/bin/gradle -p bridge clean test jar
 
 PYTHONPATH=src .local/canonical-venv/bin/python -m pytest -q
@@ -172,7 +179,7 @@ and `rg`; these did not modify the installation.
 
 Most recent test results:
 
-- Python/pytest: 42 passed, 0 failed (49 deprecation warnings).
+- Python/pytest: 45 passed, 0 failed (49 deprecation warnings).
 - Java/Gradle: 24 passed, 0 failed across `ChunkLifecycleTest`,
   `CursorCaptureStateTest`, `DirectPatchInstallerTest`, `FirstPersonInputTest`,
   `InputStateTest`, `InteractionTargetTest`, `WireProtocolTest` and
@@ -198,6 +205,10 @@ Most recent test results:
   `a092640469b62fc34f38146ceb8dd270b2c8517db65a4c361826479fd274db18`.
 - Compiled registry SHA-256:
   `8e109160f904c6cd506337af4752ba800abae64c454df3b8f9d1a8ff74b8b532`.
+- Installed-model index:
+  `.local/assets/pz-42.20/model-index.json` (3,812 mesh files and 6,140
+  texture files inventoried; 103 model definitions have no exact mesh match
+  and 393 have no explicit or exact same-identity texture match).
 - ZombieBuddy JAR SHA-256:
   `cc5642ef7d91f5a5957af6dd30000151c8c3674ea040b9e739b8dd2c309668de`.
 - Pinned overlay commit: `0d4caa1fd36d2581785efa80e6ade09983a18f05`.
@@ -231,6 +242,11 @@ update rates have not been reported as achieved performance.
 6. Visible holes and unsupported backs/ceilings are now honestly exposed. Their
    constrained completion is intentionally deferred until the live controls and
    authoritative interaction seam are coherent enough to judge moving views.
+7. A Java validation attempt using a project-relative `ZOMBIE_BUDDY_JAR` failed
+   because Gradle resolves file dependencies relative to `bridge/`. The
+   corrected absolute project-local path above produced a clean build with all
+   24 tests passing; this was an invocation error, not a source or dependency
+   failure.
 
 ## Next smallest experiment
 
@@ -245,8 +261,10 @@ Without restarting the current accepted visual session merely to inspect it:
    and validating the live object on PZ's game thread. Acceptance requires PZ's
    real action/context code to run; a visual or locally simulated interaction
    does not count.
-4. Connect one captured `worldStaticModel` to the live model consumer, retaining
-   omission rather than reverting to a false tile proxy when a model is absent.
+4. Consume `.local/assets/pz-42.20/model-index.json` for one captured
+   `worldStaticModel`, load its exact installed mesh/texture and apply its
+   declared scale/world attachment, retaining omission rather than reverting to
+   a false tile proxy when an identity cannot be resolved.
 
 The later appearance experiment is one identity-stable real asset carried
 through constrained completion and inspected from multiple moving views. It is

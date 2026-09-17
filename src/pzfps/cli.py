@@ -13,6 +13,7 @@ from typing import Any
 
 from . import __version__
 from .assets import compile_geometry
+from .model_assets import compile_model_index
 from .texture_packs import extract_sprite_page, index_texture_pack
 from .common import LOCAL, ROOT, command, load_config, now_utc, parse_version_prefix, sha256_file, timestamp_id, write_json
 from .deployment import cleanup as deployment_cleanup
@@ -399,6 +400,44 @@ def command_assets_index_textures(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_assets_index_models(args: argparse.Namespace) -> int:
+    report = inspect()
+    install = report["game"]["install_path"]
+    if not report["game"]["installed"] or not install:
+        raise UserError("Project Zomboid is not installed")
+    media = Path(install) / "Project Zomboid.app" / "Contents" / "Java" / "media"
+    output = args.output or (
+        LOCAL / "assets" / f"pz-{report['game']['version']}" / "model-index.json"
+    )
+    document = compile_model_index(
+        media / "scripts",
+        media / "models_X",
+        media / "textures",
+        output,
+        game_version=report["game"]["version"],
+    )
+    _print_json(
+        {
+            key: document[key]
+            for key in (
+                "schema_version",
+                "game_version",
+                "source_count",
+                "model_count",
+                "mesh_file_count",
+                "texture_file_count",
+                "resolved_mesh_count",
+                "unresolved_mesh_count",
+                "resolved_texture_count",
+                "unresolved_texture_count",
+                "alias_count",
+            )
+        }
+        | {"output": str(output)}
+    )
+    return 0
+
+
 def command_assets_extract_sprite(args: argparse.Namespace) -> int:
     output = args.output or (LOCAL / "assets" / "extracted" / args.sprite)
     _print_json(extract_sprite_page(args.index, args.sprite, output))
@@ -542,6 +581,12 @@ def build_parser() -> argparse.ArgumentParser:
     textures.add_argument("--pack", default="Tiles2x.pack")
     textures.add_argument("--output", type=Path)
     textures.set_defaults(func=command_assets_index_textures)
+    models = asset_commands.add_parser(
+        "index-models",
+        help="index installed PZ model identities, meshes, textures and world attachments",
+    )
+    models.add_argument("--output", type=Path)
+    models.set_defaults(func=command_assets_index_models)
     extract_sprite = asset_commands.add_parser(
         "extract-sprite",
         help="extract the one atlas page containing a named sprite",

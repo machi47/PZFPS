@@ -26,6 +26,18 @@ python3 -m venv .local/canonical-venv
 
 Source, build tools, weights, caches, extracted assets and captures stay inside this workspace; bulk belongs under `.local/`. Game assets, weights and proprietary/decompiled sources are not included in Git. Existing saves and unrelated mods remain untouched.
 
+Index the installed game's static/world-item models without copying them into
+the repository:
+
+```sh
+bin/pzfps assets index-models
+```
+
+The generated `.local/assets/pz-<version>/model-index.json` resolves script
+model identities to exact installed mesh/texture paths and preserves the
+declared scale and `attachment world` transform. This is input to a future live
+model consumer; generating the index does not claim those meshes are rendered.
+
 ## Active direction
 
 The objective is playable PZ with the real actors, evaluated animations, actions, UI and multiplayer state. Missing geometry/material information belongs in persistent scene assets, not independent image generations every frame. In-process hooks and an external renderer are integration choices, not different gameplay authorities. Neither backend is assumed fastest. Preserve useful implementations and change backend only for a demonstrated requirement.
