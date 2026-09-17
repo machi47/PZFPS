@@ -66,6 +66,123 @@ final class InteractionTargetTest {
     }
 
     @Test
+    void contextCandidatesIncludeOrdinaryObjectsInNearToFarOrder() {
+        WorldState.TileObject ordinary = object(4, false, false, false);
+        WorldState.TileObject fartherContainer = object(5, false, false, true);
+        WorldState.Chunk chunk = new WorldState.Chunk(
+                0,
+                0,
+                1,
+                1,
+                List.of(square(2, 0, ordinary), square(3, 0, fartherContainer)));
+
+        List<InteractionTarget.Reference> results = InteractionTarget.contextCandidates(
+                player(0.5f, 0.5f, 1.0f, 0.0f), List.of(chunk), 4.0f);
+
+        assertEquals(2, results.size());
+        assertEquals(4, results.get(0).objectIndex());
+        assertEquals(5, results.get(1).objectIndex());
+    }
+
+    @Test
+    void floorCandidateRequiresLookingAtTheFloorPlane() {
+        WorldState.TileObject floor = new WorldState.TileObject(
+                6,
+                "zombie.iso.IsoObject",
+                "normal",
+                "floors_interior_tilesandwood_01_0",
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                true,
+                WorldState.WorldItem.none());
+        WorldState.Chunk chunk = new WorldState.Chunk(
+                0, 0, 1, 1, List.of(square(2, 0, floor)));
+
+        assertTrue(InteractionTarget.contextCandidates(
+                        player(0.5f, 0.5f, 1.0f, 0.0f), List.of(chunk), 4.0f)
+                .isEmpty());
+        assertEquals(
+                6,
+                InteractionTarget.contextCandidates(
+                                player(
+                                        0.5f,
+                                        0.5f,
+                                        1.0f,
+                                        0.0f,
+                                        (float) Math.toRadians(-45.0)),
+                                List.of(chunk),
+                                4.0f)
+                        .getFirst()
+                        .objectIndex());
+    }
+
+    @Test
+    void worldItemCandidateUsesItsPreciseGroundPlacement() {
+        WorldState.WorldItem item = new WorldState.WorldItem(
+                true,
+                42,
+                "Base.Hammer",
+                "Hammer",
+                "",
+                "",
+                "",
+                2.5f,
+                0.5f,
+                0.0f,
+                0.0f,
+                0.0f,
+                0.0f,
+                1.0f,
+                false);
+        WorldState.TileObject worldItem = new WorldState.TileObject(
+                7,
+                "zombie.iso.objects.IsoWorldInventoryObject",
+                "normal",
+                "",
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                item);
+        WorldState.Chunk chunk = new WorldState.Chunk(
+                0, 0, 1, 1, List.of(square(2, 0, worldItem)));
+
+        assertTrue(InteractionTarget.contextCandidates(
+                        player(0.5f, 0.5f, 1.0f, 0.0f), List.of(chunk), 4.0f)
+                .isEmpty());
+        assertEquals(
+                42,
+                InteractionTarget.contextCandidates(
+                                player(
+                                        0.5f,
+                                        0.5f,
+                                        1.0f,
+                                        0.0f,
+                                        (float) Math.toRadians(-30.0)),
+                                List.of(chunk),
+                                4.0f)
+                        .getFirst()
+                        .worldItemId());
+    }
+
+    @Test
     void usesAuthoritativeDoorEdgeInsteadOfTileCenter() {
         WorldState.TileObject northDoor = new WorldState.TileObject(
                 3,

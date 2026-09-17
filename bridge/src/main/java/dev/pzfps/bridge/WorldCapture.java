@@ -366,6 +366,7 @@ public final class WorldCapture {
                 object.hasProperty(IsoFlagType.solid),
                 object.hasProperty(IsoFlagType.solidtrans),
                 object.hasProperty(IsoFlagType.blocksight),
+                object.hasProperty(IsoFlagType.solidfloor),
                 worldItem(object));
     }
 
@@ -390,6 +391,7 @@ public final class WorldCapture {
         if (value.solid()) flags |= 1 << 8;
         if (value.solidTrans()) flags |= 1 << 9;
         if (value.blocksSight()) flags |= 1 << 10;
+        if (value.floor()) flags |= 1 << 11;
         return flags;
     }
 

@@ -33,11 +33,7 @@ end
 addBinding("PZFPS Context Menu", Keyboard.KEY_F7)
 addBinding("PZFPS Mouse Capture", Keyboard.KEY_F8)
 
--- Open PZ's own complete B42 world menu for the exact live object selected by
--- the perspective reticle. Supplying its isometric screen coordinate keeps the
--- existing menu builder's square expansion correct; the visible menu is then
--- moved to the centre of this player's viewport for first-person use.
-function PZFPS_OpenWorldContext(playerNum, object)
+local function PZFPS_WorldContextCoordinates(playerNum, object)
     if not object or not object:getSquare() then return false end
     if not ISContextManager then return false end
 
@@ -45,6 +41,26 @@ function PZFPS_OpenWorldContext(playerNum, object)
     local zoom = getCore():getZoom(playerNum)
     local pickX = isoToScreenX(playerNum, square:getX() + 0.5, square:getY() + 0.5, square:getZ()) / zoom
     local pickY = isoToScreenY(playerNum, square:getX() + 0.5, square:getY() + 0.5, square:getZ()) / zoom
+    return pickX, pickY
+end
+
+-- B42's manager has a documented non-visible test path for controller target
+-- discovery. Use the same path so a decorative ray hit cannot steal F7 from an
+-- actionable appliance, curtain, switch, furniture object, or dropped item
+-- behind it. PZ and other mods remain the authorities on which options exist.
+function PZFPS_HasWorldContext(playerNum, object)
+    local pickX, pickY = PZFPS_WorldContextCoordinates(playerNum, object)
+    if not pickX then return false end
+    return ISContextManager.getInstance().createWorldMenu(
+        playerNum, object, { object }, pickX, pickY, true) == true
+end
+
+-- Open PZ's own complete B42 world menu for the exact live object selected by
+-- the perspective reticle. The manager expands { object } to all objects on its
+-- square before invoking vanilla and mod context providers.
+function PZFPS_OpenWorldContext(playerNum, object)
+    local pickX, pickY = PZFPS_WorldContextCoordinates(playerNum, object)
+    if not pickX then return false end
     local context = ISContextManager.getInstance().createWorldMenu(
         playerNum, object, { object }, pickX, pickY)
     if not context or context:isEmpty() then return false end

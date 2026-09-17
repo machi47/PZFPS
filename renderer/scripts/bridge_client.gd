@@ -295,6 +295,7 @@ func _read_chunk(packet: StreamPeerBuffer) -> Dictionary:
 			object["solid"] = (object_flags & 256) != 0
 			object["solid_trans"] = (object_flags & 512) != 0
 			object["blocks_sight"] = (object_flags & 1024) != 0
+			object["floor"] = (object_flags & 2048) != 0
 			object["world_item"] = _read_world_item(packet)
 			objects[object_index] = object
 		square["objects"] = objects

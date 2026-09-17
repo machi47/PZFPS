@@ -89,8 +89,11 @@ vehicle needs a specific interior/near-camera acceptance pass.
 
 Live FPS controls currently reserve two editable entries under the `[PZFPS]`
 key-binding section: F8 releases/recaptures mouse look, and F7 asks PZ to open
-its own world context menu for the identity-checked three-dimensional reticle
-target. The cursor is released only when PZ actually creates a non-empty menu.
+its own world context menu for identity-checked three-dimensional reticle hits.
+F7 walks near-to-far object hits and uses B42's hidden context-menu test pass,
+so ordinary appliances, switches, curtains, furniture, floors, dropped items
+and mod-defined objects do not require a hard-coded action list. The cursor is
+released only when PZ itself reports and then creates a non-empty menu.
 The same UI pass draws a fixed reticle from B42's installed `crosshair00.png`
 without copying that asset into the project, and hides it whenever the real
 cursor is visible. Toggling inventory releases capture on that same input poll;

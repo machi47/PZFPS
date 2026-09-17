@@ -19,8 +19,8 @@ PZ simulation/update -> immutable authoritative snapshot
 PZ render thread     -> PZFPS perspective world -> PZ text/UI
 ```
 
-Exactly one isolated PZ process is running. The source tree is ahead of that
-loaded process; the hashes below distinguish the live-tested JAR from the
+No PZ process is currently running. The source tree is ahead of the last
+live-tested process; the hashes below distinguish the live-tested JAR from the
 newest built JAR.
 
 ## Truthful acceptance state
@@ -44,8 +44,8 @@ newest built JAR.
 - **Accepted live first-person gameplay:** **NO**. Forward running was observed,
   but simultaneous camera-relative diagonal movement, the newly implemented
   cursor/UI transitions, center-view interaction, aiming/combat and ordinary
-  inventory/container play are not yet accepted. The newest input/UI build is
-  not loaded in the running process.
+  inventory/container play are not yet accepted. The newest input/UI build has
+  not been loaded into a game process.
 - **Performance checkpoint:** unavailable. The log records completed render
   callbacks and queue behavior, not game FPS. At its last unpaused fresh-state
   sample it reported `completedFrames=300`, `enqueuedFrames=300`, `meshes=169`,
@@ -67,7 +67,7 @@ gameplay:
    player is stationary. The former 169 -> 117/104 -> 169 oscillation is gone.
 5. The perspective room uses source PZ textures on known geometry and retains
    the normal PZ text/UI pass. The owner reported no further whole-world flash.
-6. The current source build passes 55 Java tests and 45 Python tests.
+6. The current source build passes 58 Java tests and 45 Python tests.
 
 No source/enhanced video pair or matched gameplay performance capture has yet
 been accepted.
@@ -116,7 +116,10 @@ been accepted.
   stairwell surface geometry.
   Tile-object snapshots now also retain B42's `solid`, `solidtrans` and
   `blocksight` properties. The first two classify collision-critical visible
-  holes; they do not grant the renderer authority to alter collision.
+  holes; they do not grant the renderer authority to alter collision. Each
+  object also records B42's real `solidfloor` property so first-person context
+  selection can intersect a thin floor plane instead of an entire three-metre
+  tile volume.
 - `bridge/src/main/java/dev/pzfps/bridge/FirstPersonInput.java` — uses GLFW
   relative mouse deltas without macOS cursor warping, reads PZ's actual physical
   key bindings simultaneously, and returns the inverse of B42's isometric input
@@ -163,9 +166,12 @@ been accepted.
   sequence has not been run live, so ranged combat remains unaccepted.
 - `bridge/mod/42/media/lua/client/PZFPS_KeyBinding.lua` — registers the F8 mouse
   capture action and F7 perspective context-menu action through PZ's editable
-  key-binding system. Its context wrapper feeds the exact target's isometric
-  location to B42's normal menu builder, then positions the resulting PZ UI at
-  the centre of the first-person viewport. Its post-UI callback reuses the
+  key-binding system. Its context wrapper first invokes the installed B42
+  manager's documented hidden test pass, then feeds the first actionable exact
+  target to the normal menu builder. B42 expands that target to every object on
+  its square before vanilla and mod providers construct their options. The
+  visible result is positioned at the centre of the first-person viewport.
+  Its post-UI callback reuses the
   installed `media/ui/Reticle/crosshair00.png` at the viewport centre and hides
   it whenever the real cursor is visible; no proprietary texture is copied into
   the project.
@@ -229,15 +235,17 @@ been accepted.
   preparation, completed and frustum-culled callback counts remain separate.
   This is source-built and unit-tested, not live-accepted; a locally occupied
   vehicle also needs a dedicated interior/near-camera visual check.
-- `bridge/src/main/java/dev/pzfps/bridge/InteractionTarget.java` — chooses only
-  authoritative door/window/container candidates intersected by a short 3D
-  perspective ray from the real eye height and pitch. Door/window volumes use
-  their actual north/west square edge; conservative container volumes occupy
-  their tile. The result is re-resolved by square, index, Java type, object
-  type, sprite and item ID against the live object on PZ's game thread. Before
-  the handoff, B42's own `LosUtil.lineClear` rejects ordinary wall occlusion; a
-  closed door or window admits only itself and cannot expose a container behind
-  it.
+- `bridge/src/main/java/dev/pzfps/bridge/InteractionTarget.java` — retains the
+  narrow door/window/container selector used by ordinary Interact, and now also
+  returns bounded near-to-far context candidates for ordinary and mod-defined
+  objects. Both use the short 3D ray from real eye height and pitch. Door/window
+  volumes use their actual north/west edge, floor objects are thin planes, and
+  dropped items use their exact absolute world position instead of occupying a
+  whole tile. The selector has no same-floor shortcut: elevation must pass the
+  same 3D reach test. Results are re-resolved by square, index, Java type,
+  object type, sprite and item ID against the live object on PZ's game thread.
+  B42's own `LosUtil.lineClear` rejects ordinary wall occlusion; a closed door
+  or window admits only itself and cannot expose an object behind it.
 - `bridge/src/main/java/dev/pzfps/bridge/PerspectiveInteract.java` and
   `patches/ContextActionPatch.java` — scope that identity-checked live target to
   the exact execution of B42's `doContext()`. PZ still constructs and validates
@@ -249,12 +257,15 @@ been accepted.
   source-built and Byte Buddy inlining-tested, not live-accepted.
 - `bridge/src/main/java/dev/pzfps/bridge/PerspectiveContextMenu.java` — hands an
   identity-checked live target to the PZ Lua context system on the game thread.
-  It releases mouse capture only after PZ reports a non-empty menu; every menu
-  option and resulting action remains owned by the game's existing code.
+  It asks PZ's own non-visible test mode whether each geometric candidate has
+  options and opens only the nearest target PZ accepts. It releases mouse
+  capture only after PZ reports a non-empty visible menu; every option and
+  resulting action remains owned by the game's existing code.
 - `bridge/src/main/java/dev/pzfps/bridge/WireProtocol.java`,
   `renderer/scripts/bridge_client.gd`, and `src/pzfps/runtime.py` — protocol
   version 5, including eye height/actor pose, stair-state flags, world-item
-  identity/placement and collision/vision facts; Godot is retained only as an
+  identity/placement, collision/vision facts and the backward-compatible floor
+  object flag; Godot is retained only as an
   offline/protocol consumer. Its updated parser completed a Godot 4.7.2
   headless editor parse with no reported script errors. A protocol-5 synthetic
   end-to-end run then decoded player/entity/chunk data and built the installed-
@@ -311,6 +322,13 @@ bin/pzfps game status-isolated
 PZ_JAR='/Users/machi/Library/Application Support/Steam/steamapps/common/ProjectZomboid/Project Zomboid.app/Contents/Java/projectzomboid.jar'
 PZ_BULLET='/Users/machi/Library/Application Support/Steam/steamapps/common/ProjectZomboid/Project Zomboid.app/Contents/Java/libPZBullet.dylib'
 javap -classpath "$PZ_JAR" -c -p zombie.core.physics.BallisticsController
+javap -classpath "$PZ_JAR" zombie.iso.SpriteDetails.IsoFlagType
+sed -n '1,150p' \
+  '/Users/machi/Library/Application Support/Steam/steamapps/common/ProjectZomboid/Project Zomboid.app/Contents/Java/media/lua/client/Context/ISContextManager.lua'
+sed -n '1,157p' \
+  '/Users/machi/Library/Application Support/Steam/steamapps/common/ProjectZomboid/Project Zomboid.app/Contents/Java/media/lua/client/Context/ISMenuContextWorld.lua'
+sed -n '122,280p' \
+  '/Users/machi/Library/Application Support/Steam/steamapps/common/ProjectZomboid/Project Zomboid.app/Contents/Java/media/lua/client/ISUI/ISWorldObjectContextMenu.lua'
 java -jar .local/toolchains/downloads/cfr-0.152.jar "$PZ_JAR" \
   --outputdir <temporary-directory> --jarfilter CombatManager
 nm -gU "$PZ_BULLET" | rg -i 'Ballistics|AimReticle'
@@ -339,6 +357,7 @@ Targeted installed-class inspection used `javap -c -p` on `IsoPlayer`,
 `TextureDraw.drawModel`, `SpriteRenderer.drawModel`, `Model`, `Shader`,
 `CharacterInputComponent`, `IsoPlayer.doContext()`, `ContextualAction`,
 `IsoGridSquare.HasStairsBelow()`,
+`ISContextManager`, `ISMenuContextWorld`, `ISWorldObjectContextMenu`,
 `BallisticsController`,
 `AimingReticle`, `Bullet` and related input/context-action/model classes. This
 confirmed that B42 snapshots evaluated model data on
@@ -354,10 +373,15 @@ negative-Z column of that quaternion through the supplied world point. No
 native binary was changed. Socket/log diagnostics used `lsof`, `nc`, `xxd` and
 `rg`; these did not modify the installation.
 
+The latest context pass also used installed B42 Lua read-only to verify that
+`ISMenuContextWorld.createMenu(..., test=true)` is the controller-oriented
+non-visible action-discovery path and that one selected object expands to every
+object on its square. No installed script was modified.
+
 Most recent test results:
 
 - Python/pytest: 45 passed, 0 failed (49 deprecation warnings).
-- Java/Gradle: 55 passed, 0 failed across `ChunkLifecycleTest`,
+- Java/Gradle: 58 passed, 0 failed across `ChunkLifecycleTest`,
   `CursorCaptureStateTest`, `DirectPatchInstallerTest`, `FirstPersonInputTest`,
   `FirstPersonCharacterCameraTest`, `FirstPersonModelCameraTest`,
   `InputStateTest`, `InteractionTargetTest`, `MovementDiagnosticsTest`,
@@ -383,7 +407,7 @@ Most recent test results:
 - Live-tested staged bridge JAR SHA-256:
   `c0904da6d2f775c6dcd8bfac90ccc1096093640fff7fc05d61149cc8bd8946d2`.
 - Newest built but not live-tested bridge JAR SHA-256:
-  `e2886cdd89d4b83342a48a2d179c5ec5f688836a483f0a5db44fbae14ad1e2f1`.
+  `b47d7b35e7c127a350119281993d271b88b03f579bce28ae3b8405f0ae24a6b0`.
 - Offline canonical report:
   `.local/canonical-bed-v64/store/objects/5107aa94b47977535039da77ac4018329c238388ad51c94829dc5a69d01d1a0a/report.json`.
 - Geometry source SHA-256:
@@ -423,14 +447,15 @@ update rates have not been reported as achieved performance.
    own `ItemModelRenderer` through a perspective camera adapter; its remaining
    prerequisite is a live check that a real dropped item has the right model,
    texture, placement and occlusion from several viewpoints.
-4. Center-view doors/containers/context menus and combat must resolve a stable
-   snapshot reference back to the exact live PZ object on the game thread. That
-   reference/re-resolution seam now includes eye height and pitch and is unit-
-   tested; opening a PZ context menu for it and live acceptance remain. Direct
-   position or state mutation is not an acceptable substitute. Inspection of
-   the installed geometry also confirmed that PZ supplies distinct open/closed
-   door sprite geometry, so the renderer continues to consume the live sprite
-   rather than fabricating a second hinge transform.
+4. Center-view interactions and combat must resolve a stable snapshot reference
+   back to the exact live PZ object on the game thread. The ordinary Interact
+   seam remains deliberately narrow for doors/windows. F7 now proposes bounded
+   near-to-far hits for all captured world objects, including precise dropped
+   items and thin floor planes, and calls B42's hidden context test until PZ
+   accepts one; it does not encode its own appliance/furniture/mod action list.
+   The 3D selector and identity re-resolution are unit-tested, while visible
+   menu opening and an executed real option still require live acceptance.
+   Direct position or state mutation is not an acceptable substitute.
 5. Nonlocal native characters are now wired to B42's evaluated model render
    data rather than reanimated or approximated in the renderer. This has not
    been loaded into the live process. It still needs a disposable-session check
@@ -494,6 +519,15 @@ update rates have not been reported as achieved performance.
     drawn. The 55-test Java build, Godot 4.7.2 headless parser and protocol-5
     synthetic renderer integration completed; the ranking still requires a live
     collision/visual correlation check.
+17. F7 initially considered only doors, windows and containers, which excluded
+    much of normal PZ play (dropped items, appliances, switches, curtains,
+    furniture and mod-defined actions). Installed B42 inspection found its
+    controller-oriented hidden context-menu test and automatic same-square
+    object expansion. The bridge now ray-orders broad geometric candidates and
+    lets that game-owned test reject non-actionable hits. Floor and dropped-item
+    bounds prevent the former full-tile proxy from stealing a horizontal ray.
+    The 58-test build, game-native Lua parse and Godot parser pass succeeded;
+    this source checkpoint has not been staged or live-accepted.
 
 ## Next smallest experiment
 
@@ -509,12 +543,13 @@ Without restarting the current accepted visual session merely to inspect it:
    PZ-generated contextual action. Then aim at a locked/non-actionable target
    and verify that a different nearby isometric action does not fire. PZ's own
    `doContext()` still owns action construction, validation and execution.
-3. Press F7 on a centre-view container and verify the new path opens B42's own
-   non-empty menu, releases the cursor, executes one normal option, and
-   recaptures only after the menu clears. The implementation is built but not
-   live-tested; acceptance requires PZ's real action/context code to run. Also
-   verify that the fixed reticle disappears while the cursor owns the menu and
-   returns after recapture.
+3. Press F7 in turn on a centre-view container, appliance/light switch or
+   curtain, dropped item, and floor while looking down. Verify the hidden test
+   skips a nearer decorative object with no options, B42's own non-empty menu
+   opens only for an actionable hit, one normal option executes, and capture
+   returns only after the menu clears. Also verify that the fixed reticle hides
+   while the cursor owns the menu and returns after recapture. The source path
+   is built but not live-tested.
 4. Inspect one real dropped item from several angles and verify the new native
    item pass selects PZ's installed model/texture, placement and scale, shares
    the perspective depth buffer, and leaves unresolved identities as honest

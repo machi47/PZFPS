@@ -44,11 +44,11 @@ final class WireProtocolTest {
     }
 
     @Test
-    void encodesCollisionFactsInVersionFiveObjectFlags() throws Exception {
+    void encodesCollisionAndFloorFactsInVersionFiveObjectFlags() throws Exception {
         WorldState.TileObject blocker = new WorldState.TileObject(
                 3, "zombie.iso.IsoObject", "normal", "fixtures_blocker_01_2",
                 false, false, false, false, false, false, false, true,
-                true, true, true, WorldState.WorldItem.none());
+                true, true, true, true, WorldState.WorldItem.none());
         WorldState.Square square = new WorldState.Square(
                 2, 4, 1, 9, 7, 255, 224, 192,
                 true, false, true, false, false, false, List.of(blocker));
@@ -85,7 +85,7 @@ final class WireProtocolTest {
         readString(input);
         readString(input);
         int flags = input.readUnsignedShort();
-        assertEquals(1 << 7 | 1 << 8 | 1 << 9 | 1 << 10, flags);
+        assertEquals(1 << 7 | 1 << 8 | 1 << 9 | 1 << 10 | 1 << 11, flags);
     }
 
     private static String readString(DataInputStream input) throws Exception {

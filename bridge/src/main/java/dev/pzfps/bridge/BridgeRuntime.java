@@ -260,26 +260,34 @@ public final class BridgeRuntime {
         long now = System.nanoTime();
         WorldState.Player viewpoint = WorldCapture.player(
                 player, FRAME_SEQUENCE.get(), now, System.currentTimeMillis());
-        InteractionTarget.nearestInteractive(
-                        viewpoint, ACCEPTED_CHUNKS.values(), INTERACTION_REACH)
-                .ifPresentOrElse(
-                        reference -> {
-                            IsoObject live = InteractionTarget.resolveLive(
-                                    player, reference, INTERACTION_REACH);
-                            boolean opened = live != null
-                                    && PerspectiveContextMenu.open(player, live);
-                            if (opened) FirstPersonInput.releaseForUi();
-                            System.out.printf(
-                                    "[PZFPS interaction] context candidate square=(%d,%d,%d) index=%d liveResolved=%s menuOpened=%s%n",
-                                    reference.squareX(),
-                                    reference.squareY(),
-                                    reference.z(),
-                                    reference.objectIndex(),
-                                    live != null,
-                                    opened);
-                        },
-                        () -> System.out.println(
-                                "[PZFPS interaction] context request has no perspective candidate"));
+        List<InteractionTarget.Reference> candidates = InteractionTarget.contextCandidates(
+                viewpoint, ACCEPTED_CHUNKS.values(), INTERACTION_REACH);
+        int resolved = 0;
+        int tested = 0;
+        for (InteractionTarget.Reference reference : candidates) {
+            IsoObject live = InteractionTarget.resolveLive(player, reference, INTERACTION_REACH);
+            if (live == null) continue;
+            resolved++;
+            tested++;
+            if (!PerspectiveContextMenu.hasOptions(player, live)) continue;
+            boolean opened = PerspectiveContextMenu.open(player, live);
+            if (opened) FirstPersonInput.releaseForUi();
+            System.out.printf(
+                    "[PZFPS interaction] context candidates=%d resolved=%d tested=%d selected=(%d,%d,%d)#%d type=%s menuOpened=%s%n",
+                    candidates.size(),
+                    resolved,
+                    tested,
+                    reference.squareX(),
+                    reference.squareY(),
+                    reference.z(),
+                    reference.objectIndex(),
+                    reference.javaType(),
+                    opened);
+            return;
+        }
+        System.out.printf(
+                "[PZFPS interaction] context request candidates=%d resolved=%d tested=%d; PZ reported no valid menu%n",
+                candidates.size(), resolved, tested);
     }
 
     private static void captureWorld(IsoPlayer player, long sequence, boolean fullResnapshot) {

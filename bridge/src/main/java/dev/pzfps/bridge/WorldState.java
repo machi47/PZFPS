@@ -105,6 +105,7 @@ public final class WorldState {
             boolean solid,
             boolean solidTrans,
             boolean blocksSight,
+            boolean floor,
             WorldItem worldItem) {
         public TileObject {
             worldItem = worldItem == null ? WorldItem.none() : worldItem;
@@ -134,6 +135,7 @@ public final class WorldState {
                     edgeWest,
                     open,
                     hoppable,
+                    false,
                     false,
                     false,
                     false,
@@ -171,6 +173,45 @@ public final class WorldState {
                     container,
                     false,
                     false,
+                    false,
+                    false,
+                    worldItem);
+        }
+
+        /** Compatibility constructor for fixtures created before floor identity was captured. */
+        public TileObject(
+                int index,
+                String javaType,
+                String objectType,
+                String sprite,
+                boolean door,
+                boolean window,
+                boolean north,
+                boolean edgeNorth,
+                boolean edgeWest,
+                boolean open,
+                boolean hoppable,
+                boolean container,
+                boolean solid,
+                boolean solidTrans,
+                boolean blocksSight,
+                WorldItem worldItem) {
+            this(
+                    index,
+                    javaType,
+                    objectType,
+                    sprite,
+                    door,
+                    window,
+                    north,
+                    edgeNorth,
+                    edgeWest,
+                    open,
+                    hoppable,
+                    container,
+                    solid,
+                    solidTrans,
+                    blocksSight,
                     false,
                     worldItem);
         }

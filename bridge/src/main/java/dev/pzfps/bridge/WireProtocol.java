@@ -146,7 +146,8 @@ public final class WireProtocol {
                             | (object.container() ? 1 << 7 : 0)
                             | (object.solid() ? 1 << 8 : 0)
                             | (object.solidTrans() ? 1 << 9 : 0)
-                            | (object.blocksSight() ? 1 << 10 : 0);
+                            | (object.blocksSight() ? 1 << 10 : 0)
+                            | (object.floor() ? 1 << 11 : 0);
                     out.writeShort(objectFlags);
                     writeWorldItem(out, object.worldItem());
                 }
