@@ -397,6 +397,14 @@ incomplete crate faces, shelf/source-projection defects and ceiling/material
 limitations. This pass verifies live lighting transport, not correct physical
 lighting, moving-view flicker acceptance or completed gameplay.
 
+The isolated game was left **paused**, visually confirmed in
+`.local/captures/dynamic-lighting-end-state.png`. A direct click at the pause
+icon while FPS capture was active instead moved the camera; do not use the
+dialog click helper in captured mode. An immediate AppleScript F2 did not
+reliably pause; a foreground-PID-guarded native F2 down/150 ms/up did. The actual
+profile `.local/pz-runtime/user-cache/Zomboid/Lua/keysB42.ini` maps Pause to
+LWJGL key 60 (F2). No keybinding, system setting or gameplay rule was changed.
+
 - **Offline appearance:** implemented and diagnostic only. The actual installed
   B42 geometry registry and `Tiles2x.pack` feed the persistent `canonical/`
   compiler. The recorded bed prototype has 36 triangles, 24,309 surface texels,

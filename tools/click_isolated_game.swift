@@ -1,4 +1,6 @@
 // Explicit, bounded native click fallback when the computer-use service is unavailable.
+// For an already released UI cursor (e.g. startup guide), not captured FPS mode:
+// posting an absolute mouse move while captured can rotate the game camera.
 import AppKit
 import CoreGraphics
 
