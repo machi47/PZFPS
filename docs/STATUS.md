@@ -23,9 +23,59 @@ One isolated PZ process is currently running from the project-local
 disposable profile with staged bridge JAR
 `974f032932c0cc7507b58316e872923a6ffeb66888165320cc3489ddfe5e0d10`
 (source commit `66cff0a`, PID 31018, launched 23:08:23 UTC).
-The newer fragment-depth repair is built but **not loaded** in that process.
+The newer fragment-depth and concave-polygon repairs are built but **not loaded**
+in that process.
 No normal save, installed game binary or
 unrelated mod was changed.
+
+### Concave source polygons: general topology repair (built, not loaded)
+
+The preceding pass was progress: production-shader failure was reproduced and
+the fragment-depth repair was committed/pushed as `e0a1b28`. This continuation
+found an independent defect in `WorldMeshBuilder`: every authored polygon was
+triangulated as a fan. Installed PZ `TileGeometryFile.Polygon.triangulate()` uses
+a contour triangulator; its private shared native Clipper is not appropriate
+to call from our background worker. The canonical compiler already used proper
+concave triangulation, but the live renderer did not.
+
+`PolygonTriangles` now triangulates simple contours with source-index-preserving
+ear clipping, handles either winding, duplicate closure and straight intermediate
+corners, and explicitly rejects degenerate/non-simple contours. The 256-point
+bound exceeds this installed registry's largest contour (79 points). Registry
+load logs and rejects an invalid polygon individually instead of letting it
+terminate the mesh worker or silently inventing a fan. Both textured and flat
+polygon paths use the triangles; textured normals come from a valid triangle,
+not possibly collinear first contour points. The worker caches indices per
+immutable registry primitive, so repeated map instances do not retriangulate.
+No live object, collision, action or save is changed.
+
+The installed-data audit actually read all **867 polygons** and found **279 old
+fans with overlapping signed triangles**. The new triangulation preserves area
+and winding for all 867. Examples include outdoor seating variants 16–19,
+indoor seating, bedding, vegetation and commercial-wall primitives. This proves
+a broad source-geometry repair, not that a particular screenshot's entire
+artifact is fixed. Source projection, missing volumetric faces and real
+primitive intersections remain independent problems.
+
+Commands: the pinned `gradle -p bridge test jar` invocation below with
+`PZFPS_GEOMETRY_AUDIT="$PWD/.local/assets/pz-42.20/tile-geometry.json"`;
+105 tests pass, zero failures/errors. Additional fixtures test a U-shaped cutout
+with both windings and every starting corner, invalid contours, and actual
+`WorldMeshBuilder` output/UV correspondence. Without the audit environment
+variable, the installed-data test is explicitly skipped. Raw audit output:
+`.local/reports/polygon-triangulation-installed-audit.xml` (untracked).
+Combined built JAR SHA-256:
+`3d4cac781b377fa4aedf94d5e31eed06bd23d4e8b885091cb3e287114081b729`.
+
+`tools/inspect_live_tiles.py --seconds 3 --radius 5 --output
+.local/reports/polygon-repair-live-neighborhood.json` received 169 chunks and
+102 nearby squares from the still-running original PID 31018. That read-only
+snapshot is evidence of current authoritative state, not execution of the new
+mesh code. The owner was continuing to explore; a nonblocking reload-choice
+question was sent and no restart or external deployment performed this pass.
+Next: load this combined artifact once coordinated, inspect affected contours
+and the existing window/bracket/bench depth cases in motion, and measure actual
+completed render cadence. Last accepted checkpoint is unchanged.
 
 ### Current repair: reproduced perspective depth-layer instability
 

@@ -92,6 +92,13 @@ public final class TileGeometryRegistry {
                             JSONArray point = points.getJSONArray(pointIndex);
                             parsedPoints.add(new float[] {point.getFloat(0), point.getFloat(1)});
                         }
+                        try {
+                            PolygonTriangles.triangulate(parsedPoints);
+                        } catch (IllegalArgumentException invalid) {
+                            System.err.printf("[PZFPS geometry] rejected polygon sprite=%s primitive=%d reason=%s%n",
+                                    sprite, index, invalid.getMessage());
+                            continue;
+                        }
                         primitives.add(new Primitive(
                                 "polygon",
                                 translate[0], translate[1], translate[2],

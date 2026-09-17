@@ -98,6 +98,9 @@ public final class WorldMeshBuilder {
     }
 
     private final TileGeometryRegistry registry;
+    // One worker owns this builder. Bounded by this immutable registry's polygons,
+    // not live object count; repeat instances never rerun triangulation.
+    private final Map<TileGeometryRegistry.Primitive, int[]> polygonTriangles = new java.util.IdentityHashMap<>();
 
     public WorldMeshBuilder(TileGeometryRegistry registry) {
         this.registry = registry;
@@ -588,7 +591,7 @@ public final class WorldMeshBuilder {
         return new float[] {minX, minY, minZ, maxX, maxY, maxZ};
     }
 
-    private static void addTexturedPrimitive(
+    private void addTexturedPrimitive(
             FloatBuilder output,
             float baseX,
             float baseY,
@@ -725,7 +728,7 @@ public final class WorldMeshBuilder {
         }
     }
 
-    private static void addTexturedPolygon(
+    private void addTexturedPolygon(
             FloatBuilder output,
             float baseX,
             float baseY,
@@ -733,6 +736,8 @@ public final class WorldMeshBuilder {
             TileGeometryRegistry.Primitive polygon,
             float[] light) {
         if (polygon.points().size() < 3) return;
+        int[] triangles = polygonTriangles.computeIfAbsent(polygon,
+                value -> PolygonTriangles.triangulate(value.points()));
         float[][] points = new float[polygon.points().size()][];
         for (int index = 0; index < points.length; index++) {
             float[] point = polygon.points().get(index);
@@ -742,17 +747,18 @@ public final class WorldMeshBuilder {
         }
         float[][] transformed = transformedLocal(polygon, points);
         float[][] world = worldPoints(baseX, baseY, baseZ, transformed);
-        float[] faceNormal = normal(world[0], world[1], world[2]);
+        float[] faceNormal = normal(world[triangles[0]], world[triangles[1]], world[triangles[2]]);
         boolean reverse = sourceFacing(faceNormal) < 0.0f;
         if (Math.abs(sourceFacing(faceNormal)) <= 0.05f) return;
         if (reverse) faceNormal = new float[] {-faceNormal[0], -faceNormal[1], -faceNormal[2]};
-        for (int index = 1; index < points.length - 1; index++) {
-            int second = reverse ? index + 1 : index;
-            int third = reverse ? index : index + 1;
+        for (int index = 0; index < triangles.length; index += 3) {
+            int first = triangles[index];
+            int second = triangles[index + (reverse ? 2 : 1)];
+            int third = triangles[index + (reverse ? 1 : 2)];
             addTexturedTriangle(
                     output,
-                    world[0], world[second], world[third], faceNormal, light,
-                    sourcePixel(transformed[0]),
+                    world[first], world[second], world[third], faceNormal, light,
+                    sourcePixel(transformed[first]),
                     sourcePixel(transformed[second]),
                     sourcePixel(transformed[third]));
         }
@@ -964,14 +970,16 @@ public final class WorldMeshBuilder {
             TileGeometryRegistry.Primitive polygon,
             float[] color) {
         if (polygon.points().size() < 3) return;
+        int[] triangles = PolygonTriangles.triangulate(polygon.points());
         float[][] points = new float[polygon.points().size()][];
         for (int index = 0; index < points.length; index++) {
             float[] point = polygon.points().get(index);
             points[index] = transform(baseX, baseY, baseZ, polygon, point[0], point[1], 0);
         }
-        float[] faceNormal = normal(points[0], points[1], points[2]);
-        for (int index = 1; index < points.length - 1; index++) {
-            addTriangle(output, points[0], points[index], points[index + 1], faceNormal, color);
+        float[] faceNormal = normal(points[triangles[0]], points[triangles[1]], points[triangles[2]]);
+        for (int index = 0; index < triangles.length; index += 3) {
+            addTriangle(output, points[triangles[index]], points[triangles[index+1]],
+                    points[triangles[index+2]], faceNormal, color);
         }
     }
 
