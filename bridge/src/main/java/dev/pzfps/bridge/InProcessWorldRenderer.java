@@ -376,6 +376,8 @@ public final class InProcessWorldRenderer {
         private final int originUniform;
         private final int lightingUniform;
         private final int lightingEnabledUniform;
+        private final int depthUnitUniform;
+        private int reportedDepthBits = -1;
         private final Map<Long, GpuLighting> lightingTextures = new HashMap<>();
         private final java.nio.ByteBuffer lightingUpload = BufferUtils.createByteBuffer(ChunkLighting.BYTES);
         private long lightingUploads;
@@ -404,13 +406,14 @@ public final class InProcessWorldRenderer {
             originUniform = GL20.glGetUniformLocation(program, "uOrigin");
             lightingUniform = GL20.glGetUniformLocation(program, "uLighting");
             lightingEnabledUniform = GL20.glGetUniformLocation(program, "uLightingEnabled");
+            depthUnitUniform = GL20.glGetUniformLocation(program, "uDepthUnit");
             if (mvpUniform < 0
                     || texturedUniform < 0
                     || materialUniform < 0
                     || textureUniform < 0
                     || uvBoundsUniform < 0
                     || cropUniform < 0 || surfaceKindUniform < 0 || projectedBoundsUniform < 0 || originUniform < 0
-                    || lightingUniform < 0 || lightingEnabledUniform < 0) {
+                    || lightingUniform < 0 || lightingEnabledUniform < 0 || depthUnitUniform < 0) {
                 throw new IllegalStateException("one or more source-texture shader uniforms are absent");
             }
         }
@@ -465,6 +468,13 @@ public final class InProcessWorldRenderer {
                 GL20.glUseProgram(program);
                 GL20.glUniform1i(textureUniform, 0);
                 GL20.glUniform1i(lightingUniform, 1);
+                int depthBits = GL11.glGetInteger(GL11.GL_DEPTH_BITS);
+                if (depthBits != reportedDepthBits) {
+                    System.out.printf("[PZFPS depth] bits=%d ordering=fragment layers=16 unitsPerLayer=2%n", depthBits);
+                    reportedDepthBits = depthBits;
+                }
+                GL20.glUniform1f(depthUnitUniform, depthBits > 0
+                        ? (float) (1.0 / (Math.pow(2, Math.min(depthBits, 24)) - 1.0)) : 0);
 
                 CameraMatrices camera = cameraMatrices(
                         snapshot.player, smoothEyeHeight(snapshot.player));
@@ -847,6 +857,7 @@ public final class InProcessWorldRenderer {
                     varying vec3 worldPosition;
                     varying vec3 surfaceNormal;
                     varying vec2 lightingUv;
+                    varying float surfaceLayer;
                     void main() {
                         vec3 sun = normalize(vec3(-0.45, 0.82, -0.35));
                         float light = uMaterial == 1
@@ -859,14 +870,7 @@ public final class InProcessWorldRenderer {
                         lightingUv = vec2(mod(inLightingIndex, 8.0) + 0.5,
                                 floor(inLightingIndex / 8.0) + 0.5) / vec2(8.0, 512.0);
                         gl_Position = uMvp * vec4(inPosition, 1.0);
-                        // PZ object order resolves layered sprites. Preserve a bounded
-                        // sub-centimetre depth order without moving their XY silhouette.
-                        // Unlike constant NDC bias this does not expand to metres far away.
-                        float bias = clamp(inLayer, 0.0, 16.0) * 0.0005;
-                        if (uTextured == 1 && gl_Position.w > 0.035) {
-                            gl_Position.z -= (2.0 * 0.035 * 400.0 / (400.0 - 0.035))
-                                    * bias / max(0.035, gl_Position.w - bias);
-                        }
+                        surfaceLayer = uTextured == 1 ? clamp(inLayer, 0.0, 16.0) : 0.0;
                     }
                     """;
             String fragment = """
@@ -880,11 +884,13 @@ public final class InProcessWorldRenderer {
                     uniform vec4 uProjectedBounds;
                     uniform sampler2D uLighting;
                     uniform int uLightingEnabled;
+                    uniform float uDepthUnit;
                     varying vec3 vertexColor;
                     varying vec2 sourcePixel;
                     varying vec3 worldPosition;
                     varying vec3 surfaceNormal;
                     varying vec2 lightingUv;
+                    varying float surfaceLayer;
                     vec4 sampleSprite(vec2 pixel) {
                         vec2 lo = uCrop.xy + vec2(0.5);
                         vec2 hi = uCrop.xy + uCrop.zw - vec2(0.5);
@@ -892,6 +898,22 @@ public final class InProcessWorldRenderer {
                         return texture2D(uTexture, mix(uUvBounds.xy, uUvBounds.zw, cropUv));
                     }
                     void main() {
+                        // Apply ordering at the fragment's actual depth. Applying the
+                        // nonlinear correction at vertices warps the depth plane and
+                        // makes differently tessellated coplanar surfaces intersect.
+                        float distance = 1.0 / gl_FragCoord.w;
+                        float bias = surfaceLayer * 0.0005;
+                        float metricOffset = (0.035 * 400.0 / (400.0 - 0.035))
+                                * bias / max(0.001225, distance * (distance - bias));
+                        // Sub-millimetre ordering eventually falls below depth-buffer
+                        // resolution. Reserve two units per source layer where possible,
+                        // but never expand the total eye-depth displacement beyond 8mm.
+                        // At long range precision can still defeat ordering; do not pull
+                        // props through walls to conceal that limitation.
+                        float maximumOffset = (0.035 * 400.0 / (400.0 - 0.035))
+                                * 0.008 / max(0.001225, distance * (distance - 0.008));
+                        gl_FragDepth = max(0.0, gl_FragCoord.z
+                                - min(maximumOffset, max(metricOffset, surfaceLayer * 2.0 * uDepthUnit)));
                         // Preserve the preceding diagnostic exposure floor for this transport
                         // change. No seen-state/darkMulti multiplier; physical calibration pending.
                         vec3 liveLight = vec3(1.0);

@@ -21,10 +21,68 @@ PZ render thread     -> PZFPS perspective world -> PZ text/UI
 
 One isolated PZ process is currently running from the project-local
 disposable profile with staged bridge JAR
-`08b955fa808c660195ba510f310a68ad864b09ac4cf06c2f56c0e176759af066`
-(source commit `8e404ae`, PID 30326, launched 22:49:45 UTC).
+`974f032932c0cc7507b58316e872923a6ffeb66888165320cc3489ddfe5e0d10`
+(source commit `66cff0a`, PID 31018, launched 23:08:23 UTC).
+The newer fragment-depth repair is built but **not loaded** in that process.
 No normal save, installed game binary or
 unrelated mod was changed.
+
+### Current repair: reproduced perspective depth-layer instability
+
+The owner's window/sill, wall bracket and bench screenshots remain rejected
+for camera-dependent surface ordering. The actual embedded shader applied a
+nonlinear eye-distance bias at triangle vertices. Different tessellations of
+the same plane therefore received different interpolated depth surfaces.
+This is a reproduced renderer defect, not proof that every reported artifact
+has the same cause. Frustum culling does not resolve overlapping visible faces.
+
+`tools/check_world_shader.cpp` now renders coarse and subdivided coplanar
+surfaces using the actual production shaders, 24-bit depth, five slopes, four
+depths and both submission orders on the Apple M4 Max. The previous shader
+failed 20 of 40 cases; raw output: `.local/reports/coplanar-depth-before.txt`.
+`InProcessWorldRenderer` now applies ordering per fragment, preserving the
+unmodified projected silhouette. It reads/logs the actual framebuffer depth
+bits and uses a two-depth-unit minimum where possible, with an **8mm total
+eye-depth displacement cap**. An intermediate uncapped version passed all
+40 cases but could produce unacceptable distant displacement; it was rejected.
+
+The final GPU probe reports zero wrong pixels within 16 metres eye depth,
+10,044 wrong pixels beyond that range across eight cases, and zero failures
+in ten physical-occlusion cases. The latter use 2cm separation through 32m,
+10cm at 100m; 2cm at 100m was below reliable precision and failed an intermediate
+check. Distant precision is explicitly unresolved, not hidden by a success
+label. Alpha-cutout, closed-crate and light-only GPU checks still pass.
+Output: `.local/reports/coplanar-depth-after.txt`.
+
+Commands actually run: `clang++ -std=c++17 -Wno-deprecated-declarations
+-framework OpenGL tools/check_world_shader.cpp -o .local/build/check_world_shader`,
+the resulting executable with `InProcessWorldRenderer.java`, and the pinned
+`gradle -p bridge test jar` command below (100 tests, zero failures/errors).
+Built JAR SHA-256:
+`6e3be0ea9c749ea5f910398a7297f741b44e4514a9cf38937a92a474dcb0be64`.
+This batch is **source/GPU-tested, not live-tested or staged**. Explicit fragment
+depth may affect early-depth rejection; concurrent gameplay performance must
+be measured after loading. No performance claim is made from the tiny probe.
+
+`.local/captures/depth-layer-before.png` preserves the running old shader's
+world view with the guide reminder modal. F8 release was verified by cursor
+mode `212995 -> 212993`, then the observed OK button was clicked. The second
+region capture (`depth-layer-before-ui-cleared.png`) caught the owner's desktop
+switch and is **not visual test evidence**. No restart was performed during
+this pass; the owner continued exploring. The startup-guide checkbox change
+from the preceding pass is confined to the disposable project profile.
+
+The owner's latest red-wall building screenshots still show malformed prop
+faces and wall/fixture interference. Current crate pictures confirm only the
+loaded family baseline, not general box completion or a full orbit acceptance.
+The last accepted checkpoints remain standing-zombie appearance and improved
+ground/wall continuity; neither all props nor flicker-free gameplay is accepted.
+
+Lighting reference checked: the developers explicitly distinguish B42's
+separate view cone from propagated illumination in
+[Hmm, Upgradez](https://projectzomboid.com/blog/news/2024/01/hmm-upgradez/).
+The existing independent RGB-light transport remains in use; this depth repair
+does not alter illumination, remove physical darkness or change gameplay LOS.
 
 ### Current repair: native character preparation and display-thread capture
 
@@ -1138,13 +1196,16 @@ update rates have not been reported as achieved performance.
 
 ## Next smallest experiment
 
-Keep the currently running single PID 30326 for the next acceptance pass.
+The current single PID 31018 still has the crate batch, not the new depth shader.
+At the next coordinated reload, stage the built fragment-depth repair and verify
+the logged actual depth bits, completed frame cadence and fresh state age.
 At a window/sill, shelf bracket and multi-tile bench, hold player position fixed
 and sweep the camera slowly through the formerly unstable angles. Preserve
 moving evidence and distinguish depth-layer flicker from alpha-edge aliasing,
 real geometry intersections and source-projection errors. Inspect a tool chest's
 new opposite side and verify the drawer front was not copied onto its back.
-Do not reload merely to inspect these source changes: this batch is loaded.
+The reload has one specific purpose: test the changed fragment-depth shader.
+Do not attribute new improvements to it before the built JAR is actually loaded.
 Also exercise a real light switch and compare light-grid uploads against the
 mesh-build counter; establish which native RGB/vertex-light values are physical
 illumination versus perception before removing the diagnostic exposure floor.

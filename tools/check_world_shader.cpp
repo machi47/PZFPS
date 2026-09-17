@@ -1,11 +1,15 @@
-// Compile the actual embedded renderer shaders and exercise light-only updates in
-// an offscreen macOS OpenGL context. No game instance, simulation or asset needed.
+// Compile the actual embedded renderer shaders and exercise light-only updates,
+// cutouts and perspective depth ordering in an offscreen macOS OpenGL context.
+// Near (<=16m eye depth) layer errors and physical-occlusion errors fail the test.
+// Distant precision residuals are reported, not silently counted as fixed.
+// No game instance, simulation or asset needed.
 // Build: clang++ -std=c++17 -Wno-deprecated-declarations -framework OpenGL
 //        tools/check_world_shader.cpp -o .local/build/check_world_shader
 #include <OpenGL/OpenGL.h>
 #include <OpenGL/gl.h>
 #include <OpenGL/glext.h>
 #include <array>
+#include <cmath>
 #include <fstream>
 #include <iostream>
 #include <iterator>
@@ -84,6 +88,8 @@ int main(int argc, char** argv) {
         glUniform1i(uniform("uTexture"), 0);
         glUniform1i(uniform("uLighting"), 1);
         glUniform1i(uniform("uLightingEnabled"), 1);
+        // Optional solely so the same regression can reproduce the old shader failure.
+        glUniform1f(glGetUniformLocation(program, "uDepthUnit"), 1.f / 16777215.f);
         GLuint output = 0, framebuffer = 0, light = 0;
         glGenTextures(1, &output);
         glBindTexture(GL_TEXTURE_2D, output);
@@ -159,6 +165,105 @@ int main(int argc, char** argv) {
                   << " dim=" << dim << " sourceDim=" << sourceDim << " geometryUploads=1 lightUploads=2\n";
         std::cout << "closedCrateEdge=passed ordinaryHole=" << ordinaryHole
                   << " repairedCrate=" << repairedCrate << '\n';
+        // Coplanar wall and attachment use different tessellations. Layer two
+        // must win locally, independent of angle and submission order. Quantify
+        // the far-range limitation of keeping the total depth displacement <=8mm.
+        constexpr int size = 128;
+        glBindTexture(GL_TEXTURE_2D, output);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, size, size, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        glBindTexture(GL_TEXTURE_2D, white);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, whitePixel);
+        GLuint depth = 0;
+        glGenRenderbuffersEXT(1, &depth);
+        glBindRenderbufferEXT(GL_RENDERBUFFER_EXT, depth);
+        glRenderbufferStorageEXT(GL_RENDERBUFFER_EXT, GL_DEPTH_COMPONENT24, size, size);
+        glFramebufferRenderbufferEXT(GL_FRAMEBUFFER_EXT, GL_DEPTH_ATTACHMENT_EXT, GL_RENDERBUFFER_EXT, depth);
+        if (glCheckFramebufferStatusEXT(GL_FRAMEBUFFER_EXT) != GL_FRAMEBUFFER_COMPLETE_EXT)
+            throw std::runtime_error("Incomplete depth framebuffer");
+        glViewport(0, 0, size, size);
+        glEnable(GL_DEPTH_TEST);
+        glDepthFunc(GL_LEQUAL);
+        glUniform1i(uniform("uLightingEnabled"), 0);
+        glUniform1i(uniform("uSurfaceKind"), 0);
+        glUniform4f(uniform("uCrop"), 0, 0, 1, 1);
+        glVertexAttrib2f(3, .5f, .5f);
+        constexpr float near = .035f, far = 400;
+        const GLfloat perspective[] = {1,0,0,0, 0,1,0,0,
+            0,0,-(far+near)/(far-near),-1, 0,0,-2*far*near/(far-near),0};
+        glUniformMatrix4fv(uniform("uMvp"), 1, GL_FALSE, perspective);
+        int failures = 0, cases = 0, distantWrong = 0, nearWrong = 0;
+        for (float distance : {.5f, 2.f, 8.f, 32.f}) {
+            for (float slope : {-.85f, -.4f, 0.f, .4f, .85f}) {
+                for (bool reverse : {false, true}) {
+                    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+                    auto surface = [&](int subdivisions, int layer) {
+                        std::vector<float> vertices;
+                        auto point = [&](float x, float y) {
+                            float w = distance / (1 + slope * x);
+                            vertices.insert(vertices.end(), {x*w, y*w, -w});
+                        };
+                        for (int y=0; y<subdivisions; y++) for (int x=0; x<subdivisions; x++) {
+                            float a=-1+2.f*x/subdivisions, b=-1+2.f*y/subdivisions;
+                            float c=-1+2.f*(x+1)/subdivisions, d=-1+2.f*(y+1)/subdivisions;
+                            point(a,b); point(c,b); point(c,d);
+                            point(a,b); point(c,d); point(a,d);
+                        }
+                        glBufferData(GL_ARRAY_BUFFER, vertices.size()*sizeof(float), vertices.data(), GL_STREAM_DRAW);
+                        glVertexAttrib1f(4, layer);
+                        glVertexAttrib3f(2, layer==1 ? 1 : 0, layer==2 ? 1 : 0, 0);
+                        glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(vertices.size()/3));
+                    };
+                    if (reverse) { surface(8,2); surface(1,1); }
+                    else { surface(1,1); surface(8,2); }
+                    std::vector<unsigned char> result(size*size*4);
+                    glReadPixels(0,0,size,size,GL_RGBA,GL_UNSIGNED_BYTE,result.data());
+                    int wrong = 0;
+                    for (int y=2; y<size-2; y++) for (int x=2; x<size-2; x++) {
+                        size_t pixel=4*(y*size+x);
+                        if (result[pixel+1] < 240 || result[pixel] > 10) {
+                            wrong++;
+                            float eyeDepth = distance / (1 + slope * (-1 + 2.f*(x+.5f)/size));
+                            if (eyeDepth <= 16) nearWrong++;
+                            else distantWrong++;
+                        }
+                    }
+                    cases++;
+                    if (wrong) {
+                        failures++;
+                        std::cout << "coplanarFailure distance=" << distance << " slope=" << slope
+                                  << " reverse=" << reverse << " pixels=" << wrong << '\n';
+                    }
+                }
+            }
+        }
+        std::cout << "coplanarLayers cases=" << cases << " casesWithWrongPixels=" << failures
+                  << " wrongPixelsWithin16m=" << nearWrong << " wrongPixelsBeyond16m=" << distantWrong << '\n';
+        if (nearWrong) throw std::runtime_error("Near coplanar layer ordering is unstable");
+        // The precision floor must not grow into a large physical displacement.
+        // A higher-priority object 2cm behind an actual wall must stay hidden
+        // locally (10cm at 100m, where 2cm is below this projection's precision).
+        int occlusionFailures = 0;
+        for (float distance : {.5f, 2.f, 8.f, 32.f, 100.f}) {
+            for (bool reverse : {false, true}) {
+                glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+                auto flat = [&](float d, float layer, bool hidden) {
+                    const float vertices[] = {-d,-d,-d, 3*d,-d,-d, -d,3*d,-d};
+                    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STREAM_DRAW);
+                    glVertexAttrib1f(4, layer);
+                    glVertexAttrib3f(2, hidden ? 1 : 0, hidden ? 0 : 1, 0);
+                    glDrawArrays(GL_TRIANGLES, 0, 3);
+                };
+                float separation = distance > 32 ? .1f : .02f;
+                if (reverse) { flat(distance+separation,16,true); flat(distance,0,false); }
+                else { flat(distance,0,false); flat(distance+separation,16,true); }
+                std::array<unsigned char,4> result{};
+                glReadPixels(64,64,1,1,GL_RGBA,GL_UNSIGNED_BYTE,result.data());
+                if (result[0] > 10 || result[1] < 240) occlusionFailures++;
+            }
+        }
+        std::cout << "physicalOcclusion cases=10 failures=" << occlusionFailures << '\n';
+        if (occlusionFailures || glGetError()!=GL_NO_ERROR)
+            throw std::runtime_error("Physical occlusion/depth probe failed");
         CGLSetCurrentContext(nullptr);
         CGLDestroyContext(context);
         return 0;
