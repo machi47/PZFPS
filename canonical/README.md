@@ -7,7 +7,7 @@ From the repository root, keep the environment and generated artifacts local:
 ```sh
 python3 -m venv .local/canonical-venv
 .local/canonical-venv/bin/python -m pip install './canonical[test]'
-.local/canonical-venv/bin/python -m pytest canonical/tests -q
+PYTHONPATH=canonical .local/canonical-venv/bin/python -m pytest canonical/tests -q
 .local/canonical-venv/bin/pzcanonical fixture --output .local/canonical-proof
 .local/canonical-venv/bin/pzcanonical compile .local/asset-job.json --store .local/canonical
 ```
@@ -67,10 +67,22 @@ The `from-pz` command reads the actual schema emitted by `src/pzfps/assets.py` a
 .local/canonical-venv/bin/pzcanonical from-pz \
   --registry .local/assets/pz-42.20/tile-geometry.json \
   --sprite-manifest .local/assets/pz-42.20/first-asset/furniture_bedding_01_0.json \
-  --horizontal 64 --vertical 192 \
+  --horizontal 64 --vertical 78.38367177 \
   --output .local/canonical-bed
 ```
 
-Those paths/scales match the supplied local-session convention; they are inputs, not a claim that the example sprite has already passed calibration on the owner's installation. The output contains a runnable source job and its compiled GLB, with calibration overlap recorded. For a planar primitive, supply `--polygon-thickness` as an explicit visual completion choice. Multiple tiles belonging to one object still require verified grouping; a single tile fragment must not be called a complete multi-tile object.
+The scales above match the installed B42 tile-depth projection for raw registry
+coordinates, now checked against `TileGeometryUtils.calcMatricesForSquare`.
+The previous `--vertical 192` example was not that coordinate convention; the
+historical bed run used 64 and is not a calibrated-scale acceptance result.
+Raw registry Y maps to live world height with `sqrt(1.5)` when floors are 3 units
+apart. Primitive rotation is `T * Rx * Ry * Rz`, matching JOML `rotateXYZ`; plane
+orientation is already in polygon rotation and must not be applied twice.
+Existing generated assets are immutable historical artifacts, not silently
+upgraded by these fixes. Recompile into a new output directory to validate them.
+The output contains a runnable source job and its compiled GLB, with calibration
+overlap recorded. For a planar primitive, supply `--polygon-thickness` as an
+explicit visual completion choice. Multiple tiles belonging to one object still
+require verified grouping; a fragment must not be called a complete object.
 
 The registry transform and image-fit tests use authored data in the real schema. They do not publish or reconstruct the owner's proprietary source art in Git. Version 0.1.1 also uses premultiplied-alpha linear-color sampling to prevent transparent sprite borders from darkening accepted surface colors, and closes each SQLite transaction's connection deterministically.

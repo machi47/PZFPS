@@ -78,18 +78,19 @@ final class WorldMeshBuilderTest {
         assertEquals(2, mesh.primitiveCount());
         assertEquals(1, mesh.coverage().structuralFallbackObjects());
         assertEquals(2, mesh.coverage().mirroredStructuralFaces());
-        assertEquals(24, mesh.vertexCount());
+        assertEquals(12, mesh.vertexCount()); // GPU two-sided draw: no coplanar reverse duplicates
+        assertTrue(mesh.texturedBatches().getFirst().wallEdges());
         float[] vertices = mesh.texturedBatches().getFirst().vertices();
-        for (int vertex = 0; vertex < 12; vertex++) {
+        for (int vertex = 0; vertex < 6; vertex++) {
             assertEquals(3.0f, vertices[vertex * WorldMeshBuilder.TEXTURED_FLOATS_PER_VERTEX + 2]);
         }
-        for (int vertex = 12; vertex < 24; vertex++) {
+        for (int vertex = 6; vertex < 12; vertex++) {
             assertEquals(2.0f, vertices[vertex * WorldMeshBuilder.TEXTURED_FLOATS_PER_VERTEX]);
         }
     }
 
     @Test
-    void doesNotMirrorStatefulDoorOrWindowFallbacks() throws Exception {
+    void doesNotAddDuplicateGeometryOrFloorEdgeFillToDoorAndWindowFallbacks() throws Exception {
         Path registryPath = temporary.resolve("empty-openings.json");
         Files.writeString(
                 registryPath,
@@ -111,6 +112,8 @@ final class WorldMeshBuilderTest {
         assertEquals(2, mesh.coverage().structuralFallbackObjects());
         assertEquals(0, mesh.coverage().mirroredStructuralFaces());
         assertEquals(12, mesh.vertexCount());
+        assertTrue(mesh.texturedBatches().stream().noneMatch(WorldMeshBuilder.TexturedBatch::solidFloor));
+        assertTrue(mesh.texturedBatches().stream().noneMatch(WorldMeshBuilder.TexturedBatch::wallEdges));
     }
 
     @Test
@@ -134,6 +137,7 @@ final class WorldMeshBuilderTest {
         assertEquals(1, mesh.coverage().sourceTexturedFloors());
         assertEquals(6, mesh.vertexCount());
         assertEquals("floors_fixture_01_13", mesh.texturedBatches().getFirst().sprite());
+        assertTrue(mesh.texturedBatches().getFirst().solidFloor());
         float[] vertices = mesh.texturedBatches().getFirst().vertices();
         assertEquals(64.0f, vertices[9]);
         assertEquals(192.0f, vertices[10]);

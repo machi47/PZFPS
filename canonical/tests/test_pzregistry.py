@@ -28,6 +28,7 @@ def test_registry_cylinder_y_up_and_winding():
 
 def test_concave_polygon_extrudes_without_hull_filling():
     source = registry(dict(kind="polygon", plane="XZ", points=[[0,0],[1,0],[1,.4],[.4,.4],[.4,1],[0,1]]))
+    source['tiles']['test_0']['geometry'][0]['rotate_degrees'] = [90, 0, 0]
     with pytest.raises(ValueError, match="thickness"):
         registry_mesh(source, "test_0")
     mesh = registry_mesh(source, "test_0", polygon_thickness=.02)
@@ -71,7 +72,7 @@ def test_actual_schema_to_compiled_glb(tmp_path):
     assert result.report['observed_fraction'] > .4
 
 
-def test_registry_rotation_matches_java_xyz_order():
+def test_registry_rotation_matches_installed_joml_rotate_xyz_order():
     record = registry(dict(kind="box", min=[-.5,0,-.2], max=[.5,1,.2]))
     source = record["tiles"]["test_0"]["geometry"][0]
     source["rotate_degrees"] = [20,35,70]
@@ -79,8 +80,15 @@ def test_registry_rotation_matches_java_xyz_order():
     original = Mesh.box(np.array([source['min'],source['max']])).vertices
     rx,ry,rz = np.deg2rad(source['rotate_degrees'])
     x,y,z = original.T
-    y1 = y*np.cos(rx)-z*np.sin(rx); z1=y*np.sin(rx)+z*np.cos(rx)
-    x2=x*np.cos(ry)+z1*np.sin(ry); z2=-x*np.sin(ry)+z1*np.cos(ry)
-    x3=x2*np.cos(rz)-y1*np.sin(rz); y3=x2*np.sin(rz)+y1*np.cos(rz)
-    expected=np.column_stack([x3,y3,z2])+source['translate']
+    x1=x*np.cos(rz)-y*np.sin(rz); y1=x*np.sin(rz)+y*np.cos(rz)
+    x2=x1*np.cos(ry)+z*np.sin(ry); z2=-x1*np.sin(ry)+z*np.cos(ry)
+    y3=y1*np.cos(rx)-z2*np.sin(rx); z3=y1*np.sin(rx)+z2*np.cos(rx)
+    expected=np.column_stack([x2,y3,z3])+source['translate']
     np.testing.assert_allclose(registry_mesh(record,'test_0').vertices,expected,atol=1e-12)
+
+
+def test_polygon_plane_is_not_applied_twice_with_explicit_rotation():
+    source = registry(dict(kind="polygon", plane="XZ", points=[[0,0],[1,0],[1,1],[0,1]]))
+    source['tiles']['test_0']['geometry'][0]['rotate_degrees'] = [90, 0, 0]
+    mesh = registry_mesh(source, 'test_0', polygon_thickness=.02)
+    np.testing.assert_allclose(mesh.bounds[1] - mesh.bounds[0], [1, .02, 1], atol=1e-12)

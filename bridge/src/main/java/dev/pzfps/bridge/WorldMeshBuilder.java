@@ -5,12 +5,16 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.HashSet;
+import java.util.Set;
 
 /** Converts immutable PZ snapshots into renderer-owned triangles without touching live objects. */
 public final class WorldMeshBuilder {
     public static final int FLOATS_PER_VERTEX = 9;
     public static final int TEXTURED_FLOATS_PER_VERTEX = 11;
     private static final float LEVEL_HEIGHT = 3.0f;
+    // PZ's tile-depth scene uses 2*sqrt(1.5) authored units per floor, not 3.
+    static final float AUTHORED_HEIGHT_TO_WORLD = (float) Math.sqrt(1.5);
     private static final int CYLINDER_SEGMENTS = 10;
     private static final int MAX_VERTICES_PER_CHUNK = 500_000;
 
@@ -80,7 +84,7 @@ public final class WorldMeshBuilder {
     }
 
     /** Source sprite samples projected onto only the support surfaces we currently know. */
-    public record TexturedBatch(String sprite, float[] vertices) {
+    public record TexturedBatch(String sprite, float[] vertices, boolean solidFloor, boolean wallEdges) {
         public int vertexCount() {
             return vertices.length / TEXTURED_FLOATS_PER_VERTEX;
         }
@@ -102,6 +106,8 @@ public final class WorldMeshBuilder {
     public MeshData build(WorldState.Chunk chunk) {
         FloatBuilder output = new FloatBuilder(16_384, FLOATS_PER_VERTEX);
         Map<String, FloatBuilder> textured = new LinkedHashMap<>();
+        Set<String> floorSprites = new HashSet<>();
+        Set<String> wallSprites = new HashSet<>();
         Map<String, FloatBuilder> materials = new LinkedHashMap<>();
         int primitiveCount = 0;
         int sourceTexturedFloors = 0;
@@ -134,6 +140,7 @@ public final class WorldMeshBuilder {
                 String floorSprite = floorSprite(square);
                 if (!floorSprite.isEmpty()) {
                     sourceTexturedFloors++;
+                    floorSprites.add(floorSprite);
                     FloatBuilder batch = textured.computeIfAbsent(
                             floorSprite,
                             ignored -> new FloatBuilder(512, TEXTURED_FLOATS_PER_VERTEX));
@@ -212,6 +219,9 @@ public final class WorldMeshBuilder {
                 } else if (isStructuralPanel(object)) {
                     structuralFallbackObjects++;
                     boolean mirrorSafe = isMirrorSafeStructuralPanel(object);
+                    if (mirrorSafe && !object.sprite().startsWith("fencing_")) {
+                        wallSprites.add(object.sprite());
+                    }
                     FloatBuilder batch = textured.computeIfAbsent(
                             object.sprite(),
                             ignored -> new FloatBuilder(512, TEXTURED_FLOATS_PER_VERTEX));
@@ -224,8 +234,7 @@ public final class WorldMeshBuilder {
                                 baseZ,
                                 true,
                                 object.index(),
-                                light,
-                                mirrorSafe);
+                                light);
                         primitiveCount++;
                         if (mirrorSafe) mirroredStructuralFaces++;
                         emitted = true;
@@ -238,8 +247,7 @@ public final class WorldMeshBuilder {
                                 baseZ,
                                 false,
                                 object.index(),
-                                light,
-                                mirrorSafe);
+                                light);
                         primitiveCount++;
                         if (mirrorSafe) mirroredStructuralFaces++;
                         emitted = true;
@@ -254,8 +262,7 @@ public final class WorldMeshBuilder {
                                 baseZ,
                                 object.north(),
                                 object.index(),
-                                light,
-                                false);
+                                light);
                         primitiveCount++;
                     }
                 } else {
@@ -281,7 +288,8 @@ public final class WorldMeshBuilder {
         ArrayList<TexturedBatch> texturedBatches = new ArrayList<>(textured.size());
         for (Map.Entry<String, FloatBuilder> entry : textured.entrySet()) {
             if (entry.getValue().vertexCount() > 0) {
-                texturedBatches.add(new TexturedBatch(entry.getKey(), entry.getValue().toArray()));
+                texturedBatches.add(new TexturedBatch(entry.getKey(), entry.getValue().toArray(),
+                        floorSprites.contains(entry.getKey()), wallSprites.contains(entry.getKey())));
             }
         }
         ArrayList<MaterialBatch> materialBatches = new ArrayList<>(materials.size());
@@ -351,10 +359,9 @@ public final class WorldMeshBuilder {
     }
 
     /**
-     * A missing reverse face is safely mirrored only for a non-stateful structural boundary that
-     * has no authored geometry (this method is reached only on that fallback path). Doors and
-     * windows require distinct open/frame/glass assemblies; mirroring their full sprite would
-     * cover or misorient the real opening.
+     * Legacy coverage grouping for non-stateful structural boundaries. All emitted textured
+     * surfaces now draw two-sided, but only ordinary walls qualify for outer-edge alpha repair.
+     * Doors/windows retain their exact alpha and still need state-aware assemblies.
      */
     private static boolean isMirrorSafeStructuralPanel(WorldState.TileObject object) {
         if (object.door() || object.window()) return false;
@@ -373,8 +380,7 @@ public final class WorldMeshBuilder {
             float baseZ,
             boolean north,
             int objectLayer,
-            float[] light,
-            boolean mirrorReverseFace) {
+            float[] light) {
         float height = 3.0f;
         // PZ composes several sprite layers on the same tile edge. Preserve that
         // deterministic order without coplanar depth fighting in perspective.
@@ -405,23 +411,8 @@ public final class WorldMeshBuilder {
         float[] faceNormal = normal(world[0], world[1], world[2]);
         addTexturedQuad(output, world[0], world[1], world[2], world[3],
                 faceNormal, light, source);
-        if (mirrorReverseFace) {
-            float[] reverseNormal = new float[] {
-                -faceNormal[0], -faceNormal[1], -faceNormal[2]
-            };
-            // Reversing both winding and point order keeps each world/source coordinate paired.
-            // With back-face culling exactly one side submits fragments, so this does not create
-            // coplanar depth competition while it closes the unobserved side of the boundary.
-            addTexturedQuad(
-                    output,
-                    world[3],
-                    world[2],
-                    world[1],
-                    world[0],
-                    reverseNormal,
-                    light,
-                    new float[][] {source[3], source[2], source[1], source[0]});
-        }
+        // The source-texture draw is two-sided. Do not duplicate coplanar reverse geometry:
+        // that would submit both copies and darken translucent edges after disabling culling.
     }
 
     private static Map<Long, WorldState.Square> squareIndex(
@@ -494,8 +485,10 @@ public final class WorldMeshBuilder {
         };
     }
 
-    private static float[] sourcePixel(float[] point) {
-        return sourcePixel(point[0], point[1], point[2]);
+    static float[] sourcePixel(float[] point) {
+        // Registry points are in TileGeometryUtils scene units. Structural fallback panels
+        // already use world-height units and call the scalar overload instead.
+        return sourcePixel(point[0], point[1] * AUTHORED_HEIGHT_TO_WORLD, point[2]);
     }
 
     private static float[] chunkBounds(
@@ -658,13 +651,9 @@ public final class WorldMeshBuilder {
         float[][] points = new float[polygon.points().size()][];
         for (int index = 0; index < points.length; index++) {
             float[] point = polygon.points().get(index);
-            points[index] = switch (polygon.plane()) {
-                case "XY" -> new float[] {point[0], point[1], 0};
-                case "XZ" -> new float[] {point[0], 0, point[1]};
-                case "YZ" -> new float[] {0, point[0], point[1]};
-                default -> null;
-            };
-            if (points[index] == null) return;
+            // Native Polygon.planeTo3D always starts on XY. The stored rotation already
+            // contains plane orientation; mapping by plane again rotates it twice.
+            points[index] = new float[] {point[0], point[1], 0};
         }
         float[][] transformed = transformedLocal(polygon, points);
         float[][] world = worldPoints(baseX, baseY, baseZ, transformed);
@@ -753,7 +742,7 @@ public final class WorldMeshBuilder {
         for (int index = 0; index < local.length; index++) {
             result[index] = new float[] {
                 baseX + 0.5f + local[index][0],
-                baseY + local[index][1],
+                baseY + local[index][1] * AUTHORED_HEIGHT_TO_WORLD,
                 baseZ + 0.5f + local[index][2]
             };
         }
@@ -893,16 +882,7 @@ public final class WorldMeshBuilder {
         float[][] points = new float[polygon.points().size()][];
         for (int index = 0; index < points.length; index++) {
             float[] point = polygon.points().get(index);
-            float x;
-            float y;
-            float z;
-            switch (polygon.plane()) {
-                case "XY" -> { x = point[0]; y = point[1]; z = 0; }
-                case "XZ" -> { x = point[0]; y = 0; z = point[1]; }
-                case "YZ" -> { x = 0; y = point[0]; z = point[1]; }
-                default -> { return; }
-            }
-            points[index] = transform(baseX, baseY, baseZ, polygon, x, y, z);
+            points[index] = transform(baseX, baseY, baseZ, polygon, point[0], point[1], 0);
         }
         float[] faceNormal = normal(points[0], points[1], points[2]);
         for (int index = 1; index < points.length - 1; index++) {
@@ -921,26 +901,28 @@ public final class WorldMeshBuilder {
         float[] local = transformLocal(value, x, y, z);
         return new float[] {
             baseX + 0.5f + local[0],
-            baseY + local[1],
+            baseY + local[1] * AUTHORED_HEIGHT_TO_WORLD,
             baseZ + 0.5f + local[2]
         };
     }
 
-    private static float[] transformLocal(
+    static float[] transformLocal(
             TileGeometryRegistry.Primitive value, float x, float y, float z) {
         double rx = Math.toRadians(value.rx());
         double ry = Math.toRadians(value.ry());
         double rz = Math.toRadians(value.rz());
-        float y1 = (float) (y * Math.cos(rx) - z * Math.sin(rx));
-        float z1 = (float) (y * Math.sin(rx) + z * Math.cos(rx));
-        float x2 = (float) (x * Math.cos(ry) + z1 * Math.sin(ry));
-        float z2 = (float) (-x * Math.sin(ry) + z1 * Math.cos(ry));
-        float x3 = (float) (x2 * Math.cos(rz) - y1 * Math.sin(rz));
-        float y3 = (float) (x2 * Math.sin(rz) + y1 * Math.cos(rz));
+        // Match PZ's JOML translation().rotateXYZ(): T * Rx * Ry * Rz.
+        // Column-vector application order is Z, then Y, then X, not X/Y/Z.
+        float x1 = (float) (x * Math.cos(rz) - y * Math.sin(rz));
+        float y1 = (float) (x * Math.sin(rz) + y * Math.cos(rz));
+        float x2 = (float) (x1 * Math.cos(ry) + z * Math.sin(ry));
+        float z2 = (float) (-x1 * Math.sin(ry) + z * Math.cos(ry));
+        float y3 = (float) (y1 * Math.cos(rx) - z2 * Math.sin(rx));
+        float z3 = (float) (y1 * Math.sin(rx) + z2 * Math.cos(rx));
         return new float[] {
-            value.tx() + x3,
+            value.tx() + x2,
             value.ty() + y3,
-            value.tz() + z2
+            value.tz() + z3
         };
     }
 

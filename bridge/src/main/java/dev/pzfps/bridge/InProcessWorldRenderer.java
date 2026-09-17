@@ -349,6 +349,7 @@ public final class InProcessWorldRenderer {
         private final int textureUniform;
         private final int uvBoundsUniform;
         private final int cropUniform;
+        private final int surfaceKindUniform;
         private final Map<String, Texture> sourceTextures = new HashMap<>();
         private final Set<String> reportedMissingTextures = ConcurrentHashMap.newKeySet();
         private boolean entityBufferCreated;
@@ -368,12 +369,13 @@ public final class InProcessWorldRenderer {
             textureUniform = GL20.glGetUniformLocation(program, "uTexture");
             uvBoundsUniform = GL20.glGetUniformLocation(program, "uUvBounds");
             cropUniform = GL20.glGetUniformLocation(program, "uCrop");
+            surfaceKindUniform = GL20.glGetUniformLocation(program, "uSurfaceKind");
             if (mvpUniform < 0
                     || texturedUniform < 0
                     || materialUniform < 0
                     || textureUniform < 0
                     || uvBoundsUniform < 0
-                    || cropUniform < 0) {
+                    || cropUniform < 0 || surfaceKindUniform < 0) {
                 throw new IllegalStateException("one or more source-texture shader uniforms are absent");
             }
         }
@@ -444,9 +446,13 @@ public final class InProcessWorldRenderer {
                     for (GpuMaterialBatch batch : mesh.materialBatches) {
                         drawMaterialBatch(batch);
                     }
+                    // Reversible two-sided source-surface fallback, not a duplicate shell or
+                    // generated backside. Stateful alpha openings remain in the source texture.
+                    GL11.glDisable(GL11.GL_CULL_FACE);
                     for (GpuTexturedBatch batch : mesh.texturedBatches) {
                         drawTexturedBatch(batch);
                     }
+                    GL11.glEnable(GL11.GL_CULL_FACE);
                 }
                 GL20.glUniform1i(texturedUniform, 0);
                 GL20.glUniform1i(materialUniform, 0);
@@ -489,6 +495,7 @@ public final class InProcessWorldRenderer {
             GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, batch.vbo);
             configureAttributes(TEXTURED_STRIDE_BYTES, true);
             GL20.glUniform1i(materialUniform, 0);
+            GL20.glUniform1i(surfaceKindUniform, batch.solidFloor ? 1 : batch.wallEdges ? 2 : 0);
             if (texture == null || texture.getID() == 0) {
                 GL20.glUniform1i(texturedUniform, 0);
                 GL11.glDisable(GL11.GL_TEXTURE_2D);
@@ -606,7 +613,8 @@ public final class InProcessWorldRenderer {
                 vertices.put(sourceBatch.vertices()).flip();
                 GL15.glBufferData(GL15.GL_ARRAY_BUFFER, vertices, GL15.GL_STATIC_DRAW);
                 textured.add(new GpuTexturedBatch(
-                        sourceBatch.sprite(), texturedVbo, sourceBatch.vertexCount()));
+                        sourceBatch.sprite(), texturedVbo, sourceBatch.vertexCount(),
+                        sourceBatch.solidFloor(), sourceBatch.wallEdges()));
             }
             ArrayList<GpuMaterialBatch> materials = new ArrayList<>();
             for (WorldMeshBuilder.MaterialBatch sourceBatch : source.materialBatches()) {
@@ -716,16 +724,51 @@ public final class InProcessWorldRenderer {
                     uniform sampler2D uTexture;
                     uniform vec4 uUvBounds;
                     uniform vec4 uCrop;
+                    uniform int uSurfaceKind;
                     varying vec3 vertexColor;
                     varying vec2 sourcePixel;
                     varying vec3 worldPosition;
                     varying vec3 surfaceNormal;
+                    vec4 sampleSprite(vec2 pixel) {
+                        vec2 lo = uCrop.xy + vec2(0.5);
+                        vec2 hi = uCrop.xy + uCrop.zw - vec2(0.5);
+                        vec2 cropUv = (clamp(pixel, lo, hi) - uCrop.xy) / uCrop.zw;
+                        return texture2D(uTexture, mix(uUvBounds.xy, uUvBounds.zw, cropUv));
+                    }
                     void main() {
                         if (uTextured == 1) {
                             vec2 cropUv = (sourcePixel - uCrop.xy) / uCrop.zw;
-                            if (any(lessThan(cropUv, vec2(0.0))) || any(greaterThan(cropUv, vec2(1.0)))) discard;
-                            vec2 uv = mix(uUvBounds.xy, uUvBounds.zw, cropUv);
-                            vec4 source = texture2D(uTexture, uv);
+                            bool outside = any(lessThan(cropUv, vec2(0.0))) || any(greaterThan(cropUv, vec2(1.0)));
+                            vec4 source = outside ? vec4(0.0) : sampleSprite(sourcePixel);
+                            // Known solid floor diamonds have raster-trimmed/antialiased edges
+                            // (e.g. 126x64 stored pixels for a 128x64 footprint). Extend only a
+                            // two-pixel boundary band from its own opaque neighbours; never
+                            // bridge stairwells, alter geometry, or fill window/prop alpha holes.
+                            vec2 iso = (sourcePixel - vec2(64.0, 224.0)) / vec2(64.0, 32.0);
+                            vec2 floorLocal = vec2(iso.x + iso.y, iso.y - iso.x) * 0.5;
+                            bool floorEdge = uSurfaceKind == 1 && max(abs(floorLocal.x), abs(floorLocal.y)) > 0.465;
+                            if (floorEdge && source.a < 0.999) {
+                                for (int dy = -2; dy <= 2; dy++) {
+                                    for (int dx = -2; dx <= 2; dx++) {
+                                        vec4 candidate = sampleSprite(sourcePixel + vec2(float(dx), float(dy)));
+                                        if (candidate.a > source.a) source = candidate;
+                                    }
+                                }
+                            }
+                            // A wall's rasterized side face is narrower than its 64px projected
+                            // tile interval. Repair only outer joins, following the tangent's
+                            // isometric slope. Internal windows/signs/cutouts remain untouched.
+                            float wallU = mod(sourcePixel.x, 64.0);
+                            bool wallEdge = uSurfaceKind == 2 && min(wallU, 64.0 - wallU) < 6.0;
+                            if (wallEdge && source.a < 0.999) {
+                                vec2 tangent = vec2(1.0, abs(surfaceNormal.z) > 0.5 ? 0.5 : -0.5);
+                                for (int step = 1; step <= 6; step++) {
+                                    vec4 a = sampleSprite(sourcePixel - tangent * float(step));
+                                    vec4 b = sampleSprite(sourcePixel + tangent * float(step));
+                                    if (a.a > source.a) source = a;
+                                    if (b.a > source.a) source = b;
+                                }
+                            }
                             if (source.a < 0.02) discard;
                             gl_FragColor = vec4(source.rgb * vertexColor, source.a);
                             return;
@@ -777,7 +820,7 @@ public final class InProcessWorldRenderer {
         }
     }
 
-    private record GpuTexturedBatch(String sprite, int vbo, int vertexCount) {
+    private record GpuTexturedBatch(String sprite, int vbo, int vertexCount, boolean solidFloor, boolean wallEdges) {
         void destroy() {
             GL15.glDeleteBuffers(vbo);
         }

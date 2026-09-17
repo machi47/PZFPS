@@ -1,8 +1,9 @@
 """Adapter for src/pzfps/assets.py schema 1, inspected at PZFPS 009c258.
 
-Primitive rotations match WorldMeshBuilder.transform: Rx, then Ry, then Rz,
-then source translation. Square-center placement (+.5, level*3, +.5) belongs
-in the live instance transform and is deliberately NOT baked into the asset.
+Primitive rotations match installed B42 TileGeometryUtils: T @ Rx @ Ry @ Rz.
+Vertices remain in authored tile-depth scene units; world Y must be scaled by
+sqrt(1.5) for the live renderer's 3-unit floors. Square-center placement is NOT
+baked into the asset. Do not treat authored model height as elevation levels.
 """
 from __future__ import annotations
 
@@ -63,17 +64,17 @@ def registry_mesh(registry: dict, sprite: str, *, polygon_thickness: float | Non
             faces[area2 < 0] = faces[area2 < 0, ::-1]
             shape = trimesh.creation.extrude_triangulation(vertices, faces, polygon_thickness)
             shape.vertices[:, 2] -= polygon_thickness / 2
-            matrices = {"XY": np.eye(3), "XZ": np.array([[1, 0, 0], [0, 0, -1], [0, 1, 0]]), "YZ": np.array([[0, 0, 1], [1, 0, 0], [0, 1, 0]])}
-            if source["plane"] not in matrices:
+            if source["plane"] not in ("XY", "XZ", "YZ"):
                 raise ValueError("unknown source polygon plane")
-            geometry = Mesh(shape.vertices @ matrices[source["plane"]].T, shape.faces)
+            # B42 Polygon.planeTo3D uses (x,y,0); stored rotation already encodes plane.
+            geometry = Mesh(shape.vertices, shape.faces)
         else:
             raise ValueError(f"unsupported source primitive {kind!r}; source geometry is not dropped")
         translation = finite(source["translate"], (3,), "source primitive translation")
         angles = finite(source["rotate_degrees"], (3,), "source primitive rotation")
         matrix = np.eye(4)
-        # scipy lowercase xyz is extrinsic: Rz @ Ry @ Rx, matching Java code.
-        matrix[:3, :3] = Rotation.from_euler("xyz", angles, degrees=True).as_matrix()
+        # Uppercase intrinsic XYZ gives Rx @ Ry @ Rz, matching installed JOML rotateXYZ.
+        matrix[:3, :3] = Rotation.from_euler("XYZ", angles, degrees=True).as_matrix()
         matrix[:3, 3] = translation
         meshes.append(geometry.transformed(matrix))
     offsets = np.cumsum([0] + [len(mesh.vertices) for mesh in meshes[:-1]])
@@ -131,5 +132,10 @@ def prepare_job(registry_path: Path, sprite_manifest: Path, output: Path, *, hor
     if path.exists():
         raise FileExistsError(f"refusing to replace existing source job {path}")
     job = {"schema_version": 1, "prototype": sprite, "source_revision": f"PZ-{registry['game_version']}:{registry['source_sha256']}", "bounds": mesh.bounds.tolist(), "geometry": {"vertices": mesh.vertices.tolist(), "faces": mesh.faces.tolist()}, "views": [{"name": sprite, "sprite_manifest": str(sprite_manifest.resolve()), "matrix": camera.matrix.tolist()}], "atlas_size": atlas_size, "padding": 4, "completion": {"mode": "harmonic"}, "calibration": {"method": "source-silhouette-translation-fit", "iou": iou, "horizontal_scale": horizontal, "vertical_scale": vertical, "source_geometry_registry_sha256": registry["source_sha256"], "primitive_transform_reference": "PZFPS 009c258 WorldMeshBuilder.transform", "polygon_visual_thickness": polygon_thickness, "instance_origin": "source square center; not included in mesh"}}
+    job["calibration"].update({
+        "primitive_transform_reference": "installed B42 TileGeometryUtils: T*Rx*Ry*Rz; polygon-local XY",
+        "coordinate_space": "authored tile-depth scene units",
+        "world_height_scale_for_three_unit_floors": float(np.sqrt(1.5)),
+    })
     path.write_bytes(canonical_json(job))
     return path

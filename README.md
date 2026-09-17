@@ -79,6 +79,18 @@ diagnostic-box fallback. Both paths are source-built and unit-tested but not yet
 live-accepted; the held models may still need a first-person pose adjustment
 after the live placement and occlusion check.
 
+Native actor preparation now preserves PZ's skin/outfit texture creation and
+lighting setup before taking a pose snapshot. Unseated actor placement follows
+PZ's bone-to-world coordinates, without the isometric camera's downward origin
+offset. A standing zombie's full textured appearance is live-confirmed; crawler,
+climbing and combat acceptance remain separate.
+
+Source-textured world surfaces now have a two-sided fallback without duplicate
+back meshes. Bounded edge sampling repairs raster-trimmed joins on solid floors
+and ordinary wall panels; it does not globally fill prop/window transparency.
+Authored tile geometry uses the installed rotation order and vertical-unit
+conversion. This is still source reprojection, not complete reconstructed assets.
+
 Vehicles now use that same evaluated-model boundary instead of remaining
 uniform diagnostic boxes. The bridge validates each live vehicle `ModelSlot`,
 retains B42's body/part/wheel transforms and damage/light textures, and renders

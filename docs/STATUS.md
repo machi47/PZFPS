@@ -21,7 +21,7 @@ PZ render thread     -> PZFPS perspective world -> PZ text/UI
 
 One isolated PZ process is currently running from the project-local
 disposable profile with staged bridge JAR
-`f0b21255a6d82ed621a9640d1662391a8e571931dcffe238d0dd78c286520bcb`.
+`20a00e9b8f8df4171e1bf72fc2b54c924cce4dd611f6e51294425ebf8718db27`.
 No normal save, installed game binary or
 unrelated mod was changed.
 
@@ -115,6 +115,73 @@ the newly evidenced missing texture-preparation call. The latest JAR above is
 launched; complete standing/crawling/climbing appearance, combat and gameplay
 acceptance remain pending. The last accepted checkpoint remains the earlier
 coherent room diagnostic, not accepted zombie rendering.
+
+**Subsequent live evidence:** JAR `f0b2125` now logs real `CharacterSmartTexture`
+on `Base.MaleBody` plus native clothing textures, rather than missing skin.
+`.local/reports/live-f0b2125-body-textures.txt` retains those part records.
+`.local/captures/actors-texture-preparation-live.png` shows an approaching,
+fully textured standing zombie with its body above the ground. The owner
+explicitly accepted its appearance ("zombies actually look really ... great");
+their screenshot is `.local/captures/standing-zombie-owner-accepted.png`.
+This advances the **standing-zombie visual checkpoint**, not crawler, climbing,
+ragdoll, multi-floor, combat or overall gameplay acceptance. Actor/cursor repair
+was committed and remote-verified at `502dd458f6effabd485cfc4b986f2b8516efc475`.
+
+### Surface continuity and source-coordinate repair
+
+The owner requested two-sided existing surfaces, then lighting/sky/distance,
+then carefully reused first-person body/action presentation and interactions.
+Current implementation remains on the first step, not the entire roadmap:
+
+- `InProcessWorldRenderer` draws source-textured batches without face culling;
+  `WorldMeshBuilder` no longer duplicates the previous reverse wall quads. The
+  same existing triangle and source alpha are visible from either side. This
+  does not create the missing back of a volumetric object or new gameplay geometry.
+- Per-batch solid-floor/wall classification permits narrowly bounded alpha-edge
+  repair. Three extracted floor sprites store 126x64 raster diamonds inside a
+  nominal 128-pixel footprint; ordinary wall side faces also stop before their
+  nominal tile edge. Atlas sampling stays inside the sprite's texel centres.
+  Floor repair samples within two source pixels at the perimeter only. Wall
+  repair samples along the panel tangent within six pixels at outer joins only.
+  Door/window/fence/prop batches do not receive wall repair. Stairwell geometry
+  remains absent and internal texture alpha is not globally filled.
+- `tools/check_surface_edges.py` evaluates the shader's alpha rule against real
+  extracted manifests. At 66,049 samples per sprite, three floor samples go from
+  268–284 fully transparent samples to zero, with zero changed interior samples.
+  A west wall goes from 1,779 to zero; a north wall from 3,918 to 78 (remaining
+  endpoints are not claimed fixed). Reports: `.local/reports/floor-edge-alpha-check.json`,
+  `north-wall-edge-alpha-check.json`, and `west-wall-edge-alpha-check.json`.
+  These are CPU source-alpha checks, not GPU visual/performance acceptance.
+- Prop inspection established two incorrect shared conversions: the previous
+  manual rotation was `Rz*Ry*Rx`, whereas installed `TileGeometryUtils` uses
+  JOML `Rx*Ry*Rz`; and raw authored vertical units were treated as world units.
+  Native 2.44949-unit storeys map to our 3-unit storeys, a `sqrt(1.5)` Y factor.
+  Source projection now uses 78.38367 pixels per authored Y unit, rather than 64.
+  A regression invokes the installed projection setup as the oracle. Polygon
+  points now start on XY because their explicit rotation already encodes the
+  plane; the former plane mapping applied orientation twice.
+- The canonical adapter shares the corrected rotation/polygon convention,
+  records its raw authored coordinate space, and documents the corrected
+  projection. Existing immutable compiled assets remain historical and need
+  fresh validation; their old silhouette fits do not establish correct scale.
+
+Tests: 89 Java tests pass; `PYTHONPATH=canonical .local/canonical-venv/bin/python
+-m pytest canonical/tests -q` passes 26. An initial Python run imported the old
+non-editable installed package and failed the new regressions; running checkout
+source exposed one old polygon fixture relying on the wrong double-orientation
+behavior. The fixture now specifies the native plane rotation explicitly.
+Commands also include `assets extract-sprite` for `walls_interior_house_02_96`
+and `_97`, the three `tools/check_surface_edges.py --kind ...` runs, and one
+batched isolated reload for these surface/coordinate changes. Source screenshots
+are `.local/captures/wall-seams-before.png`, `floor-seams-before.png`, and
+`grill-misprojection-before.png`. Live seam/prop improvement remains unaccepted
+until the new artifact is inspected; this is not complete asset reconstruction.
+
+Next smallest check: inspect the loaded surface batch on adjoining grass/floors,
+both wall orientations and an existing opening, then the rotated grill/fixture.
+Keep standing zombie appearance intact and test a prone/crawling actor before
+claiming general actor correctness. Only then move to the requested lighting/
+sky/distance work; actor and interaction correctness remain independent gates.
 
 ## Truthful acceptance state
 
