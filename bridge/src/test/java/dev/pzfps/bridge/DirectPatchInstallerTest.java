@@ -99,6 +99,20 @@ final class DirectPatchInstallerTest {
     }
 
     @Test
+    void matchesAndInlinesTheActualDisplayThreadCursorWriter() {
+        TypeDescription display = new TypeDescription.ForLoadedType(org.lwjglx.opengl.Display.class);
+        DirectPatchInstaller.requireOneTarget(
+                display, DirectPatchInstaller.displayCursorMatcher(), "updateMouseCursor()V");
+        byte[] transformed = new ByteBuddy()
+                .redefine(org.lwjglx.opengl.Display.class)
+                .visit(Advice.to(DisplayCursorPatch.class)
+                        .on(DirectPatchInstaller.displayCursorMatcher()))
+                .make()
+                .getBytes();
+        assertTrue(transformed.length > 0);
+    }
+
+    @Test
     void matchesAndInlinesInstalledPointerGrabDescriptor() {
         TypeDescription mouse = new TypeDescription.ForLoadedType(org.lwjglx.input.Mouse.class);
         DirectPatchInstaller.requireOneTarget(

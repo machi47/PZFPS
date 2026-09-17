@@ -17,6 +17,8 @@ import zombie.core.SpriteRenderer;
 import zombie.core.skinnedmodel.ModelCamera;
 import zombie.core.skinnedmodel.ModelManager;
 import zombie.core.skinnedmodel.model.ModelSlotRenderData;
+import zombie.core.skinnedmodel.model.ModelInstanceRenderData;
+import zombie.core.textures.Texture;
 import zombie.core.textures.TextureDraw;
 import zombie.iso.IsoMovingObject;
 
@@ -32,6 +34,7 @@ public final class NativeActorPass {
     private static final AtomicLong QUEUED = new AtomicLong();
     private static final AtomicLong COMPLETED_CALLBACKS = new AtomicLong();
     private static final AtomicLong FRUSTUM_CULLED = new AtomicLong();
+    private static final AtomicLong NOT_READY = new AtomicLong();
     private static final AtomicLong NO_ACTIVE_MODEL = new AtomicLong();
     private static final AtomicLong ACTIVATED_MODELS = new AtomicLong();
     private static final AtomicLong RELEASED_MODELS = new AtomicLong();
@@ -52,15 +55,15 @@ public final class NativeActorPass {
         for (IsoMovingObject object : player.getCell().getObjectList()) {
             if (!(object instanceof IsoGameCharacter character)
                     || character == player
+                    || (character instanceof IsoPlayer otherPlayer && otherPlayer.isLocalPlayer())
                     || character.isDestroyed()
                     || character.isInvisible()
                     || !withinHorizontalRange(
                             viewpoint, character.getX(), character.getY())) {
                 continue;
             }
-            float dx = character.getX() - viewpoint.x();
-            float dy = character.getY() - viewpoint.y();
-            candidates.add(new Candidate(character, dx * dx + dy * dy));
+            candidates.add(new Candidate(character, priorityDistanceSquared(
+                    viewpoint, character.getX(), character.getY(), character.getZ())));
         }
         candidates.sort(Comparator.comparingDouble(Candidate::distanceSquared));
 
@@ -82,7 +85,9 @@ public final class NativeActorPass {
             try {
                 drawer.prepare(slot);
                 drawers.add(drawer);
-                entityIds.add(character.getID());
+                if (NativeCharacterPresentation.completeSnapshot(drawer.renderData)) {
+                    entityIds.add(character.getID());
+                }
             } catch (Throwable error) {
                 drawer.releaseAfterPreparationFailure();
                 fail("model snapshot preparation", error);
@@ -126,6 +131,15 @@ public final class NativeActorPass {
         float dx = worldX - player.x();
         float dy = worldY - player.y();
         return dx * dx + dy * dy <= MAXIMUM_DISTANCE * MAXIMUM_DISTANCE;
+    }
+
+    static float priorityDistanceSquared(WorldState.Player player, float x, float y, float z) {
+        float dx = x - player.x();
+        float dy = y - player.y();
+        float dz = (z - player.z()) * 3.0f;
+        // In a tower, sorting only by x/y can spend the entire native-model budget on distant
+        // storeys while suppressing a nearby threat. Keep all elevations eligible, ranked in 3D.
+        return dx * dx + dy * dy + dz * dz;
     }
 
     private static boolean usable(ModelManager.ModelSlot slot, IsoGameCharacter character) {
@@ -189,10 +203,11 @@ public final class NativeActorPass {
             }
             if (++frames % 300 == 0) {
                 System.out.printf(
-                        "[PZFPS actors] queuedThisFrame=%d queuedTotal=%d completedCallbacks=%d frustumCulled=%d noActiveModel=%d activated=%d released=%d managed=%d%n",
+                        "[PZFPS actors] queuedThisFrame=%d queuedTotal=%d completedCallbacks=%d notReady=%d frustumCulled=%d noActiveModel=%d activated=%d released=%d managed=%d%n",
                         queuedThisFrame,
                         QUEUED.get(),
                         COMPLETED_CALLBACKS.get(),
+                        NOT_READY.get(),
                         FRUSTUM_CULLED.get(),
                         NO_ACTIVE_MODEL.get(),
                         ACTIVATED_MODELS.get(),
@@ -215,11 +230,19 @@ public final class NativeActorPass {
         private boolean retained;
 
         void prepare(ModelManager.ModelSlot slot) {
+            // IsoSprite.renderActiveModel performs this before drawModel. Replacing the world
+            // draw skips that call, including first-use allocation of per-player lighting data.
+            // Keep PZ's light interpolation and evaluated pose preparation on the producer thread.
+            NativeCharacterPresentation.prepareModel(slot);
             renderData = ModelSlotRenderData.alloc();
             renderData.initModel(slot);
             slot.renderRefCount++;
             retained = true;
             renderData.init(slot);
+            // Native alpha is driven by the isometric view/floor visibility pass that we skip.
+            // Visibility here comes from the perspective depth/frustum; invisible actors were
+            // already excluded on the producer. Change only this snapshot, not gameplay state.
+            NativeCharacterPresentation.removeIsometricFade(renderData);
         }
 
         @Override
@@ -241,8 +264,32 @@ public final class NativeActorPass {
                 // PZ's chunk mode writes isometric targetDepth into model shaders. Perspective
                 // depth is supplied by our camera and shared replacement-world depth buffer.
                 PerformanceSettings.fboRenderChunk = false;
+                Texture.lastTextureID = -1;
                 renderData.render();
-                COMPLETED_CALLBACKS.incrementAndGet();
+                if (renderData.canRender() && !renderData.getModelData().isEmpty()) {
+                    long completed = COMPLETED_CALLBACKS.incrementAndGet();
+                    if (completed <= 4 || completed == 300) {
+                        System.out.printf(
+                                "[PZFPS actors] first ready native model draw models=%d world=(%.3f,%.3f,%.3f) alpha=%.3f%n",
+                                renderData.getModelData().size(),
+                                renderData.x, renderData.y, renderData.z, renderData.alpha);
+                        for (ModelInstanceRenderData part : renderData.getModelData()) {
+                            Texture texture = part.tex != null ? part.tex : part.model.tex;
+                            System.out.printf(
+                                    "[PZFPS actors] part=%s root=%s static=%s paletteFloats=%d texture=%s textureId=%d instanced=%s cull=%d%n",
+                                    part.modelInstance.modelScript == null ? "unknown" : part.modelInstance.modelScript.getFullType(),
+                                    part.modelInstance == renderData.modelSlot.model,
+                                    part.model.isStatic,
+                                    part.matrixPalette == null ? 0 : part.matrixPalette.limit(),
+                                    texture == null ? "missing" : texture.getClass().getSimpleName(),
+                                    texture == null ? -1 : texture.getID(),
+                                    part.model.effect != null && part.model.effect.isInstanced(),
+                                    part.modelInstance.modelScript == null ? -1 : part.modelInstance.modelScript.cullFace);
+                        }
+                    }
+                } else {
+                    NOT_READY.incrementAndGet();
+                }
             } catch (Throwable error) {
                 fail("render", error);
             } finally {

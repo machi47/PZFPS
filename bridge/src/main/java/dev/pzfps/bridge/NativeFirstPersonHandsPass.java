@@ -128,11 +128,14 @@ public final class NativeFirstPersonHandsPass {
 
         void prepare(
                 ModelManager.ModelSlot slot, ModelInstance primary, ModelInstance secondary) {
+            // Same preparation as IsoSprite.renderActiveModel: init reads per-player lighting.
+            NativeCharacterPresentation.prepareModel(slot);
             renderData = ModelSlotRenderData.alloc();
             renderData.initModel(slot);
             slot.renderRefCount++;
             retained = true;
             renderData.init(slot);
+            NativeCharacterPresentation.removeIsometricFade(renderData);
             this.primary = primary;
             this.secondary = secondary;
         }

@@ -11,6 +11,8 @@ import zombie.core.skinnedmodel.model.ModelSlotRenderData;
 final class FirstPersonCharacterCamera extends ModelCamera {
     private static final float LEVEL_HEIGHT = 3.0f;
     private static final float MODEL_SCALE = Core.ModelScale;
+    // Model.vectorToWorldCoords converts model height to PZ elevation levels with this factor.
+    private static final float MODEL_HEIGHT_IN_LEVELS = 0.61237234f;
     static final FirstPersonCharacterCamera INSTANCE = new FirstPersonCharacterCamera();
 
     private boolean pushed;
@@ -57,7 +59,7 @@ final class FirstPersonCharacterCamera extends ModelCamera {
     }
 
     /**
-     * Perspective equivalent of the final object-local portion of Core.DoPushIsoStuff(). PZ's
+     * Perspective mapping of PZ's authoritative bone-to-world coordinates. PZ's
      * character renderer applies passenger transforms after Begin(), so vehicle occupants retain
      * the engine's evaluated seat and vehicle pose.
      */
@@ -75,8 +77,8 @@ final class FirstPersonCharacterCamera extends ModelCamera {
     /**
      * B42 passes {@code true} to Core.DoPushIsoStuff for a vehicle root even though
      * ModelSlotRenderData.inVehicle is false for that root. Keep that distinction explicit:
-     * both a vehicle root and a seated character use unit model scale, while only a standing
-     * character receives the model-origin foot offset.
+     * both a vehicle root and a seated character use unit model scale. Unseated characters
+     * use the native bone-to-world height conversion without isometric screen-origin offsets.
      */
     static Matrix4f modelTransform(
             float worldX,
@@ -87,6 +89,15 @@ final class FirstPersonCharacterCamera extends ModelCamera {
             boolean vehicleRoot,
             Matrix4f destination) {
         boolean vehicleSpace = inVehicle || vehicleRoot;
+        if (!vehicleSpace) {
+            // Use PZ's bone/action coordinate contract, not Core.DoPushIsoStuff's screen-space
+            // -0.48 origin compensation. That old offset buried standing actors below the floor.
+            // PZ reflects model X, rotates x/z by renderedAngle, and converts height to levels.
+            return destination.identity()
+                    .translate(worldX, worldZ * LEVEL_HEIGHT, worldY)
+                    .rotateY(-renderedAngle)
+                    .scale(-MODEL_SCALE, MODEL_HEIGHT_IN_LEVELS * LEVEL_HEIGHT, MODEL_SCALE);
+        }
         destination.identity()
                 .translate(worldX, worldZ * LEVEL_HEIGHT, worldY)
                 .scale(
@@ -94,7 +105,6 @@ final class FirstPersonCharacterCamera extends ModelCamera {
                         vehicleSpace ? 1.0f : MODEL_SCALE,
                         vehicleSpace ? 1.0f : MODEL_SCALE)
                 .rotateY(renderedAngle + (float) Math.PI);
-        if (!vehicleSpace) destination.translate(0.0f, -0.48f, 0.0f);
         return destination;
     }
 }

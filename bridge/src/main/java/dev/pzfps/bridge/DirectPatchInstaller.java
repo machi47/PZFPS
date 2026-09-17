@@ -46,6 +46,7 @@ public final class DirectPatchInstaller {
         MouseInputPatch.UiCheck.class,
         CursorVisibilityPatch.class,
         PointerGrabPatch.class,
+        DisplayCursorPatch.class,
         LocomotionPatch.DeferredMovement.class,
         LocomotionPatch.StrafePresentation.class
     };
@@ -73,6 +74,7 @@ public final class DirectPatchInstaller {
                         "zombie.core.physics.BallisticsController",
                         "zombie.input.GameKeyboard",
                         "zombie.input.Mouse",
+                        "org.lwjglx.opengl.Display",
                         "org.lwjglx.input.Mouse"))
                 .transform(DirectPatchInstaller::transform)
                 .installOn(instrumentation);
@@ -195,6 +197,11 @@ public final class DirectPatchInstaller {
                         .visit(advice(MouseInputPatch.UiCheck.class).on(uiCheck))
                         .visit(advice(CursorVisibilityPatch.class).on(cursorVisible));
             }
+            case "org.lwjglx.opengl.Display" -> {
+                ElementMatcher.Junction<MethodDescription> cursor = displayCursorMatcher();
+                requireOneTarget(type, cursor, "updateMouseCursor()V");
+                yield builder.visit(advice(DisplayCursorPatch.class).on(cursor));
+            }
             case "org.lwjglx.input.Mouse" -> {
                 ElementMatcher.Junction<MethodDescription> setGrabbed = pointerGrabMatcher();
                 requireOneTarget(type, setGrabbed, "setGrabbed(Z)V");
@@ -270,6 +277,10 @@ public final class DirectPatchInstaller {
         return named("setGrabbed")
                 .and(takesArguments(1))
                 .and(takesArgument(0, boolean.class));
+    }
+
+    static ElementMatcher.Junction<MethodDescription> displayCursorMatcher() {
+        return named("updateMouseCursor").and(takesArguments(0));
     }
 
     static ElementMatcher.Junction<MethodDescription> ballisticsCameraTargetsMatcher() {

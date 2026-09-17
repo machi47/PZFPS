@@ -19,11 +19,102 @@ PZ simulation/update -> immutable authoritative snapshot
 PZ render thread     -> PZFPS perspective world -> PZ text/UI
 ```
 
-One isolated PZ process, PID 25368, is currently running from the project-local
+One isolated PZ process is currently running from the project-local
 disposable profile with staged bridge JAR
-`d934677e67e9c4d84fd89181e0efeb5b323e05df0e80ff5e1111f95ed9fb6267`
-(source checkpoint `d9d4c69`). No normal save, installed game binary or
+`f0b21255a6d82ed621a9640d1662391a8e571931dcffe238d0dd78c286520bcb`.
+No normal save, installed game binary or
 unrelated mod was changed.
+
+### Current repair: native character preparation and display-thread capture
+
+The preceding goal turn made concrete progress (committed cursor/reticle work
+and live evidence). This continuation reproduced the still-disabled actor pass
+from the actual running process, then traced its exception to a skipped native
+preparation call. `IsoSprite.renderActiveModel()` calls `model.updateLights()`
+before `ModelSlotRenderData.initModel/init`. Our replacement now does the same
+for actors and held equipment. An intermediate live run reached native model
+callbacks without the former `playerData` null pointer; logs are retained in
+`.local/reports/live-364f650-actor-lighting.txt`.
+
+That run also exposed zero native alpha. The final source applies perspective
+opacity to the retained snapshot and to the already-copied `Alpha` shader
+properties, including PZ's last-ready fallback models. Live actors remain
+authoritative and `isInvisible()` actors remain excluded. All local-player
+representations are excluded from the nonlocal actor pass. New `notReady`
+counters distinguish unavailable models from completed ready-model callbacks;
+those callbacks do not prove visible pixels, correct pose or gameplay.
+
+Cursor inspection found the direct competing writer in the installed private
+`Display.updateMouseCursor()`: it selects GLFW hidden/normal mode independently
+of `Mouse.setGrabbed()`. The new `DisplayCursorPatch` takes ownership at that
+exact method after FPS initialization. Game input publishes volatile intent;
+GLFW calls occur on the display/event thread, with readback. Focus loss releases
+capture; the first delta after capture transitions is discarded. The live
+intermediate run confirmed `212993 -> 212995`, release `212995 -> 212993`, and
+recapture `212993 -> 212995`, all on PZ's thread named `main` (distinct from its
+simulation `MainThread`). Evidence is in
+`.local/reports/live-b62a9dc-display-cursor-actor.txt`. This supersedes the earlier
+claim that a main-thread per-poll repair plus `setGrabbed` filtering fully
+addressed cursor ownership.
+
+Commands run for this repair: installed decompiled source reads and `rg`,
+`gradle -p bridge test jar` with the project-local Gradle and pinned JAR paths
+below, `game status-isolated`, `game stop-isolated`, `game stage-isolated`, and
+`game launch-app-isolated`. All 83 Java tests pass, including bytecode inlining
+of the exact private display method. Each restart tested a changed artifact:
+lighting preparation, display-thread capture/actor opacity, then copied shader
+opacity. Only one isolated process was running at each launch. The final
+artifact's live observation follows below; accepted gameplay remains pending.
+
+### Zombie-priority repair: world placement and missing skin textures
+
+The owner's screenshots show bodies half below their floors, upstairs legs
+protruding into the room below, invisible skin with separate clothing/hair, and
+nearly invisible crawlers. These are rejected results, not accepted actors.
+Preserved originals: `.local/captures/zombies-buried-missing-body-before.png`
+and `.local/captures/zombies-upstairs-legs-before.png`. Wall/floor seams and
+misprojected/misplaced stools, chairs, ovens, bathtubs and barrels remain open;
+they must not be concealed by texture completion.
+
+Two concrete causes were established:
+
+1. `FirstPersonCharacterCamera` copied the isometric `-0.48` model-origin offset,
+   sinking a sampled standing foot approximately 0.61 world metres below its
+   square. It now uses the installed `Model.vectorToWorldCoords` mapping:
+   reflect model X, rotate by the evaluated heading, convert native model height
+   to elevation with `0.61237234`, then map levels to the renderer's 3 metres.
+   A regression calls the installed function as an oracle for several headings
+   and sampled standing/climbing bones. The shared unseated mapping also applies
+   to prone/crawling poses; no independent animation or position update is added.
+2. Live JAR `c1e29f2` reached native body meshes but logged `texture=missing` for
+   both `Base.FemaleBody` and `Base.MaleBody`. The skipped native
+   `IsoGameCharacter.render` calls `checkUpdateModelTextures()` before sprite
+   rendering. `NativeCharacterPresentation.prepareModel` now preserves that
+   producer-thread preparation, plus `updateLights`, for actors and held models.
+   PZ creates its own skin/outfit/blood/equipment textures; the bridge does not
+   invent replacements. Evidence: `.local/reports/live-c1e29f2-missing-body-texture.txt`.
+
+Incomplete native root/outfit snapshots now retain the diagnostic silhouette
+instead of suppressing it just because snapshot allocation succeeded. The
+256-actor budget ranks actual 3D distance, so many distant storeys at similar
+x/y cannot displace a closer threat. All elevations remain eligible. Native
+draw logs distinguish root, texture presence, palette size and instanced path;
+completed callbacks still do not certify visible/complete actors.
+
+Added `tools/inspect_live_actors.py`, a bounded read-only loopback protocol-5
+inspector. `python3 tools/inspect_live_actors.py --seconds 3` captured native
+pose/part identity and bone coordinates; retained output is
+`.local/reports/live-actor-poses-before-transform.json`. It sends no input or
+game actions. The previous log is
+`.local/reports/live-604785-before-bone-transform.txt`.
+
+`gradle -p bridge test jar` now passes 87 Java tests, including native-coordinate
+agreement, copied alpha correction, missing-body fallback, and tower priority.
+Reloads tested the corrected world transform with per-part diagnostics, then
+the newly evidenced missing texture-preparation call. The latest JAR above is
+launched; complete standing/crawling/climbing appearance, combat and gameplay
+acceptance remain pending. The last accepted checkpoint remains the earlier
+coherent room diagnostic, not accepted zombie rendering.
 
 ## Truthful acceptance state
 
@@ -90,8 +181,9 @@ gameplay:
    the normal PZ text/UI pass. The owner reported no further whole-world flash.
 6. The live `d9d4c69` artifact passes 82 Java tests and is loaded in PID 25368.
    Its safe wall reverse faces and structural ceilings are visibly active; its
-   native actor pass failed safely during model snapshot preparation because
-   `modelSlot.model.playerData` was null. The pointer-capture hook transformed
+   native actor pass then failed during model snapshot preparation because
+   `modelSlot.model.playerData` was null. The continuation above repairs that
+   failure; complete visual actor acceptance remains outstanding. The pointer-capture hook transformed
    the exact installed descriptor and repaired a measured native-mode drift at
    frame 2. The last canonical suite run passes 45 Python tests.
 
@@ -179,8 +271,16 @@ been accepted.
   after the player update so A-to-D reversal does not require a 180-degree body
   turn. The adapter is disabled for canned/timed actions, climbing, vehicles
   and ragdolls. Cursor capture no longer trusts the LWJGL compatibility
-  wrapper's cached flag: every PZ mouse poll compares the logical owner with
-  GLFW's actual cursor input mode and repairs a mismatch only while appropriate.
+  wrapper's cached flag. Input publishes requested ownership; the hooked
+  display-thread cursor method compares and reads back GLFW's actual mode.
+- `bridge/src/main/java/dev/pzfps/bridge/patches/DisplayCursorPatch.java` —
+  replaces the installed private `Display.updateMouseCursor()` after FPS
+  initialization, preventing its direct GLFW write and cursor warp from
+  overwriting the chosen capture mode. It retains normal menu initialization
+  before first-person input starts.
+- `bridge/src/main/java/dev/pzfps/bridge/NativeCharacterPresentation.java` —
+  removes isometric alpha fading from native retained character snapshots and
+  their copied shader properties, without mutating the character's alpha state.
 - `bridge/src/main/java/dev/pzfps/bridge/PerspectiveViewRay.java` — defines the
   single normalized centre-view contract used by the renderer camera,
   interaction ray, PZ aim-vector override and native ballistics adapter. It
@@ -489,7 +589,7 @@ reticle image with four code-drawn ticks and returned `PZFPS_LUA_PARSE_OK`.
 Most recent test results:
 
 - Python/pytest: 45 passed, 0 failed (49 deprecation warnings).
-- Java/Gradle: 82 passed, 0 failed across `ChunkLifecycleTest`,
+- Java/Gradle: 83 passed, 0 failed across `ChunkLifecycleTest`,
   `CursorCaptureStateTest`, `DirectPatchInstallerTest`, `FirstPersonInputTest`,
   `FirstPersonCharacterCameraTest`, `FirstPersonModelCameraTest`,
   `InputStateTest`, `InteractionTargetTest`, `MovementDiagnosticsTest`,
@@ -513,7 +613,7 @@ Most recent test results:
 - Disposable save:
   `.local/pz-runtime/user-cache/Zomboid/Saves/Top Of The World/46507890207760758489`.
 - Current live-loaded staged bridge JAR SHA-256:
-  `d934677e67e9c4d84fd89181e0efeb5b323e05df0e80ff5e1111f95ed9fb6267`.
+  `604785a5b2d043d045a15ccadf0a035886a6830eb617aa8f6ede6729fd0e75d4`.
 - Last live screenshots:
   `.local/captures/pz-d9d4c69-live.png` and
   `.local/captures/pz-d9d4c69-reticle-live.png`. The latter visibly records the
@@ -571,13 +671,12 @@ update rates have not been reported as achieved performance.
    package-private `PerspectiveInteract` type. `PerspectiveInteract` and the
    similarly exposed ballistics entry points are now public, with reflection
    regression tests; this repair is built but not live-tested.
-5. Nonlocal native characters are now wired to B42's evaluated model render
-   data rather than reanimated or approximated in the renderer. The live-loaded
-   build still reports `queued=0` because skipping `IsoWorld.render()` also
-   skipped the isometric `sceneCullZombies/Animals` methods that normally create
-   model slots. The newest source activates a bounded nearest-first set through
-   PZ's own model lifecycle seam; it was not loaded by the last process and no
-   process is currently running.
+5. Nonlocal native characters use B42's evaluated model render data. Skipping
+   `IsoWorld.render()` initially skipped model-slot activation, then native light
+   preparation, leaving the pass disabled. Bounded model activation plus native
+   `updateLights()` now reaches ready-model callbacks. Native isometric alpha
+   and copied shader opacity also needed correction; see the current repair
+   above and its artifact-specific evidence.
    It still needs a disposable-session check
    of standing, walking, crawling, held equipment, occlusion and at least one
    seated actor; an exception disables only this pass and restores diagnostic
@@ -711,9 +810,12 @@ update rates have not been reported as achieved performance.
 
 ## Next smallest experiment
 
-Keep the currently running single PID 25368; no additional restart is needed
-for the next acceptance pass. Exercise the live cursor/reticle build before
-changing its hooks again.
+Keep the currently running single PID 26206 for the next acceptance pass.
+Observe a real nonlocal actor at a visible location: correct scale, depth,
+evaluated pose and clothing/equipment must be seen, not inferred from callbacks.
+Exercise display-thread capture through mouse look, F8, focus changes and UI
+ownership. Continue geometry/material correspondence repair from actual source
+evidence while those gameplay checks proceed.
 
 1. Stage one batched build and live-test simultaneous W+A/W+D, A/D,
    Shift+W/A/D and backward movement while keeping mouse view fixed. Confirm

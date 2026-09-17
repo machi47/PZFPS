@@ -19,6 +19,14 @@ final class NativeActorPassTest {
     }
 
     @Test
+    void prioritizesNearbyThreatsInsteadOfDistantStoreysAtSameMapCoordinate() {
+        assertTrue(NativeActorPass.priorityDistanceSquared(player(), 13, 20, 0)
+                < NativeActorPass.priorityDistanceSquared(player(), 10, 20, 8));
+        assertEquals(36, NativeActorPass.priorityDistanceSquared(player(), 10, 20, 2));
+        assertEquals(36, NativeActorPass.priorityDistanceSquared(player(), 10, 20, -2));
+    }
+
+    @Test
     void suppressesOnlyEntitiesOwnedByNativeActorQueue() {
         WorldState.Entity actor = entity(17, "zombie");
         WorldState.Entity vehicle = entity(18, "vehicle");

@@ -91,7 +91,7 @@ final class FirstPersonInputTest {
     void detectsRealGlfwCursorModeDriftInsteadOfTrustingWrapperCache() {
         assertFalse(FirstPersonInput.captureNeedsRepair(
                 true, true, GLFW.GLFW_CURSOR_DISABLED));
-        assertFalse(FirstPersonInput.captureNeedsRepair(
+        assertTrue(FirstPersonInput.captureNeedsRepair(
                 true, true, GLFW.GLFW_CURSOR_CAPTURED));
         assertTrue(FirstPersonInput.captureNeedsRepair(
                 true, true, GLFW.GLFW_CURSOR_NORMAL));

@@ -94,9 +94,12 @@ F7 walks near-to-far object hits and uses B42's hidden context-menu test pass,
 so ordinary appliances, switches, curtains, furniture, floors, dropped items
 and mod-defined objects do not require a hard-coded action list. The cursor is
 released only when PZ itself reports and then creates a non-empty menu.
-The same UI pass draws a fixed reticle from B42's installed `crosshair00.png`
-without copying that asset into the project, and hides it whenever the real
-cursor is visible. Toggling inventory releases capture on that same input poll;
+The same UI pass assembles a symmetric four-tick reticle from B42's installed
+white texture and hides it whenever the real cursor is visible. Cursor intent
+is published by game input and applied at the installed display thread's
+`Display.updateMouseCursor()` boundary, where native GLFW mode is read back.
+This replaces vanilla's competing hidden-cursor mode and keeps GLFW calls on
+the event thread. Toggling inventory releases capture on that same input poll;
 the visible PZ inventory/loot pages then retain cursor ownership for drag/drop.
 Immediately before that handoff, B42's own square sightline traversal rejects a
 target hidden by a wall; a closed door or window admits only itself, not a
