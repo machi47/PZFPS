@@ -183,6 +183,66 @@ Keep standing zombie appearance intact and test a prone/crawling actor before
 claiming general actor correctness. Only then move to the requested lighting/
 sky/distance work; actor and interaction correctness remain independent gates.
 
+**Loaded surface result:** JAR `20a00e9`, PID 27987, reached the real world and
+compiled the new shader without renderer failure. `.local/captures/surface-repair-live.png`
+shows adjoining ground and exterior panels with substantially fewer open joins,
+but remaining roof/prop fragments and incomplete surfaces are still obvious.
+This is an assistant-observed improvement, not blanket owner acceptance.
+`.local/reports/live-20a00e9-surface-repair.txt` retains native textured actor
+draws and completed world callbacks. Active samples report approximately 60
+completed callbacks/second with 5–6 ms snapshot age; these are not measured
+game FPS, GPU timings or a matched performance baseline. Commit `19a18d0` was
+pushed and remote-verified.
+
+**Next source repair, not yet loaded:** further native inspection found cylinders
+are Z-axis primitives centred at +/- height/2 (`CylinderUtils.intersect`), not
+Y-up primitives running from zero to height. Both live and canonical paths now
+match that convention and select whichever cap faces the source after rotation.
+The regression calls the real native intersection routine and checks the emitted
+upright cylinder vertices. Its first bounds assertion mistakenly tested the
+chunk's conservative culling bounds (which include a full storey), then was
+corrected to inspect actual vertices. The generic entity fallback also no longer
+turns every untyped `moving` object—including blood/giblet physics effects—into
+a human-sized blue box. Actor/vehicle safety silhouettes remain. This does not
+claim a finished native blood/particle presentation.
+
+The actual grill was compiled with corrected source coordinates into two
+project-local immutable outputs using `PYTHONPATH=canonical ... -m pzcanonical.cli
+from-pz`: `.local/canonical-grill-native-coordinates/` and, after cylinder repair,
+`.local/canonical-grill-native-cylinder/`. The latter source silhouette IoU is
+0.890403 with 228 triangles; 4,072 of 11,995 surface texels are observed and 7,923
+are harmonic prior-only. It is an offline diagnostic, not a live asset replacement
+or neural completion. The body-texture and room checkpoint remains intact;
+cylinder/particle source changes await the next batched reload.
+
+**Owner feedback and follow-up, 2026-09-17 22:14 UTC:** the owner explicitly
+accepted improved grass/floor/exterior-wall continuity, but reported door gaps,
+roof-edge strips, intersecting props, missing cabinet sides and black floor
+squares under furniture. These remain failures, not accepted completed assets.
+The blue cubes during attacks match the generic-moving fallback removed above.
+
+`tools/inspect_live_tiles.py --seconds 4 --radius 4` received 169 chunks from the
+existing client. At (7463,5862,0) and (7464,5864,0), the snapshot contains a real
+`floors_exterior_street_01_17` object with flag 2048 (solidfloor), while square
+flags are 4 (roof, no cached solidfloor). Installed `IsoGridSquare.isSolidFloor`
+merely reads its lazy collision cache; `TreatAsSolidFloor` populates it. The
+builder now accepts actual floor-object evidence without mutating that cache,
+and still preserves `stairsBelow` openings. A regression starts with a false
+square cache and a real floor flag. Later repeat inspections while simulation
+was paused received zero chunks; their report is not usable scene evidence.
+
+The seam shader's wall candidates now reject pixels outside the source crop,
+instead of clamping its topmost pixel indefinitely up a full-height panel. The
+CPU alpha-check reference matches this correction. Capture now includes native
+`DoorWallN/W`, `WindowN/W` and `cutN/W` orientation flags: collision-free door
+frames otherwise had no edge, causing the mesh builder to emit nothing. This
+does not yet establish correct door animation, full assembly or prop placement.
+
+The batched source builds with 91 Java tests passing. Native cylinder tests and
+floor-cache regression are offline evidence; the running PID 27987 still uses
+the prior surface build until explicitly staged/reloaded. No accepted lighting,
+sky, render-distance expansion or full first-person body work is claimed.
+
 ## Truthful acceptance state
 
 - **Offline appearance:** implemented and diagnostic only. The actual installed

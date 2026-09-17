@@ -763,8 +763,12 @@ public final class InProcessWorldRenderer {
                             if (wallEdge && source.a < 0.999) {
                                 vec2 tangent = vec2(1.0, abs(surfaceNormal.z) > 0.5 ? 0.5 : -0.5);
                                 for (int step = 1; step <= 6; step++) {
-                                    vec4 a = sampleSprite(sourcePixel - tangent * float(step));
-                                    vec4 b = sampleSprite(sourcePixel + tangent * float(step));
+                                    vec2 pa = sourcePixel - tangent * float(step);
+                                    vec2 pb = sourcePixel + tangent * float(step);
+                                    bool insideA = all(greaterThanEqual(pa, uCrop.xy)) && all(lessThan(pa, uCrop.xy + uCrop.zw));
+                                    bool insideB = all(greaterThanEqual(pb, uCrop.xy)) && all(lessThan(pb, uCrop.xy + uCrop.zw));
+                                    vec4 a = insideA ? sampleSprite(pa) : vec4(0.0);
+                                    vec4 b = insideB ? sampleSprite(pb) : vec4(0.0);
                                     if (a.a > source.a) source = a;
                                     if (b.a > source.a) source = b;
                                 }
@@ -850,6 +854,11 @@ public final class InProcessWorldRenderer {
         EntityFloatBuilder output = new EntityFloatBuilder(Math.max(324, entities.size() * 324));
         for (WorldState.Entity entity : entities) {
             if (nativeActorIds.contains(entity.id())) continue;
+            // IsoCell's moving-object list also contains blood/giblets and other transient
+            // physics effects. A generic 1.72m blue actor box misrepresents those particles.
+            // Retain safety silhouettes only for actual actors/vehicles without native models.
+            if (!"zombie".equals(entity.kind()) && !"character".equals(entity.kind())
+                    && !"vehicle".equals(entity.kind())) continue;
             float x = entity.x();
             float y = entity.z() * LEVEL_HEIGHT;
             float z = entity.y();

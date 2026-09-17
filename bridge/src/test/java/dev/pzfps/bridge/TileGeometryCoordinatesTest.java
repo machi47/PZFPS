@@ -3,11 +3,53 @@ package dev.pzfps.bridge;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.util.List;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import zombie.tileDepth.CylinderUtils;
+import zombie.vehicles.UI3DScene;
 
 final class TileGeometryCoordinatesTest {
+    @TempDir Path temporary;
+
+    @Test
+    void uprightCylinderUsesNativeCenteredZBeforeAuthoredRotation() throws Exception {
+        // Verify the native convention with its real intersection routine.
+        UI3DScene.Ray ray = new UI3DScene.Ray();
+        ray.origin.set(2, 0, .8f);
+        ray.direction.set(-1, 0, .01f);
+        CylinderUtils.IntersectionRecord hit = new CylinderUtils.IntersectionRecord();
+        org.junit.jupiter.api.Assertions.assertTrue(CylinderUtils.intersect(.25f, 2, ray, hit));
+        assertEquals(.25, hit.location.x, .00001);
+
+        Path path = temporary.resolve("cylinder.json");
+        Files.writeString(path, """
+                {"schema_version":1,"source_sha256":"test","tiles":{"fixture":{
+                  "geometry":[{"kind":"cylinder","translate":[0,1,0],
+                    "rotate_degrees":[270,0,0],"radius1":0.25,"radius2":0.25,"height":2}]
+                }}}
+                """);
+        WorldState.TileObject object = new WorldState.TileObject(
+                0, "IsoObject", "normal", "fixture", false, false, false, false, false, false, false);
+        WorldState.Square square = new WorldState.Square(
+                0, 0, 0, 0, 0, 255, 255, 255,
+                false, false, false, false, false, false, List.of(object));
+        WorldMeshBuilder.MeshData mesh = new WorldMeshBuilder(TileGeometryRegistry.load(path))
+                .build(new WorldState.Chunk(0, 0, 1, 1, List.of(square)));
+        float low = Float.POSITIVE_INFINITY;
+        float high = Float.NEGATIVE_INFINITY;
+        float[] vertices = mesh.texturedBatches().getFirst().vertices();
+        for (int i = 1; i < vertices.length; i += WorldMeshBuilder.TEXTURED_FLOATS_PER_VERTEX) {
+            low = Math.min(low, vertices[i]);
+            high = Math.max(high, vertices[i]);
+        }
+        assertEquals(0, low, .00001);
+        assertEquals(2 * WorldMeshBuilder.AUTHORED_HEIGHT_TO_WORLD, high, .00001);
+    }
+
     @Test
     void primitiveTransformMatchesInstalledJomlConvention() {
         for (float[] angles : new float[][] {{20, 35, 70}, {179.9854f, 89.9802f, -179.9854f}, {270, 0, 0}}) {

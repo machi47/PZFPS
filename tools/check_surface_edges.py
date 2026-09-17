@@ -56,7 +56,13 @@ def inspect(path, kind):
     after = before.copy()
     repair = edge & (before < .999)
     for dx, dy in offsets:
-        after[repair] = np.maximum(after[repair], sample(sx+dx, sy+dy)[repair])
+        candidate = sample(sx+dx, sy+dy)
+        if kind != 'floor':
+            inside = ((sx+dx >= region['offset_x']) & (sy+dy >= region['offset_y'])
+                      & (sx+dx < region['offset_x'] + region['width'])
+                      & (sy+dy < region['offset_y'] + region['height']))
+            candidate[~inside] = 0
+        after[repair] = np.maximum(after[repair], candidate[repair])
     assert np.array_equal(after[~edge], before[~edge]), 'interior alpha changed'
     return dict(sprite=manifest['sprite'], kind=kind, page_sha256=manifest['page_sha256'],
                 samples=int(before.size), before_transparent=int((before < .02).sum()),

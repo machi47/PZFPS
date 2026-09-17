@@ -41,11 +41,10 @@ def registry_mesh(registry: dict, sprite: str, *, polygon_thickness: float | Non
             bottom, top, height = (float(source[k]) for k in ("radius1", "radius2", "height"))
             if not np.isfinite([bottom, top, height]).all() or min(bottom, top) < 0 or max(bottom, top) <= 0 or height <= 0:
                 raise ValueError("invalid source cylinder")
-            profile = np.array([[0, 0], [bottom, 0], [top, height], [0, height]])
+            # Native CylinderUtils intersects a Z-axis cylinder centred at the origin.
+            profile = np.array([[0, -height/2], [bottom, -height/2], [top, height/2], [0, height/2]])
             shape = trimesh.creation.revolve(profile, sections=cylinder_segments)
-            # trimesh revolves around Z; source cylinders have vertical Y.
-            mapping = np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]])
-            geometry = Mesh(shape.vertices @ mapping.T, shape.faces)
+            geometry = Mesh(shape.vertices, shape.faces)
         elif kind == "polygon":
             if polygon_thickness is None:
                 raise ValueError("planar source needs an explicit polygon_thickness appearance choice; the game does not supply a back surface")

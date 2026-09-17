@@ -146,7 +146,7 @@ final class WorldMeshBuilderTest {
     }
 
     @Test
-    void usesAuthoritativeFloorPropertyWithoutRequiringANamePrefix() throws Exception {
+    void usesActualFloorObjectEvenWhenOccupiedSquaresLazyCollisionCacheIsFalse() throws Exception {
         Path registryPath = temporary.resolve("semantic-floor.json");
         Files.writeString(
                 registryPath,
@@ -171,7 +171,7 @@ final class WorldMeshBuilderTest {
                 WorldState.WorldItem.none());
         WorldState.Square square = new WorldState.Square(
                 0, 0, 0, -1, 0, 255, 255, 255,
-                true, true, false, false, false, false, List.of(floor));
+                false, true, false, false, false, false, List.of(floor));
 
         WorldMeshBuilder.MeshData mesh = new WorldMeshBuilder(
                         TileGeometryRegistry.load(registryPath))

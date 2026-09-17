@@ -348,9 +348,15 @@ public final class WorldCapture {
                         : object instanceof IsoThumpable thumpable && thumpable.IsOpen();
         boolean edgeNorth = object.isWallN()
                 || object.hasProperty(IsoFlagType.collideN)
+                || object.hasProperty(IsoFlagType.DoorWallN)
+                || object.hasProperty(IsoFlagType.WindowN)
+                || object.hasProperty(IsoFlagType.cutN)
                 || ((door || window) && north);
         boolean edgeWest = object.isWallW()
                 || object.hasProperty(IsoFlagType.collideW)
+                || object.hasProperty(IsoFlagType.DoorWallW)
+                || object.hasProperty(IsoFlagType.WindowW)
+                || object.hasProperty(IsoFlagType.cutW)
                 || ((door || window) && !north);
         return new WorldState.TileObject(
                 index,

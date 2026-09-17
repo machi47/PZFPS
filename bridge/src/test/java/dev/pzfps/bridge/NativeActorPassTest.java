@@ -27,6 +27,15 @@ final class NativeActorPassTest {
     }
 
     @Test
+    void transientMovingEffectsDoNotBecomeHumanSizedBlueBoxes() {
+        assertEquals(0, InProcessWorldRenderer.entityVertices(
+                List.of(entity(19, "moving")), Set.of()).length);
+        assertEquals(36 * WorldMeshBuilder.FLOATS_PER_VERTEX,
+                InProcessWorldRenderer.entityVertices(
+                        List.of(entity(19, "moving"), entity(20, "zombie")), Set.of()).length);
+    }
+
+    @Test
     void suppressesOnlyEntitiesOwnedByNativeActorQueue() {
         WorldState.Entity actor = entity(17, "zombie");
         WorldState.Entity vehicle = entity(18, "vehicle");

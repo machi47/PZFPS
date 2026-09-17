@@ -136,7 +136,7 @@ public final class WorldMeshBuilder {
             // below enters through it. HasStairsBelow is authoritative topology for that opening;
             // drawing the generic full-tile floor here creates the observed solid plane over the
             // stairwell. Stairs on this square do not imply a hole beneath themselves.
-            if (square.solidFloor() && !square.stairsBelow()) {
+            if (hasFloorSurface(square) && !square.stairsBelow()) {
                 String floorSprite = floorSprite(square);
                 if (!floorSprite.isEmpty()) {
                     sourceTexturedFloors++;
@@ -181,7 +181,7 @@ public final class WorldMeshBuilder {
                             light[1] * 0.78f,
                             light[2] * 0.67f);
                 }
-            } else if (square.solidFloor()) {
+            } else if (hasFloorSurface(square)) {
                 stairFloorOpenings++;
             }
             if (shouldCompleteInteriorCeiling(square, squaresByPosition)) {
@@ -342,6 +342,14 @@ public final class WorldMeshBuilder {
         return "";
     }
 
+    private static boolean hasFloorSurface(WorldState.Square square) {
+        // IsoGridSquare.isSolidFloor() merely reads a lazy collision cache. Occupied squares
+        // need not have had TreatAsSolidFloor() called, even with a real solidfloor object.
+        // Do not mutate that cache from the renderer or infer floors beneath empty squares.
+        return square.solidFloor() || square.objects().stream()
+                .anyMatch(object -> object.floor() && !object.worldItem().present());
+    }
+
     private static String unsupportedIdentity(WorldState.TileObject object) {
         if (!object.sprite().isBlank()) return object.sprite();
         if (!object.objectType().isBlank()) return "<type:" + object.objectType() + ">";
@@ -445,7 +453,7 @@ public final class WorldMeshBuilder {
         }
         WorldState.Square upper = squaresByPosition.get(
                 squarePositionKey(square.localX(), square.localY(), square.z() + 1));
-        if (upper != null) return upper.solidFloor() && !upper.stairsBelow();
+        if (upper != null) return hasFloorSurface(upper) && !upper.stairsBelow();
         return square.roof();
     }
 
@@ -621,22 +629,23 @@ public final class WorldMeshBuilder {
             double a0 = Math.PI * 2.0 * segment / CYLINDER_SEGMENTS;
             double a1 = Math.PI * 2.0 * (segment + 1) / CYLINDER_SEGMENTS;
             float[][] local = {
-                {(float) Math.cos(a0) * cylinder.radiusBottom(), 0,
-                        (float) Math.sin(a0) * cylinder.radiusBottom()},
-                {(float) Math.cos(a1) * cylinder.radiusBottom(), 0,
-                        (float) Math.sin(a1) * cylinder.radiusBottom()},
-                {(float) Math.cos(a1) * cylinder.radiusTop(), cylinder.height(),
-                        (float) Math.sin(a1) * cylinder.radiusTop()},
-                {(float) Math.cos(a0) * cylinder.radiusTop(), cylinder.height(),
-                        (float) Math.sin(a0) * cylinder.radiusTop()},
-                {0, 0, 0},
-                {0, cylinder.height(), 0}
+                {(float) Math.cos(a0) * cylinder.radiusBottom(),
+                        (float) Math.sin(a0) * cylinder.radiusBottom(), -cylinder.height() / 2},
+                {(float) Math.cos(a1) * cylinder.radiusBottom(),
+                        (float) Math.sin(a1) * cylinder.radiusBottom(), -cylinder.height() / 2},
+                {(float) Math.cos(a1) * cylinder.radiusTop(),
+                        (float) Math.sin(a1) * cylinder.radiusTop(), cylinder.height() / 2},
+                {(float) Math.cos(a0) * cylinder.radiusTop(),
+                        (float) Math.sin(a0) * cylinder.radiusTop(), cylinder.height() / 2},
+                {0, 0, -cylinder.height() / 2},
+                {0, 0, cylinder.height() / 2}
             };
             float[][] transformed = transformedLocal(cylinder, local);
             float[][] world = worldPoints(baseX, baseY, baseZ, transformed);
             addObservedTexturedQuad(output, world, transformed, new int[] {0, 1, 2, 3}, light);
             addObservedTexturedTriangle(output, world, transformed, new int[] {5, 3, 2}, light);
-            // The lower cap faces away from the source camera and remains unknown.
+            // Either end can face the source after the authored rotation.
+            addObservedTexturedTriangle(output, world, transformed, new int[] {4, 1, 0}, light);
         }
     }
 
@@ -852,20 +861,20 @@ public final class WorldMeshBuilder {
             double a0 = Math.PI * 2.0 * segment / CYLINDER_SEGMENTS;
             double a1 = Math.PI * 2.0 * (segment + 1) / CYLINDER_SEGMENTS;
             float[] b0 = transform(baseX, baseY, baseZ, cylinder,
-                    (float) Math.cos(a0) * cylinder.radiusBottom(), 0,
-                    (float) Math.sin(a0) * cylinder.radiusBottom());
+                    (float) Math.cos(a0) * cylinder.radiusBottom(),
+                    (float) Math.sin(a0) * cylinder.radiusBottom(), -cylinder.height() / 2);
             float[] b1 = transform(baseX, baseY, baseZ, cylinder,
-                    (float) Math.cos(a1) * cylinder.radiusBottom(), 0,
-                    (float) Math.sin(a1) * cylinder.radiusBottom());
+                    (float) Math.cos(a1) * cylinder.radiusBottom(),
+                    (float) Math.sin(a1) * cylinder.radiusBottom(), -cylinder.height() / 2);
             float[] t0 = transform(baseX, baseY, baseZ, cylinder,
-                    (float) Math.cos(a0) * cylinder.radiusTop(), cylinder.height(),
-                    (float) Math.sin(a0) * cylinder.radiusTop());
+                    (float) Math.cos(a0) * cylinder.radiusTop(),
+                    (float) Math.sin(a0) * cylinder.radiusTop(), cylinder.height() / 2);
             float[] t1 = transform(baseX, baseY, baseZ, cylinder,
-                    (float) Math.cos(a1) * cylinder.radiusTop(), cylinder.height(),
-                    (float) Math.sin(a1) * cylinder.radiusTop());
+                    (float) Math.cos(a1) * cylinder.radiusTop(),
+                    (float) Math.sin(a1) * cylinder.radiusTop(), cylinder.height() / 2);
             addQuad(output, b0, b1, t1, t0, normal(b0, b1, t1), color);
-            float[] bottom = transform(baseX, baseY, baseZ, cylinder, 0, 0, 0);
-            float[] top = transform(baseX, baseY, baseZ, cylinder, 0, cylinder.height(), 0);
+            float[] bottom = transform(baseX, baseY, baseZ, cylinder, 0, 0, -cylinder.height() / 2);
+            float[] top = transform(baseX, baseY, baseZ, cylinder, 0, 0, cylinder.height() / 2);
             addTriangle(output, bottom, b1, b0, normal(bottom, b1, b0), color);
             addTriangle(output, top, t0, t1, normal(top, t0, t1), color);
         }

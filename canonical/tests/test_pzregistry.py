@@ -20,10 +20,11 @@ def test_exact_existing_registry_box():
     np.testing.assert_allclose(mesh.bounds, [[-.5, 0, -.3], [.5, 1.5, .3]])
 
 
-def test_registry_cylinder_y_up_and_winding():
+def test_registry_cylinder_matches_native_centered_z_axis_and_winding():
     mesh = registry_mesh(registry(dict(kind="cylinder", radius1=.3, radius2=.2, height=1.4)), "test_0")
-    np.testing.assert_allclose(mesh.bounds[:, 1], [0, 1.4])
-    assert mesh.normals[:, 1].max() > .99
+    np.testing.assert_allclose(mesh.bounds[:, 2], [-.7, .7])
+    assert mesh.normals[:, 2].max() > .99
+    assert mesh.normals[:, 2].min() < -.99
 
 
 def test_concave_polygon_extrudes_without_hull_filling():
