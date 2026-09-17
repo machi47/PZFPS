@@ -1,0 +1,25 @@
+#!/bin/sh
+# Keep SwiftPM's shared state inside this project while executing the pinned
+# upstream scripts. The upstream .build scratch directory is already beneath
+# .local/upstream and is intentionally left at its default path.
+set -eu
+PROJECT_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+mkdir -p \
+  "$PROJECT_ROOT/.local/cache/swiftpm" \
+  "$PROJECT_ROOT/.local/config/swiftpm" \
+  "$PROJECT_ROOT/.local/security/swiftpm"
+
+case "${1:-}" in
+  build|test|run|package)
+    exec /usr/bin/swift "$@" \
+      --cache-path "$PROJECT_ROOT/.local/cache/swiftpm" \
+      --config-path "$PROJECT_ROOT/.local/config/swiftpm" \
+      --security-path "$PROJECT_ROOT/.local/security/swiftpm" \
+      --manifest-cache local \
+      --disable-keychain \
+      --disable-netrc
+    ;;
+  *)
+    exec /usr/bin/swift "$@"
+    ;;
+esac

@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "game": {
+    "steam_app_id": "108600",
+    "first_person_mod": {
+      "workshop_id": "3786653645",
+      "mod_id": "FirstPersonView",
+      "published_version": "0.2",
+      "declared_build": "42",
+      "title": "First Person View [B42 - WIP]",
+      "evaluation_status": "rejected",
+      "rejection_reason": "Lua/UI raycaster with author-documented performance and rendering limits; not an acceptable first-person source for this experiment."
+    }
+  },
+  "overlay": {
+    "repository": "https://github.com/gtrg55/dlss5-macos-overlay.git",
+    "commit": "0d4caa1fd36d2581785efa80e6ade09983a18f05",
+    "license": "MIT",
+    "minimum_macos_major": 26,
+    "documented_minimum_swift": "6.2",
+    "effective_minimum_swift": "6.3",
+    "vendored_mlx_dlss_commit": "0ca2deab092fe6f3e331bf4f616271dbc64521d0",
+    "vendored_mlx_dlss_license": "Apache-2.0"
+  },
+  "model": {
+    "source_filename": "nvngx_dlssnr.dll",
+    "source_file_version": "310.8.0.0",
+    "validated_source_sha256": "dcc0dc2414aedec4a8e084647070383be068554042587180c20c784d4772d36f",
+    "validated_logical_weights_sha256": "f9047d0c934f19c71e0d125a65ad27f0435a1698209e5c8f205e0097e98f6541",
+    "rights_note": "User supplied; source-code licenses do not grant rights to NVIDIA binaries or extracted weights."
+  },
+  "experiment_defaults": {
+    "profile": "Natural",
+    "processing_width": 512,
+    "requested_capture_fps": 30,
+    "motion_awareness": true,
+    "before_after": 0.5,
+    "fallback_processing_width": 384
+  }
+}

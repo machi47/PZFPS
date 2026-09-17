@@ -1,0 +1,60 @@
+plugins {
+    id "java"
+}
+
+group = "dev.pzfps"
+version = "0.1.0"
+
+def pzJarPath = providers.gradleProperty("pzJar")
+    .orElse(providers.environmentVariable("PZ_JAR"))
+def zombieBuddyJarPath = providers.gradleProperty("zombieBuddyJar")
+    .orElse(providers.environmentVariable("ZOMBIE_BUDDY_JAR"))
+
+if (!pzJarPath.isPresent()) {
+    throw new GradleException("Set PZ_JAR or -PpzJar to the installed projectzomboid.jar")
+}
+if (!zombieBuddyJarPath.isPresent()) {
+    throw new GradleException("Set ZOMBIE_BUDDY_JAR or -PzombieBuddyJar to the pinned ZombieBuddy.jar")
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    compileOnly files(pzJarPath.get())
+    compileOnly files(zombieBuddyJarPath.get())
+
+    testImplementation platform("org.junit:junit-bom:5.13.4")
+    testImplementation "org.junit.jupiter:junit-jupiter"
+    testCompileOnly files(pzJarPath.get())
+    testCompileOnly files(zombieBuddyJarPath.get())
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+    testRuntimeOnly files(pzJarPath.get())
+    testRuntimeOnly files(zombieBuddyJarPath.get())
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(26)
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = 25
+    options.compilerArgs += ["-Xlint:all", "-parameters"]
+}
+
+tasks.named("test") {
+    useJUnitPlatform()
+}
+
+tasks.named("jar") {
+    archiveBaseName = "PZFPSBridge"
+    manifest {
+        attributes(
+            "Implementation-Title": "PZFPS authoritative bridge",
+            "Implementation-Version": project.version
+        )
+    }
+}

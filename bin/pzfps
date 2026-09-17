@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+PROJECT_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+export PYTHONDONTWRITEBYTECODE=1
+if [ -n "${PYTHONPATH:-}" ]; then
+  export PYTHONPATH="$PROJECT_ROOT/src:$PYTHONPATH"
+else
+  export PYTHONPATH="$PROJECT_ROOT/src"
+fi
+exec "${PZFPS_PYTHON:-python3}" -m pzfps.cli "$@"

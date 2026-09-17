@@ -1,0 +1,621 @@
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shutil
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+from typing import Any
+
+from . import __version__
+from .assets import compile_geometry
+from .texture_packs import extract_sprite_page, index_texture_pack
+from .common import LOCAL, ROOT, command, load_config, now_utc, parse_version_prefix, sha256_file, timestamp_id, write_json
+from .deployment import cleanup as deployment_cleanup
+from .deployment import record_before, record_installed
+from .doctor import inspect, model_identity, write_report
+from .evidence import CHECKPOINTS, add_evidence, add_metric, create_run, finalize_run, resolve_run
+from .runtime import launch as launch_isolated
+from .runtime import launch_app as launch_app_isolated
+from .runtime import process_state as isolated_process_state
+from .runtime import pz_processes
+from .runtime import stage as stage_isolated
+from .runtime import stop as stop_isolated
+
+
+UPSTREAM = LOCAL / "upstream" / "dlss5-macos-overlay"
+
+
+class UserError(RuntimeError):
+    pass
+
+
+def _print_json(value: Any) -> None:
+    print(json.dumps(value, indent=2, sort_keys=True))
+
+
+def _supported_host(config: dict[str, Any]) -> tuple[bool, str, str]:
+    report = inspect()
+    found_macos = report["machine"]["macos"] or "0"
+    found_swift = report["toolchain"]["effective_swift_version"] or "0"
+    required_macos = int(config["overlay"]["minimum_macos_major"])
+    required_swift = parse_version_prefix(config["overlay"]["effective_minimum_swift"])
+    supported = (
+        parse_version_prefix(found_macos) >= (required_macos,)
+        and parse_version_prefix(found_swift) >= required_swift
+    )
+    return supported, found_macos, found_swift
+
+
+def _assert_upstream() -> str:
+    config = load_config()
+    if not UPSTREAM.is_dir():
+        raise UserError("overlay checkout is absent; run: bin/pzfps upstream fetch")
+    revision = command(["git", "rev-parse", "HEAD"], cwd=UPSTREAM)
+    actual = revision.stdout.strip()
+    expected = config["overlay"]["commit"]
+    if revision.returncode or actual != expected:
+        raise UserError(f"overlay revision mismatch: expected {expected}, found {actual or 'unknown'}")
+    status = command(["git", "status", "--porcelain"], cwd=UPSTREAM)
+    if status.returncode or status.stdout.strip():
+        raise UserError("pinned overlay checkout has local changes; refusing to use it")
+    return actual
+
+
+def _workspace_env() -> dict[str, str]:
+    environment = os.environ.copy()
+    environment["PATH"] = f"{ROOT / 'tools' / 'local-bin'}:{environment.get('PATH', '')}"
+    environment["PIP_CACHE_DIR"] = str(LOCAL / "cache" / "pip")
+    environment["TMPDIR"] = str(LOCAL / "tmp")
+    environment["DLSS_BUILD_JOBS"] = environment.get("DLSS_BUILD_JOBS", "2")
+    for path in (Path(environment["PIP_CACHE_DIR"]), Path(environment["TMPDIR"])):
+        path.mkdir(parents=True, exist_ok=True)
+    return environment
+
+
+def _run_logged(argv: list[str], *, cwd: Path, label: str, env: dict[str, str] | None = None) -> tuple[int, Path]:
+    log = LOCAL / "logs" / f"{label}-{timestamp_id()}.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    with log.open("w", encoding="utf-8") as handle:
+        handle.write(f"recorded_at={now_utc()}\n")
+        handle.write(f"cwd={cwd}\n")
+        handle.write("command=" + " ".join(argv) + "\n\n")
+        handle.flush()
+        process = subprocess.run(argv, cwd=cwd, env=env, stdout=handle, stderr=subprocess.STDOUT, check=False)
+    return process.returncode, log
+
+
+def command_doctor(args: argparse.Namespace) -> int:
+    report = inspect()
+    if args.write:
+        path = write_report(report)
+        report["report_path"] = str(path)
+    _print_json(report)
+    return 0
+
+
+def command_upstream_fetch(_: argparse.Namespace) -> int:
+    config = load_config()["overlay"]
+    destination = UPSTREAM
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists():
+        _assert_upstream()
+        print(f"Pinned overlay already present: {destination}")
+        return 0
+    result = subprocess.run(
+        ["git", "clone", "--filter=blob:none", "--no-tags", config["repository"], str(destination)],
+        cwd=ROOT,
+        check=False,
+    )
+    if result.returncode:
+        raise UserError("overlay clone failed")
+    checkout = subprocess.run(["git", "checkout", "--detach", config["commit"]], cwd=destination, check=False)
+    if checkout.returncode:
+        raise UserError("overlay checkout failed")
+    _assert_upstream()
+    print(f"Pinned overlay: {destination} @ {config['commit']}")
+    return 0
+
+
+def command_upstream_verify(args: argparse.Namespace) -> int:
+    revision = _assert_upstream()
+    config = load_config()
+    supported, found_macos, found_swift = _supported_host(config)
+    if not supported and not args.force_unsupported_host:
+        raise UserError(
+            f"upstream requires macOS {config['overlay']['minimum_macos_major']}+ and Swift "
+            f"{config['overlay']['effective_minimum_swift']}+; found macOS {found_macos}, Swift {found_swift}. "
+            "Use --force-unsupported-host only for a diagnostic attempt."
+        )
+    returncode, log = _run_logged(
+        ["bash", "scripts/verify-source.sh"],
+        cwd=UPSTREAM,
+        label="upstream-verify-source",
+        env=_workspace_env(),
+    )
+    state = {
+        "recorded_at": now_utc(),
+        "revision": revision,
+        "command": "bash scripts/verify-source.sh",
+        "returncode": returncode,
+        "host_macos": found_macos,
+        "host_swift": found_swift,
+        "host_supported": supported,
+        "model_required": False,
+        "log": str(log),
+        "checkpoint_eligible": returncode == 0,
+    }
+    write_json(LOCAL / "state" / "upstream-verification.json", state)
+    _print_json(state)
+    return returncode
+
+
+def command_model_inspect(args: argparse.Namespace) -> int:
+    path = args.path.expanduser()
+    if not path.is_file():
+        raise UserError(f"model source does not exist: {path}")
+    _print_json(model_identity(path))
+    return 0
+
+
+def command_model_prepare(args: argparse.Namespace) -> int:
+    _assert_upstream()
+    source = args.path.expanduser().resolve()
+    if not source.is_file():
+        raise UserError(f"model source does not exist: {source}")
+    identity = model_identity(source)
+    if not identity["matches_validated_source"] and not args.allow_unverified_model:
+        raise UserError("model checksum is not the validated source; inspect it or pass --allow-unverified-model explicitly")
+    staged = LOCAL / "models" / "sources" / identity["sha256"] / source.name
+    staged.parent.mkdir(parents=True, exist_ok=True)
+    if not staged.exists():
+        shutil.copy2(source, staged)
+    elif sha256_file(staged) != identity["sha256"]:
+        raise UserError("staged model source checksum changed")
+    returncode, log = _run_logged(
+        ["bash", "scripts/prepare-model.sh", str(staged)],
+        cwd=UPSTREAM,
+        label="prepare-model",
+        env=_workspace_env(),
+    )
+    identity.update({"staged_path": str(staged), "prepared_at": now_utc(), "returncode": returncode, "log": str(log)})
+    write_json(LOCAL / "models" / "provenance" / f"{identity['sha256']}.json", identity)
+    _print_json(identity)
+    return returncode
+
+
+def command_overlay_build(_: argparse.Namespace) -> int:
+    revision = _assert_upstream()
+    config = load_config()
+    supported, found_macos, found_swift = _supported_host(config)
+    if not supported:
+        raise UserError(
+            "cannot build supported app: upstream requires macOS 26+ and Swift 6.3+; "
+            f"found macOS {found_macos}, Swift {found_swift}"
+        )
+    model = UPSTREAM / "Models" / "NR.dlss"
+    if not (model / "manifest.json").is_file() or not (model / "weights.safetensors").is_file():
+        raise UserError("prepared NR.dlss model is absent; run model prepare first")
+    returncode, log = _run_logged(
+        ["bash", "scripts/build-app.sh"], cwd=UPSTREAM, label="build-overlay", env=_workspace_env()
+    )
+    state = {"recorded_at": now_utc(), "revision": revision, "returncode": returncode, "log": str(log)}
+    write_json(LOCAL / "state" / "overlay-build.json", state)
+    _print_json(state)
+    return returncode
+
+
+def command_overlay_launch(args: argparse.Namespace) -> int:
+    _assert_upstream()
+    run = resolve_run(args.run)
+    app = UPSTREAM / "dist" / "DLSS_5_APPLE_SILICON.app"
+    executable = app / "Contents" / "MacOS" / "DLSS_5_APPLE_SILICON"
+    if not executable.is_file():
+        raise UserError("built overlay app is absent; run overlay build")
+    log_path = run / "logs" / "overlay-process.log"
+    log_handle = log_path.open("ab")
+    process = subprocess.Popen(
+        [str(executable)],
+        cwd=UPSTREAM,
+        stdout=log_handle,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+    )
+    state = {
+        "started_at": now_utc(),
+        "pid": process.pid,
+        "executable": str(executable.resolve()),
+        "run_id": args.run,
+        "log": str(log_path),
+    }
+    write_json(LOCAL / "state" / "overlay-process.json", state)
+    _print_json(state)
+    return 0
+
+
+def command_overlay_stop(_: argparse.Namespace) -> int:
+    state_path = LOCAL / "state" / "overlay-process.json"
+    if not state_path.is_file():
+        raise UserError("no project-launched overlay process is recorded")
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    pid = int(state["pid"])
+    executable = Path(state["executable"]).resolve()
+    ps = command(["ps", "-p", str(pid), "-o", "comm="])
+    running = ps.returncode == 0 and ps.stdout.strip()
+    if not running:
+        print("Recorded overlay is no longer running.")
+        return 0
+    if Path(ps.stdout.strip()).resolve() != executable:
+        raise UserError("recorded PID now belongs to another executable; refusing to signal it")
+    os.kill(pid, signal.SIGTERM)
+    for _ in range(50):
+        if command(["kill", "-0", str(pid)]).returncode != 0:
+            state["stopped_at"] = now_utc()
+            write_json(state_path, state)
+            print("Overlay process stopped; ordinary game view is unaffected.")
+            return 0
+        time.sleep(0.1)
+    raise UserError("overlay did not exit after SIGTERM; use Option-Command-0, then quit the app")
+
+
+def command_game_launch(args: argparse.Namespace) -> int:
+    run = resolve_run(args.run)
+    if not args.acknowledge_steam_writes:
+        raise UserError("game launch requires --acknowledge-steam-writes")
+    report = inspect()
+    install = report["game"]["install_path"]
+    if not report["game"]["installed"] or not install:
+        raise UserError("Project Zomboid is not installed")
+    marker = {
+        "requested_at": now_utc(),
+        "run_id": args.run,
+        "steam_uri": "steam://run/108600",
+        "warning": "Create and use a new disposable single-player save; do not load an existing save.",
+    }
+    write_json(run / "logs" / "game-launch.json", marker)
+    launched = subprocess.run(["open", "steam://run/108600"], check=False)
+    if launched.returncode:
+        raise UserError("Steam launch request failed")
+    _print_json(marker)
+    return 0
+
+
+def _installed_game_path() -> Path:
+    report = inspect()
+    install = report["game"]["install_path"]
+    if not report["game"]["installed"] or not install:
+        raise UserError("Project Zomboid is not installed")
+    return Path(install)
+
+
+def command_game_stage_isolated(_: argparse.Namespace) -> int:
+    _print_json(stage_isolated(_installed_game_path()))
+    return 0
+
+
+def command_game_launch_isolated(_: argparse.Namespace) -> int:
+    _print_json(launch_isolated(_installed_game_path()))
+    return 0
+
+
+def command_game_launch_app_isolated(_: argparse.Namespace) -> int:
+    _print_json(launch_app_isolated(_installed_game_path()))
+    return 0
+
+
+def command_game_status_isolated(_: argparse.Namespace) -> int:
+    state = isolated_process_state()
+    state["all_pz_processes"] = pz_processes()
+    _print_json(state)
+    return 0
+
+
+def command_game_stop_isolated(_: argparse.Namespace) -> int:
+    _print_json(stop_isolated())
+    return 0
+
+
+def command_assets_index_geometry(args: argparse.Namespace) -> int:
+    report = inspect()
+    install = report["game"]["install_path"]
+    if not report["game"]["installed"] or not install:
+        raise UserError("Project Zomboid is not installed")
+    source = (
+        Path(install)
+        / "Project Zomboid.app"
+        / "Contents"
+        / "Java"
+        / "media"
+        / "tileGeometry.txt"
+    )
+    if not source.is_file():
+        raise UserError(f"installed B42 tile geometry is absent: {source}")
+    output = args.output or (
+        LOCAL
+        / "assets"
+        / f"pz-{report['game']['version']}"
+        / "tile-geometry.json"
+    )
+    document = compile_geometry(source, output, game_version=report["game"]["version"])
+    _print_json(
+        {
+            key: document[key]
+            for key in (
+                "schema_version",
+                "game_version",
+                "source",
+                "source_sha256",
+                "tile_count",
+                "geometry_counts",
+            )
+        }
+        | {"output": str(output)}
+    )
+    return 0
+
+
+def command_assets_index_textures(args: argparse.Namespace) -> int:
+    report = inspect()
+    install = report["game"]["install_path"]
+    if not report["game"]["installed"] or not install:
+        raise UserError("Project Zomboid is not installed")
+    source = (
+        Path(install)
+        / "Project Zomboid.app"
+        / "Contents"
+        / "Java"
+        / "media"
+        / "texturepacks"
+        / args.pack
+    )
+    if not source.is_file():
+        raise UserError(f"installed texture pack is absent: {source}")
+    output = args.output or (
+        LOCAL
+        / "assets"
+        / f"pz-{report['game']['version']}"
+        / f"{source.stem}-texture-index.json"
+    )
+    document = index_texture_pack(source, output, game_version=report["game"]["version"])
+    _print_json(
+        {
+            key: document[key]
+            for key in (
+                "schema_version",
+                "game_version",
+                "source",
+                "source_sha256",
+                "source_size",
+                "page_count",
+                "texture_count",
+            )
+        }
+        | {"output": str(output)}
+    )
+    return 0
+
+
+def command_assets_extract_sprite(args: argparse.Namespace) -> int:
+    output = args.output or (LOCAL / "assets" / "extracted" / args.sprite)
+    _print_json(extract_sprite_page(args.index, args.sprite, output))
+    return 0
+
+
+def command_run_create(args: argparse.Namespace) -> int:
+    run = create_run(args.label, inspect())
+    print(run.name)
+    return 0
+
+
+def command_run_add(args: argparse.Namespace) -> int:
+    destination = add_evidence(args.run, args.baseline, args.kind, args.file.expanduser())
+    print(destination)
+    return 0
+
+
+def command_run_add_metric(args: argparse.Namespace) -> int:
+    values = {
+        "baseline": args.baseline,
+        "phase": args.phase,
+        "game_fps": args.game_fps,
+        "capture_fps": args.capture_fps,
+        "completed_neural_fps": args.completed_neural_fps,
+        "display_hz": args.display_hz,
+        "processing_ms_p50": args.processing_ms_p50,
+        "processing_ms_p95": args.processing_ms_p95,
+        "dropped_frames": args.dropped_frames,
+        "input_to_photon_ms": args.input_to_photon_ms,
+        "state_age_ms": args.state_age_ms,
+        "memory_pressure": args.memory_pressure,
+        "fallback_current_frame_validated": args.fallback_current_frame_validated,
+        "gameplay_controllable": args.gameplay_controllable,
+        "important_state_preserved": args.important_state_preserved,
+        "method": args.method,
+        "notes": args.notes,
+    }
+    print(add_metric(args.run, values))
+    return 0
+
+
+def command_run_finalize(args: argparse.Namespace) -> int:
+    manifest = finalize_run(args.run, args.checkpoint, args.owner_accepted)
+    _print_json(manifest)
+    return 0
+
+
+def command_deployment_before(args: argparse.Namespace) -> int:
+    if not args.approve_external_write:
+        raise UserError("external deployment snapshot requires --approve-external-write")
+    print(record_before(args.destination, args.owner))
+    return 0
+
+
+def command_deployment_installed(args: argparse.Namespace) -> int:
+    _print_json(record_installed(args.manifest))
+    return 0
+
+
+def command_deployment_cleanup(args: argparse.Namespace) -> int:
+    print(deployment_cleanup(args.manifest, confirmed=args.confirm))
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="pzfps", description="First-experiment harness for PZ Neural View")
+    parser.add_argument("--version", action="version", version=__version__)
+    commands = parser.add_subparsers(dest="command", required=True)
+
+    doctor = commands.add_parser("doctor", help="inspect the environment without changing Steam, PZ, mods or saves")
+    doctor.add_argument("--write", action="store_true", help="also store the JSON report under .local/reports")
+    doctor.set_defaults(func=command_doctor)
+
+    upstream = commands.add_parser("upstream")
+    upstream_commands = upstream.add_subparsers(dest="upstream_command", required=True)
+    fetch = upstream_commands.add_parser("fetch", help="clone and detach the pinned overlay under .local")
+    fetch.set_defaults(func=command_upstream_fetch)
+    verify = upstream_commands.add_parser("verify", help="run the upstream model-independent source checks")
+    verify.add_argument("--force-unsupported-host", action="store_true")
+    verify.set_defaults(func=command_upstream_verify)
+
+    model = commands.add_parser("model")
+    model_commands = model.add_subparsers(dest="model_command", required=True)
+    model_inspect = model_commands.add_parser("inspect", help="hash a user-supplied model source")
+    model_inspect.add_argument("path", type=Path)
+    model_inspect.set_defaults(func=command_model_inspect)
+    prepare = model_commands.add_parser("prepare", help="stage and prepare a model with the upstream script")
+    prepare.add_argument("path", type=Path)
+    prepare.add_argument("--allow-unverified-model", action="store_true")
+    prepare.set_defaults(func=command_model_prepare)
+
+    overlay = commands.add_parser("overlay")
+    overlay_commands = overlay.add_subparsers(dest="overlay_command", required=True)
+    build = overlay_commands.add_parser("build")
+    build.set_defaults(func=command_overlay_build)
+    launch = overlay_commands.add_parser("launch")
+    launch.add_argument("--run", required=True)
+    launch.set_defaults(func=command_overlay_launch)
+    stop = overlay_commands.add_parser("stop")
+    stop.set_defaults(func=command_overlay_stop)
+
+    game = commands.add_parser("game")
+    game_commands = game.add_subparsers(dest="game_command", required=True)
+    game_launch = game_commands.add_parser("launch")
+    game_launch.add_argument("--run", required=True)
+    game_launch.add_argument("--acknowledge-steam-writes", action="store_true")
+    game_launch.set_defaults(func=command_game_launch)
+    game_stage_isolated = game_commands.add_parser(
+        "stage-isolated",
+        help="stage audited bridge mods and config entirely beneath .local",
+    )
+    game_stage_isolated.set_defaults(func=command_game_stage_isolated)
+    game_launch_isolated = game_commands.add_parser(
+        "launch-isolated",
+        help="launch PZ directly with the project-local cache and audited bridge",
+    )
+    game_launch_isolated.set_defaults(func=command_game_launch_isolated)
+    game_launch_app_isolated = game_commands.add_parser(
+        "launch-app-isolated",
+        help="launch exactly one identifiable local PZ app using the isolated profile",
+    )
+    game_launch_app_isolated.set_defaults(func=command_game_launch_app_isolated)
+    game_status_isolated = game_commands.add_parser("status-isolated")
+    game_status_isolated.set_defaults(func=command_game_status_isolated)
+    game_stop_isolated = game_commands.add_parser("stop-isolated")
+    game_stop_isolated.set_defaults(func=command_game_stop_isolated)
+
+    assets = commands.add_parser("assets")
+    asset_commands = assets.add_subparsers(dest="asset_command", required=True)
+    geometry = asset_commands.add_parser(
+        "index-geometry",
+        help="compile installed B42 tile primitives into a project-local renderer registry",
+    )
+    geometry.add_argument("--output", type=Path)
+    geometry.set_defaults(func=command_assets_index_geometry)
+    textures = asset_commands.add_parser(
+        "index-textures",
+        help="index installed PZ texture-pack metadata without extracting all game art",
+    )
+    textures.add_argument("--pack", default="Tiles2x.pack")
+    textures.add_argument("--output", type=Path)
+    textures.set_defaults(func=command_assets_index_textures)
+    extract_sprite = asset_commands.add_parser(
+        "extract-sprite",
+        help="extract the one atlas page containing a named sprite",
+    )
+    extract_sprite.add_argument("sprite")
+    extract_sprite.add_argument("--index", type=Path, required=True)
+    extract_sprite.add_argument("--output", type=Path)
+    extract_sprite.set_defaults(func=command_assets_extract_sprite)
+
+    run = commands.add_parser("run")
+    run_commands = run.add_subparsers(dest="run_command", required=True)
+    run_create = run_commands.add_parser("create")
+    run_create.add_argument("--label", default="first-experiment")
+    run_create.set_defaults(func=command_run_create)
+    run_add = run_commands.add_parser("add-evidence")
+    run_add.add_argument("--run", required=True)
+    run_add.add_argument("--baseline", choices=["game-only", "first-person", "neural"], required=True)
+    run_add.add_argument("--kind", choices=["source", "enhanced", "log", "screenshot"], required=True)
+    run_add.add_argument("--file", type=Path, required=True)
+    run_add.set_defaults(func=command_run_add)
+    run_metric = run_commands.add_parser("add-metric")
+    run_metric.add_argument("--run", required=True)
+    run_metric.add_argument("--baseline", choices=["game-only", "first-person", "neural"], required=True)
+    run_metric.add_argument("--phase", choices=["warmup", "steady"], required=True)
+    run_metric.add_argument("--game-fps", type=float, default="")
+    run_metric.add_argument("--capture-fps", type=float, default="")
+    run_metric.add_argument("--completed-neural-fps", type=float, default="")
+    run_metric.add_argument("--display-hz", type=float, default="")
+    run_metric.add_argument("--processing-ms-p50", type=float, default="")
+    run_metric.add_argument("--processing-ms-p95", type=float, default="")
+    run_metric.add_argument("--dropped-frames", type=int, default="")
+    run_metric.add_argument("--input-to-photon-ms", type=float, default="")
+    run_metric.add_argument("--state-age-ms", type=float, default="")
+    run_metric.add_argument("--memory-pressure", default="")
+    run_metric.add_argument("--fallback-current-frame-validated", action="store_true")
+    run_metric.add_argument("--gameplay-controllable", action="store_true")
+    run_metric.add_argument("--important-state-preserved", action="store_true")
+    run_metric.add_argument("--method", required=True)
+    run_metric.add_argument("--notes", default="")
+    run_metric.set_defaults(func=command_run_add_metric)
+    run_finalize = run_commands.add_parser("finalize")
+    run_finalize.add_argument("--run", required=True)
+    run_finalize.add_argument("--checkpoint", choices=sorted(CHECKPOINTS), required=True)
+    run_finalize.add_argument("--owner-accepted", action="store_true")
+    run_finalize.set_defaults(func=command_run_finalize)
+
+    deployment = commands.add_parser("deployment")
+    deployment_commands = deployment.add_subparsers(dest="deployment_command", required=True)
+    before = deployment_commands.add_parser("record-before")
+    before.add_argument("--destination", type=Path, required=True)
+    before.add_argument("--owner", choices=["project", "steam-workshop"], required=True)
+    before.add_argument("--approve-external-write", action="store_true")
+    before.set_defaults(func=command_deployment_before)
+    installed = deployment_commands.add_parser("record-installed")
+    installed.add_argument("--manifest", type=Path, required=True)
+    installed.set_defaults(func=command_deployment_installed)
+    cleanup_parser = deployment_commands.add_parser("cleanup")
+    cleanup_parser.add_argument("--manifest", type=Path, required=True)
+    cleanup_parser.add_argument("--confirm", action="store_true")
+    cleanup_parser.set_defaults(func=command_deployment_cleanup)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    try:
+        return int(args.func(args))
+    except UserError as error:
+        parser.error(str(error))
+    except ValueError as error:
+        parser.error(str(error))
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

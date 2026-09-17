@@ -1,0 +1,10 @@
+import org.gradle.api.tasks.compile.JavaCompile
+
+// The installed PZ runtime is a Java 25 JRE, not a full JDK.  Compile with the
+// available project-independent JDK 26 toolchain while emitting Java 25 class
+// files that the bundled game runtime can load.
+allprojects {
+    tasks.withType(JavaCompile).configureEach {
+        options.release.set(25)
+    }
+}

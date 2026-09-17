@@ -1,0 +1,8 @@
+name=PZFPS Renderer Bridge
+id=PZFPSBridge
+author=PZFPS
+description=Authoritative state and validated-input bridge for the external PZFPS visual frontend.
+require=\ZombieBuddy
+javaJarFile=media/java/PZFPSBridge.jar
+javaPkgName=dev.pzfps.bridge
+ZBVersionMin=3.0.0-alpha
