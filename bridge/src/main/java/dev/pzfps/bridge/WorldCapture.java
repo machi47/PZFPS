@@ -26,6 +26,7 @@ import zombie.iso.Vector3;
 import zombie.iso.objects.IsoDoor;
 import zombie.iso.objects.IsoThumpable;
 import zombie.iso.objects.IsoWindow;
+import zombie.iso.SpriteDetails.IsoFlagType;
 import zombie.iso.sprite.IsoSprite;
 import zombie.util.list.PZArrayList;
 import zombie.vehicles.BaseVehicle;
@@ -56,7 +57,16 @@ public final class WorldCapture {
                 nonNull(player.getCurrentActionContextStateName()),
                 player.isAiming(),
                 player.isAttacking(),
-                player.getVehicle() != null);
+                player.getVehicle() != null,
+                eyeHeight(player));
+    }
+
+    private static float eyeHeight(IsoPlayer player) {
+        if (player.getVehicle() != null) return 1.25f;
+        if (player.isCrawling() || player.isOnFloor()) return 0.48f;
+        if (player.isSitOnGround() || player.isSittingOnFurniture()) return 0.88f;
+        if (player.isSneaking()) return 1.16f;
+        return 1.62f;
     }
 
     private static float cameraPitchRadians(IsoPlayer player) {
@@ -258,6 +268,7 @@ public final class WorldCapture {
                         continue;
                     }
                     hash = mix(hash, square.isSolidFloor() ? 1 : 0);
+                    hash = mix(hash, squareTopologyFlags(square));
                     PZArrayList<IsoObject> objects = square.getObjects();
                     hash = mix(hash, objects.size());
                     for (int index = 0; index < objects.size(); index++) {
@@ -302,6 +313,9 @@ public final class WorldCapture {
                             square.isSolidFloor(),
                             square.isOutside(),
                             square.haveRoof,
+                            square.HasStairs(),
+                            square.HasStairsBelow(),
+                            square.HasStairTop(),
                             objects));
                 }
             }
@@ -326,6 +340,12 @@ public final class WorldCapture {
                 : object instanceof IsoWindow isoWindow
                         ? isoWindow.IsOpen()
                         : object instanceof IsoThumpable thumpable && thumpable.IsOpen();
+        boolean edgeNorth = object.isWallN()
+                || object.hasProperty(IsoFlagType.collideN)
+                || ((door || window) && north);
+        boolean edgeWest = object.isWallW()
+                || object.hasProperty(IsoFlagType.collideW)
+                || ((door || window) && !north);
         return new WorldState.TileObject(
                 index,
                 object.getClass().getName(),
@@ -334,6 +354,8 @@ public final class WorldCapture {
                 door,
                 window,
                 north,
+                edgeNorth,
+                edgeWest,
                 open,
                 object.isHoppable());
     }
@@ -354,6 +376,16 @@ public final class WorldCapture {
         if (value.north()) flags |= 1 << 2;
         if (value.open()) flags |= 1 << 3;
         if (value.hoppable()) flags |= 1 << 4;
+        if (value.edgeNorth()) flags |= 1 << 5;
+        if (value.edgeWest()) flags |= 1 << 6;
+        return flags;
+    }
+
+    private static int squareTopologyFlags(IsoGridSquare square) {
+        int flags = 0;
+        if (square.HasStairs()) flags |= 1;
+        if (square.HasStairsBelow()) flags |= 1 << 1;
+        if (square.HasStairTop()) flags |= 1 << 2;
         return flags;
     }
 

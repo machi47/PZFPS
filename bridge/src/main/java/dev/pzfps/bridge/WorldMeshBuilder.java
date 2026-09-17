@@ -1,10 +1,14 @@
 package dev.pzfps.bridge;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /** Converts immutable PZ snapshots into renderer-owned triangles without touching live objects. */
 public final class WorldMeshBuilder {
     public static final int FLOATS_PER_VERTEX = 9;
+    public static final int TEXTURED_FLOATS_PER_VERTEX = 11;
     private static final float LEVEL_HEIGHT = 3.0f;
     private static final int CYLINDER_SEGMENTS = 10;
     private static final int MAX_VERTICES_PER_CHUNK = 500_000;
@@ -13,6 +17,7 @@ public final class WorldMeshBuilder {
             long key,
             long fingerprint,
             float[] vertices,
+            List<TexturedBatch> texturedBatches,
             int primitiveCount,
             float minX,
             float minY,
@@ -20,8 +25,21 @@ public final class WorldMeshBuilder {
             float maxX,
             float maxY,
             float maxZ) {
+        public MeshData {
+            texturedBatches = List.copyOf(texturedBatches);
+        }
+
         public int vertexCount() {
-            return vertices.length / FLOATS_PER_VERTEX;
+            int count = vertices.length / FLOATS_PER_VERTEX;
+            for (TexturedBatch batch : texturedBatches) count += batch.vertexCount();
+            return count;
+        }
+    }
+
+    /** Source sprite samples projected onto only the support surfaces we currently know. */
+    public record TexturedBatch(String sprite, float[] vertices) {
+        public int vertexCount() {
+            return vertices.length / TEXTURED_FLOATS_PER_VERTEX;
         }
     }
 
@@ -32,7 +50,8 @@ public final class WorldMeshBuilder {
     }
 
     public MeshData build(WorldState.Chunk chunk) {
-        FloatBuilder output = new FloatBuilder(16_384);
+        FloatBuilder output = new FloatBuilder(16_384, FLOATS_PER_VERTEX);
+        Map<String, FloatBuilder> textured = new LinkedHashMap<>();
         int primitiveCount = 0;
         int blockSize = zombie.iso.IsoChunkMap.CHUNK_SIZE_IN_SQUARES;
         float chunkX = chunk.worldX() * blockSize;
@@ -43,43 +62,107 @@ public final class WorldMeshBuilder {
             float baseZ = chunkZ + square.localY();
             float[] light = squareLight(square);
             if (square.solidFloor()) {
-                addQuad(
-                        output,
-                        baseX,
-                        baseY,
-                        baseZ,
-                        baseX,
-                        baseY,
-                        baseZ + 1,
-                        baseX + 1,
-                        baseY,
-                        baseZ + 1,
-                        baseX + 1,
-                        baseY,
-                        baseZ,
-                        0,
-                        1,
-                        0,
-                        light[0] * 0.72f,
-                        light[1] * 0.78f,
-                        light[2] * 0.67f);
+                String floorSprite = floorSprite(square);
+                if (!floorSprite.isEmpty()) {
+                    FloatBuilder batch = textured.computeIfAbsent(
+                            floorSprite,
+                            ignored -> new FloatBuilder(512, TEXTURED_FLOATS_PER_VERTEX));
+                    addTexturedQuad(
+                            batch,
+                            new float[] {baseX, baseY, baseZ},
+                            new float[] {baseX, baseY, baseZ + 1},
+                            new float[] {baseX + 1, baseY, baseZ + 1},
+                            new float[] {baseX + 1, baseY, baseZ},
+                            new float[] {0, 1, 0},
+                            new float[] {light[0], light[1], light[2]},
+                            new float[][] {
+                                sourcePixel(-0.5f, 0, -0.5f),
+                                sourcePixel(-0.5f, 0, 0.5f),
+                                sourcePixel(0.5f, 0, 0.5f),
+                                sourcePixel(0.5f, 0, -0.5f)
+                            });
+                } else {
+                    addQuad(
+                            output,
+                            baseX,
+                            baseY,
+                            baseZ,
+                            baseX,
+                            baseY,
+                            baseZ + 1,
+                            baseX + 1,
+                            baseY,
+                            baseZ + 1,
+                            baseX + 1,
+                            baseY,
+                            baseZ,
+                            0,
+                            1,
+                            0,
+                            light[0] * 0.72f,
+                            light[1] * 0.78f,
+                            light[2] * 0.67f);
+                }
             }
             for (WorldState.TileObject object : square.objects()) {
-                float[] color = identityColor(object.sprite(), light);
-                if (isStructuralPanel(object)) {
-                    addFallback(output, baseX, baseY, baseZ, object, color);
-                    primitiveCount++;
+                if (object.sprite().startsWith("floors_")) continue;
+                List<TileGeometryRegistry.Primitive> geometry = registry.geometry(object.sprite());
+                if (!geometry.isEmpty()) {
+                    FloatBuilder batch = textured.computeIfAbsent(
+                            object.sprite(),
+                            ignored -> new FloatBuilder(512, TEXTURED_FLOATS_PER_VERTEX));
+                    for (TileGeometryRegistry.Primitive primitive : geometry) {
+                        addTexturedPrimitive(batch, baseX, baseY, baseZ, primitive, light);
+                        primitiveCount++;
+                    }
+                } else if (isStructuralPanel(object)) {
+                    FloatBuilder batch = textured.computeIfAbsent(
+                            object.sprite(),
+                            ignored -> new FloatBuilder(512, TEXTURED_FLOATS_PER_VERTEX));
+                    boolean emitted = false;
+                    if (object.edgeNorth()) {
+                        addSourceEdgePanel(
+                                batch, baseX, baseY, baseZ, true, object.index(), light);
+                        primitiveCount++;
+                        emitted = true;
+                    }
+                    if (object.edgeWest()) {
+                        addSourceEdgePanel(
+                                batch, baseX, baseY, baseZ, false, object.index(), light);
+                        primitiveCount++;
+                        emitted = true;
+                    }
+                    // Some door/window subclasses expose orientation but not collision flags.
+                    // Preserve a conservative edge fallback without returning to tile-centred slabs.
+                    if (!emitted && (object.door() || object.window())) {
+                        addSourceEdgePanel(
+                                batch,
+                                baseX,
+                                baseY,
+                                baseZ,
+                                object.north(),
+                                object.index(),
+                                light);
+                        primitiveCount++;
+                    }
                 }
-                if (output.vertexCount() >= MAX_VERTICES_PER_CHUNK) break;
+                if (totalVertexCount(output, textured) >= MAX_VERTICES_PER_CHUNK) break;
             }
-            if (output.vertexCount() >= MAX_VERTICES_PER_CHUNK) break;
+            if (totalVertexCount(output, textured) >= MAX_VERTICES_PER_CHUNK) break;
         }
         float[] vertices = output.toArray();
-        float[] bounds = bounds(vertices);
+        ArrayList<TexturedBatch> texturedBatches = new ArrayList<>(textured.size());
+        for (Map.Entry<String, FloatBuilder> entry : textured.entrySet()) {
+            if (entry.getValue().vertexCount() > 0) {
+                texturedBatches.add(new TexturedBatch(entry.getKey(), entry.getValue().toArray()));
+            }
+        }
+        float[] bounds = bounds(vertices, texturedBatches);
         return new MeshData(
                 chunk.key(),
                 chunk.fingerprint(),
                 vertices,
+                texturedBatches,
                 primitiveCount,
                 bounds[0],
                 bounds[1],
@@ -89,8 +172,16 @@ public final class WorldMeshBuilder {
                 bounds[5]);
     }
 
+    private static String floorSprite(WorldState.Square square) {
+        for (WorldState.TileObject object : square.objects()) {
+            String sprite = object.sprite();
+            if (sprite.startsWith("floors_")) return sprite;
+        }
+        return "";
+    }
+
     private static boolean isStructuralPanel(WorldState.TileObject object) {
-        if (object.door() || object.window()) return true;
+        if (object.edgeNorth() || object.edgeWest() || object.door() || object.window()) return true;
         String type = object.objectType().toLowerCase(java.util.Locale.ROOT);
         String sprite = object.sprite().toLowerCase(java.util.Locale.ROOT);
         return type.contains("wall")
@@ -99,8 +190,66 @@ public final class WorldMeshBuilder {
                 || sprite.startsWith("fencing_");
     }
 
-    private static float[] bounds(float[] vertices) {
-        if (vertices.length == 0) return new float[] {0, 0, 0, 0, 0, 0};
+    private static void addSourceEdgePanel(
+            FloatBuilder output,
+            float baseX,
+            float baseY,
+            float baseZ,
+            boolean north,
+            int objectLayer,
+            float[] light) {
+        float height = 3.0f;
+        // PZ composes several sprite layers on the same tile edge. Preserve that
+        // deterministic order without coplanar depth fighting in perspective.
+        float layerOffset = Math.max(0, Math.min(31, objectLayer)) * 0.0004f;
+        float[][] local = north
+                ? new float[][] {
+                    {-0.5f, 0, -0.5f + layerOffset},
+                    {0.5f, 0, -0.5f + layerOffset},
+                    {0.5f, height, -0.5f + layerOffset},
+                    {-0.5f, height, -0.5f + layerOffset}
+                }
+                : new float[][] {
+                    {-0.5f + layerOffset, 0, 0.5f},
+                    {-0.5f + layerOffset, 0, -0.5f},
+                    {-0.5f + layerOffset, height, -0.5f},
+                    {-0.5f + layerOffset, height, 0.5f}
+                };
+        float[][] world = new float[4][];
+        float[][] source = new float[4][];
+        for (int index = 0; index < 4; index++) {
+            world[index] = new float[] {
+                baseX + 0.5f + local[index][0],
+                baseY + local[index][1],
+                baseZ + 0.5f + local[index][2]
+            };
+            source[index] = sourcePixel(local[index][0], local[index][1], local[index][2]);
+        }
+        float[] faceNormal = normal(world[0], world[1], world[2]);
+        addTexturedQuad(output, world[0], world[1], world[2], world[3],
+                faceNormal, light, source);
+    }
+
+    private static int totalVertexCount(
+            FloatBuilder flat, Map<String, FloatBuilder> textured) {
+        int count = flat.vertexCount();
+        for (FloatBuilder batch : textured.values()) count += batch.vertexCount();
+        return count;
+    }
+
+    /** PZ 2x source projection after converting one 192-pixel level to three world metres. */
+    private static float[] sourcePixel(float x, float y, float z) {
+        return new float[] {
+            64.0f + (x - z) * 64.0f,
+            224.0f + (x + z) * 32.0f - y * 64.0f
+        };
+    }
+
+    private static float[] sourcePixel(float[] point) {
+        return sourcePixel(point[0], point[1], point[2]);
+    }
+
+    private static float[] bounds(float[] vertices, List<TexturedBatch> texturedBatches) {
         float minX = Float.POSITIVE_INFINITY;
         float minY = Float.POSITIVE_INFINITY;
         float minZ = Float.POSITIVE_INFINITY;
@@ -118,7 +267,222 @@ public final class WorldMeshBuilder {
             maxY = Math.max(maxY, y);
             maxZ = Math.max(maxZ, z);
         }
+        for (TexturedBatch batch : texturedBatches) {
+            float[] textured = batch.vertices();
+            for (int index = 0; index < textured.length; index += TEXTURED_FLOATS_PER_VERTEX) {
+                float x = textured[index];
+                float y = textured[index + 1];
+                float z = textured[index + 2];
+                minX = Math.min(minX, x);
+                minY = Math.min(minY, y);
+                minZ = Math.min(minZ, z);
+                maxX = Math.max(maxX, x);
+                maxY = Math.max(maxY, y);
+                maxZ = Math.max(maxZ, z);
+            }
+        }
+        if (!Float.isFinite(minX)) return new float[] {0, 0, 0, 0, 0, 0};
         return new float[] {minX, minY, minZ, maxX, maxY, maxZ};
+    }
+
+    private static void addTexturedPrimitive(
+            FloatBuilder output,
+            float baseX,
+            float baseY,
+            float baseZ,
+            TileGeometryRegistry.Primitive primitive,
+            float[] light) {
+        switch (primitive.kind()) {
+            case "box" -> addTexturedBox(output, baseX, baseY, baseZ, primitive, light);
+            case "cylinder" -> addTexturedCylinder(output, baseX, baseY, baseZ, primitive, light);
+            case "polygon" -> addTexturedPolygon(output, baseX, baseY, baseZ, primitive, light);
+            default -> {
+                // Unknown source primitives are deliberately omitted by the registry loader.
+            }
+        }
+    }
+
+    /**
+     * Projects the exact PZ sprite onto only the faces its original (+x,+y,+z)
+     * isometric camera could observe. The registry geometry remains authoritative;
+     * no unobserved face receives invented pixels.
+     */
+    private static void addTexturedBox(
+            FloatBuilder output,
+            float baseX,
+            float baseY,
+            float baseZ,
+            TileGeometryRegistry.Primitive box,
+            float[] light) {
+        float[][] points = {
+            {box.minX(), box.minY(), box.minZ()},
+            {box.maxX(), box.minY(), box.minZ()},
+            {box.maxX(), box.maxY(), box.minZ()},
+            {box.minX(), box.maxY(), box.minZ()},
+            {box.minX(), box.minY(), box.maxZ()},
+            {box.maxX(), box.minY(), box.maxZ()},
+            {box.maxX(), box.maxY(), box.maxZ()},
+            {box.minX(), box.maxY(), box.maxZ()}
+        };
+        emitObservedFaces(
+                output,
+                baseX,
+                baseY,
+                baseZ,
+                box,
+                points,
+                new int[][] {
+                    {0, 3, 2, 1}, {4, 5, 6, 7}, {0, 4, 7, 3},
+                    {1, 2, 6, 5}, {3, 7, 6, 2}, {0, 1, 5, 4}
+                },
+                light);
+    }
+
+    private static void addTexturedCylinder(
+            FloatBuilder output,
+            float baseX,
+            float baseY,
+            float baseZ,
+            TileGeometryRegistry.Primitive cylinder,
+            float[] light) {
+        for (int segment = 0; segment < CYLINDER_SEGMENTS; segment++) {
+            double a0 = Math.PI * 2.0 * segment / CYLINDER_SEGMENTS;
+            double a1 = Math.PI * 2.0 * (segment + 1) / CYLINDER_SEGMENTS;
+            float[][] local = {
+                {(float) Math.cos(a0) * cylinder.radiusBottom(), 0,
+                        (float) Math.sin(a0) * cylinder.radiusBottom()},
+                {(float) Math.cos(a1) * cylinder.radiusBottom(), 0,
+                        (float) Math.sin(a1) * cylinder.radiusBottom()},
+                {(float) Math.cos(a1) * cylinder.radiusTop(), cylinder.height(),
+                        (float) Math.sin(a1) * cylinder.radiusTop()},
+                {(float) Math.cos(a0) * cylinder.radiusTop(), cylinder.height(),
+                        (float) Math.sin(a0) * cylinder.radiusTop()},
+                {0, 0, 0},
+                {0, cylinder.height(), 0}
+            };
+            float[][] transformed = transformedLocal(cylinder, local);
+            float[][] world = worldPoints(baseX, baseY, baseZ, transformed);
+            addObservedTexturedQuad(output, world, transformed, new int[] {0, 1, 2, 3}, light);
+            addObservedTexturedTriangle(output, world, transformed, new int[] {5, 3, 2}, light);
+            // The lower cap faces away from the source camera and remains unknown.
+        }
+    }
+
+    private static void addTexturedPolygon(
+            FloatBuilder output,
+            float baseX,
+            float baseY,
+            float baseZ,
+            TileGeometryRegistry.Primitive polygon,
+            float[] light) {
+        if (polygon.points().size() < 3) return;
+        float[][] points = new float[polygon.points().size()][];
+        for (int index = 0; index < points.length; index++) {
+            float[] point = polygon.points().get(index);
+            points[index] = switch (polygon.plane()) {
+                case "XY" -> new float[] {point[0], point[1], 0};
+                case "XZ" -> new float[] {point[0], 0, point[1]};
+                case "YZ" -> new float[] {0, point[0], point[1]};
+                default -> null;
+            };
+            if (points[index] == null) return;
+        }
+        float[][] transformed = transformedLocal(polygon, points);
+        float[][] world = worldPoints(baseX, baseY, baseZ, transformed);
+        float[] faceNormal = normal(world[0], world[1], world[2]);
+        boolean reverse = sourceFacing(faceNormal) < 0.0f;
+        if (Math.abs(sourceFacing(faceNormal)) <= 0.05f) return;
+        if (reverse) faceNormal = new float[] {-faceNormal[0], -faceNormal[1], -faceNormal[2]};
+        for (int index = 1; index < points.length - 1; index++) {
+            int second = reverse ? index + 1 : index;
+            int third = reverse ? index : index + 1;
+            addTexturedTriangle(
+                    output,
+                    world[0], world[second], world[third], faceNormal, light,
+                    sourcePixel(transformed[0]),
+                    sourcePixel(transformed[second]),
+                    sourcePixel(transformed[third]));
+        }
+    }
+
+    private static void emitObservedFaces(
+            FloatBuilder output,
+            float baseX,
+            float baseY,
+            float baseZ,
+            TileGeometryRegistry.Primitive primitive,
+            float[][] points,
+            int[][] faces,
+            float[] light) {
+        float[][] transformed = transformedLocal(primitive, points);
+        float[][] world = worldPoints(baseX, baseY, baseZ, transformed);
+        for (int[] face : faces) {
+            addObservedTexturedQuad(output, world, transformed, face, light);
+        }
+    }
+
+    private static void addObservedTexturedQuad(
+            FloatBuilder output,
+            float[][] world,
+            float[][] transformed,
+            int[] face,
+            float[] light) {
+        float[] faceNormal = normal(world[face[0]], world[face[1]], world[face[2]]);
+        if (sourceFacing(faceNormal) <= 0.05f) return;
+        addTexturedQuad(
+                output,
+                world[face[0]], world[face[1]], world[face[2]], world[face[3]],
+                faceNormal,
+                light,
+                new float[][] {
+                    sourcePixel(transformed[face[0]]),
+                    sourcePixel(transformed[face[1]]),
+                    sourcePixel(transformed[face[2]]),
+                    sourcePixel(transformed[face[3]])
+                });
+    }
+
+    private static void addObservedTexturedTriangle(
+            FloatBuilder output,
+            float[][] world,
+            float[][] transformed,
+            int[] face,
+            float[] light) {
+        float[] faceNormal = normal(world[face[0]], world[face[1]], world[face[2]]);
+        if (sourceFacing(faceNormal) <= 0.05f) return;
+        addTexturedTriangle(
+                output,
+                world[face[0]], world[face[1]], world[face[2]], faceNormal, light,
+                sourcePixel(transformed[face[0]]),
+                sourcePixel(transformed[face[1]]),
+                sourcePixel(transformed[face[2]]));
+    }
+
+    private static float[][] transformedLocal(
+            TileGeometryRegistry.Primitive primitive, float[][] points) {
+        float[][] result = new float[points.length][];
+        for (int index = 0; index < points.length; index++) {
+            result[index] = transformLocal(
+                    primitive, points[index][0], points[index][1], points[index][2]);
+        }
+        return result;
+    }
+
+    private static float[][] worldPoints(
+            float baseX, float baseY, float baseZ, float[][] local) {
+        float[][] result = new float[local.length][];
+        for (int index = 0; index < local.length; index++) {
+            result[index] = new float[] {
+                baseX + 0.5f + local[index][0],
+                baseY + local[index][1],
+                baseZ + 0.5f + local[index][2]
+            };
+        }
+        return result;
+    }
+
+    private static float sourceFacing(float[] normal) {
+        return normal[0] + normal[1] + normal[2];
     }
 
     private static void addPrimitive(
@@ -275,6 +639,16 @@ public final class WorldMeshBuilder {
             float x,
             float y,
             float z) {
+        float[] local = transformLocal(value, x, y, z);
+        return new float[] {
+            baseX + 0.5f + local[0],
+            baseY + local[1],
+            baseZ + 0.5f + local[2]
+        };
+    }
+
+    private static float[] transformLocal(
+            TileGeometryRegistry.Primitive value, float x, float y, float z) {
         double rx = Math.toRadians(value.rx());
         double ry = Math.toRadians(value.ry());
         double rz = Math.toRadians(value.rz());
@@ -285,9 +659,9 @@ public final class WorldMeshBuilder {
         float x3 = (float) (x2 * Math.cos(rz) - y1 * Math.sin(rz));
         float y3 = (float) (x2 * Math.sin(rz) + y1 * Math.cos(rz));
         return new float[] {
-            baseX + 0.5f + value.tx() + x3,
-            baseY + value.ty() + y3,
-            baseZ + 0.5f + value.tz() + z2
+            value.tx() + x3,
+            value.ty() + y3,
+            value.tz() + z2
         };
     }
 
@@ -316,6 +690,46 @@ public final class WorldMeshBuilder {
         addVertex(output, a, normal, color);
         addVertex(output, b, normal, color);
         addVertex(output, c, normal, color);
+    }
+
+    private static void addTexturedQuad(
+            FloatBuilder output,
+            float[] a,
+            float[] b,
+            float[] c,
+            float[] d,
+            float[] normal,
+            float[] color,
+            float[][] sourcePixels) {
+        addTexturedTriangle(
+                output, a, b, c, normal, color,
+                sourcePixels[0], sourcePixels[1], sourcePixels[2]);
+        addTexturedTriangle(
+                output, a, c, d, normal, color,
+                sourcePixels[0], sourcePixels[2], sourcePixels[3]);
+    }
+
+    private static void addTexturedTriangle(
+            FloatBuilder output,
+            float[] a,
+            float[] b,
+            float[] c,
+            float[] normal,
+            float[] color,
+            float[] sourceA,
+            float[] sourceB,
+            float[] sourceC) {
+        addTexturedVertex(output, a, normal, color, sourceA);
+        addTexturedVertex(output, b, normal, color, sourceB);
+        addTexturedVertex(output, c, normal, color, sourceC);
+    }
+
+    private static void addTexturedVertex(
+            FloatBuilder output, float[] p, float[] n, float[] c, float[] sourcePixel) {
+        output.add(p[0]); output.add(p[1]); output.add(p[2]);
+        output.add(n[0]); output.add(n[1]); output.add(n[2]);
+        output.add(c[0]); output.add(c[1]); output.add(c[2]);
+        output.add(sourcePixel[0]); output.add(sourcePixel[1]);
     }
 
     private static void addVertex(FloatBuilder output, float[] p, float[] n, float[] c) {
@@ -379,9 +793,11 @@ public final class WorldMeshBuilder {
     private static final class FloatBuilder {
         private float[] values;
         private int size;
+        private final int stride;
 
-        FloatBuilder(int capacity) {
+        FloatBuilder(int capacity, int stride) {
             values = new float[capacity];
+            this.stride = stride;
         }
 
         void add(float value) {
@@ -390,7 +806,7 @@ public final class WorldMeshBuilder {
         }
 
         int vertexCount() {
-            return size / FLOATS_PER_VERTEX;
+            return size / stride;
         }
 
         float[] toArray() {

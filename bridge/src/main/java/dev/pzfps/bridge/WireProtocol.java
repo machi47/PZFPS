@@ -10,7 +10,7 @@ import java.nio.charset.StandardCharsets;
 
 public final class WireProtocol {
     public static final int MAGIC = 0x505a4650; // PZFP
-    public static final short VERSION = 2;
+    public static final short VERSION = 3;
 
     public static final short HELLO = 1;
     public static final short PLAYER = 2;
@@ -50,6 +50,7 @@ public final class WireProtocol {
             out.writeBoolean(value.aiming());
             out.writeBoolean(value.attacking());
             out.writeBoolean(value.inVehicle());
+            out.writeFloat(value.eyeHeight());
         });
     }
 
@@ -124,7 +125,10 @@ public final class WireProtocol {
                 out.writeShort(square.lightB());
                 int flags = (square.solidFloor() ? 1 : 0)
                         | (square.exterior() ? 1 << 1 : 0)
-                        | (square.roof() ? 1 << 2 : 0);
+                        | (square.roof() ? 1 << 2 : 0)
+                        | (square.stairs() ? 1 << 3 : 0)
+                        | (square.stairsBelow() ? 1 << 4 : 0)
+                        | (square.stairTop() ? 1 << 5 : 0);
                 out.writeByte(flags);
                 out.writeShort(square.objects().size());
                 for (WorldState.TileObject object : square.objects()) {
@@ -136,7 +140,9 @@ public final class WireProtocol {
                             | (object.window() ? 1 << 1 : 0)
                             | (object.north() ? 1 << 2 : 0)
                             | (object.open() ? 1 << 3 : 0)
-                            | (object.hoppable() ? 1 << 4 : 0);
+                            | (object.hoppable() ? 1 << 4 : 0)
+                            | (object.edgeNorth() ? 1 << 5 : 0)
+                            | (object.edgeWest() ? 1 << 6 : 0);
                     out.writeByte(objectFlags);
                 }
             }

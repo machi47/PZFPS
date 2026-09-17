@@ -19,9 +19,11 @@ import org.joml.FrustumIntersection;
 import org.joml.Matrix4f;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL13;
 import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL20;
 import zombie.core.SpriteRenderer;
+import zombie.core.textures.Texture;
 import zombie.core.textures.TextureDraw;
 
 /**
@@ -31,6 +33,8 @@ import zombie.core.textures.TextureDraw;
 public final class InProcessWorldRenderer {
     private static final int MAX_PENDING_CHUNKS = 256;
     private static final int STRIDE_BYTES = WorldMeshBuilder.FLOATS_PER_VERTEX * Float.BYTES;
+    private static final int TEXTURED_STRIDE_BYTES =
+            WorldMeshBuilder.TEXTURED_FLOATS_PER_VERTEX * Float.BYTES;
     private static final float LEVEL_HEIGHT = 3.0f;
     private static final int RENDER_DISTANCE_CHUNKS =
             Math.max(1, Integer.getInteger("pzfps.renderDistanceChunks", 24));
@@ -179,16 +183,34 @@ public final class InProcessWorldRenderer {
         private final Map<Long, GpuMesh> meshes = new HashMap<>();
         private final int program;
         private final int mvpUniform;
+        private final int texturedUniform;
+        private final int textureUniform;
+        private final int uvBoundsUniform;
+        private final int cropUniform;
+        private final Map<String, Texture> sourceTextures = new HashMap<>();
+        private final Set<String> reportedMissingTextures = ConcurrentHashMap.newKeySet();
         private boolean entityBufferCreated;
         private int entityVbo;
         private long visibleChunkSamples;
         private long distanceCulledSamples;
         private long frustumCulledSamples;
+        private float renderedEyeHeight = Float.NaN;
+        private long lastEyeHeightNanos;
 
         GpuState() {
             program = createProgram();
             mvpUniform = GL20.glGetUniformLocation(program, "uMvp");
-            if (mvpUniform < 0) throw new IllegalStateException("uMvp uniform is absent");
+            texturedUniform = GL20.glGetUniformLocation(program, "uTextured");
+            textureUniform = GL20.glGetUniformLocation(program, "uTexture");
+            uvBoundsUniform = GL20.glGetUniformLocation(program, "uUvBounds");
+            cropUniform = GL20.glGetUniformLocation(program, "uCrop");
+            if (mvpUniform < 0
+                    || texturedUniform < 0
+                    || textureUniform < 0
+                    || uvBoundsUniform < 0
+                    || cropUniform < 0) {
+                throw new IllegalStateException("one or more source-texture shader uniforms are absent");
+            }
         }
 
         void render(RenderSnapshot snapshot) {
@@ -196,8 +218,16 @@ public final class InProcessWorldRenderer {
             int previousArrayBuffer = GL11.glGetInteger(GL15.GL_ARRAY_BUFFER_BINDING);
             boolean previousDepth = GL11.glIsEnabled(GL11.GL_DEPTH_TEST);
             boolean previousBlend = GL11.glIsEnabled(GL11.GL_BLEND);
+            int previousBlendSource = GL11.glGetInteger(GL11.GL_BLEND_SRC);
+            int previousBlendDestination = GL11.glGetInteger(GL11.GL_BLEND_DST);
             boolean previousCull = GL11.glIsEnabled(GL11.GL_CULL_FACE);
+            int previousCullFace = GL11.glGetInteger(GL11.GL_CULL_FACE_MODE);
+            int previousFrontFace = GL11.glGetInteger(GL11.GL_FRONT_FACE);
             boolean previousDepthMask = GL11.glGetBoolean(GL11.GL_DEPTH_WRITEMASK);
+            int previousActiveTexture = GL11.glGetInteger(GL13.GL_ACTIVE_TEXTURE);
+            GL13.glActiveTexture(GL13.GL_TEXTURE0);
+            int previousTexture = GL11.glGetInteger(GL11.GL_TEXTURE_BINDING_2D);
+            boolean previousTexture2d = GL11.glIsEnabled(GL11.GL_TEXTURE_2D);
             GL11.glPushClientAttrib(GL11.GL_CLIENT_VERTEX_ARRAY_BIT);
             try {
                 GL11.glClearColor(0.025f, 0.03f, 0.04f, 1.0f);
@@ -207,10 +237,13 @@ public final class InProcessWorldRenderer {
                 GL11.glEnable(GL11.GL_DEPTH_TEST);
                 GL11.glDepthFunc(GL11.GL_LEQUAL);
                 GL11.glDisable(GL11.GL_BLEND);
-                GL11.glDisable(GL11.GL_CULL_FACE);
+                GL11.glEnable(GL11.GL_CULL_FACE);
+                GL11.glCullFace(GL11.GL_BACK);
+                GL11.glFrontFace(GL11.GL_CCW);
                 GL20.glUseProgram(program);
+                GL20.glUniform1i(textureUniform, 0);
 
-                Matrix4f matrix = viewProjection(snapshot.player);
+                Matrix4f matrix = viewProjection(snapshot.player, smoothEyeHeight(snapshot.player));
                 FloatBuffer matrixBuffer = BufferUtils.createFloatBuffer(16);
                 matrix.get(matrixBuffer);
                 GL20.glUniformMatrix4fv(mvpUniform, false, matrixBuffer);
@@ -221,21 +254,84 @@ public final class InProcessWorldRenderer {
                         source -> distanceSquared(source, snapshot.player)));
                 for (WorldMeshBuilder.MeshData source : visible) {
                     GpuMesh mesh = meshes.get(source.key());
-                    if (mesh == null || mesh.vertexCount == 0) continue;
-                    GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, mesh.vbo);
-                    configureAttributes();
-                    GL11.glDrawArrays(GL11.GL_TRIANGLES, 0, mesh.vertexCount);
+                    if (mesh == null) continue;
+                    if (mesh.vertexCount > 0) {
+                        GL20.glUniform1i(texturedUniform, 0);
+                        GL11.glDisable(GL11.GL_BLEND);
+                        GL11.glDisable(GL11.GL_TEXTURE_2D);
+                        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, mesh.vbo);
+                        configureAttributes(STRIDE_BYTES, false);
+                        GL11.glDrawArrays(GL11.GL_TRIANGLES, 0, mesh.vertexCount);
+                    }
+                    for (GpuTexturedBatch batch : mesh.texturedBatches) {
+                        drawTexturedBatch(batch);
+                    }
                 }
+                GL20.glUniform1i(texturedUniform, 0);
+                GL11.glDisable(GL11.GL_BLEND);
+                GL11.glDisable(GL11.GL_TEXTURE_2D);
                 drawEntities(snapshot.entities);
             } finally {
                 GL11.glPopClientAttrib();
                 GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, previousArrayBuffer);
                 GL20.glUseProgram(previousProgram);
                 setEnabled(GL11.GL_DEPTH_TEST, previousDepth);
+                GL11.glBlendFunc(previousBlendSource, previousBlendDestination);
                 setEnabled(GL11.GL_BLEND, previousBlend);
+                GL11.glCullFace(previousCullFace);
+                GL11.glFrontFace(previousFrontFace);
                 setEnabled(GL11.GL_CULL_FACE, previousCull);
                 GL11.glDepthMask(previousDepthMask);
+                GL13.glActiveTexture(GL13.GL_TEXTURE0);
+                GL11.glBindTexture(GL11.GL_TEXTURE_2D, previousTexture);
+                setEnabled(GL11.GL_TEXTURE_2D, previousTexture2d);
+                GL13.glActiveTexture(previousActiveTexture);
             }
+        }
+
+        private void drawTexturedBatch(GpuTexturedBatch batch) {
+            Texture texture = sourceTextures.get(batch.sprite);
+            if (texture == null || texture.getID() == 0) {
+                texture = Texture.getSharedTexture(batch.sprite);
+                if (texture != null && texture.getID() != 0) {
+                    sourceTextures.put(batch.sprite, texture);
+                    System.out.printf(
+                            "[PZFPS texture] resolved sprite=%s crop=%dx%d original=%dx%d%n",
+                            batch.sprite,
+                            texture.getWidth(),
+                            texture.getHeight(),
+                            texture.getWidthOrig(),
+                            texture.getHeightOrig());
+                }
+            }
+            GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, batch.vbo);
+            configureAttributes(TEXTURED_STRIDE_BYTES, true);
+            if (texture == null || texture.getID() == 0) {
+                GL20.glUniform1i(texturedUniform, 0);
+                GL11.glDisable(GL11.GL_TEXTURE_2D);
+                if (reportedMissingTextures.add(batch.sprite)) {
+                    System.err.printf("[PZFPS texture] unavailable sprite=%s%n", batch.sprite);
+                }
+            } else {
+                GL11.glEnable(GL11.GL_TEXTURE_2D);
+                GL11.glEnable(GL11.GL_BLEND);
+                GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+                GL11.glBindTexture(GL11.GL_TEXTURE_2D, texture.getID());
+                GL20.glUniform1i(texturedUniform, 1);
+                GL20.glUniform4f(
+                        uvBoundsUniform,
+                        texture.getXStart(),
+                        texture.getYStart(),
+                        texture.getXEnd(),
+                        texture.getYEnd());
+                GL20.glUniform4f(
+                        cropUniform,
+                        texture.getOffsetX(),
+                        texture.getOffsetY(),
+                        Math.max(1, texture.getWidth()),
+                        Math.max(1, texture.getHeight()));
+            }
+            GL11.glDrawArrays(GL11.GL_TRIANGLES, 0, batch.vertexCount);
         }
 
         private List<WorldMeshBuilder.MeshData> visibleMeshes(
@@ -288,13 +384,26 @@ public final class InProcessWorldRenderer {
         }
 
         private static GpuMesh upload(WorldMeshBuilder.MeshData source) {
-            int vbo = GL15.glGenBuffers();
-            GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, vbo);
-            FloatBuffer vertices = BufferUtils.createFloatBuffer(source.vertices().length);
-            vertices.put(source.vertices()).flip();
-            GL15.glBufferData(GL15.GL_ARRAY_BUFFER, vertices, GL15.GL_STATIC_DRAW);
-            configureAttributes();
-            return new GpuMesh(source.fingerprint(), vbo, source.vertexCount());
+            int vbo = 0;
+            int vertexCount = source.vertices().length / WorldMeshBuilder.FLOATS_PER_VERTEX;
+            if (vertexCount > 0) {
+                vbo = GL15.glGenBuffers();
+                GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, vbo);
+                FloatBuffer vertices = BufferUtils.createFloatBuffer(source.vertices().length);
+                vertices.put(source.vertices()).flip();
+                GL15.glBufferData(GL15.GL_ARRAY_BUFFER, vertices, GL15.GL_STATIC_DRAW);
+            }
+            ArrayList<GpuTexturedBatch> textured = new ArrayList<>();
+            for (WorldMeshBuilder.TexturedBatch sourceBatch : source.texturedBatches()) {
+                int texturedVbo = GL15.glGenBuffers();
+                GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, texturedVbo);
+                FloatBuffer vertices = BufferUtils.createFloatBuffer(sourceBatch.vertices().length);
+                vertices.put(sourceBatch.vertices()).flip();
+                GL15.glBufferData(GL15.GL_ARRAY_BUFFER, vertices, GL15.GL_STATIC_DRAW);
+                textured.add(new GpuTexturedBatch(
+                        sourceBatch.sprite(), texturedVbo, sourceBatch.vertexCount()));
+            }
+            return new GpuMesh(source.fingerprint(), vbo, vertexCount, List.copyOf(textured));
         }
 
         private void drawEntities(WorldState.Entities entities) {
@@ -305,10 +414,10 @@ public final class InProcessWorldRenderer {
                 entityBufferCreated = true;
                 entityVbo = GL15.glGenBuffers();
                 GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, entityVbo);
-                configureAttributes();
+                configureAttributes(STRIDE_BYTES, false);
             } else {
                 GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, entityVbo);
-                configureAttributes();
+                configureAttributes(STRIDE_BYTES, false);
             }
             FloatBuffer buffer = BufferUtils.createFloatBuffer(vertices.length);
             buffer.put(vertices).flip();
@@ -317,22 +426,44 @@ public final class InProcessWorldRenderer {
                     GL11.GL_TRIANGLES, 0, vertices.length / WorldMeshBuilder.FLOATS_PER_VERTEX);
         }
 
-        private static void configureAttributes() {
+        private static void configureAttributes(int strideBytes, boolean textured) {
             GL20.glEnableVertexAttribArray(0);
-            GL20.glVertexAttribPointer(0, 3, GL11.GL_FLOAT, false, STRIDE_BYTES, 0L);
+            GL20.glVertexAttribPointer(0, 3, GL11.GL_FLOAT, false, strideBytes, 0L);
             GL20.glEnableVertexAttribArray(1);
-            GL20.glVertexAttribPointer(1, 3, GL11.GL_FLOAT, false, STRIDE_BYTES, 3L * Float.BYTES);
+            GL20.glVertexAttribPointer(1, 3, GL11.GL_FLOAT, false, strideBytes, 3L * Float.BYTES);
             GL20.glEnableVertexAttribArray(2);
-            GL20.glVertexAttribPointer(2, 3, GL11.GL_FLOAT, false, STRIDE_BYTES, 6L * Float.BYTES);
+            GL20.glVertexAttribPointer(2, 3, GL11.GL_FLOAT, false, strideBytes, 6L * Float.BYTES);
+            if (textured) {
+                GL20.glEnableVertexAttribArray(3);
+                GL20.glVertexAttribPointer(
+                        3, 2, GL11.GL_FLOAT, false, strideBytes, 9L * Float.BYTES);
+            } else {
+                GL20.glDisableVertexAttribArray(3);
+                GL20.glVertexAttrib2f(3, 0.0f, 0.0f);
+            }
         }
 
-        private static Matrix4f viewProjection(WorldState.Player player) {
+        private float smoothEyeHeight(WorldState.Player player) {
+            float target = Math.max(0.35f, Math.min(2.0f, player.eyeHeight()));
+            long now = System.nanoTime();
+            if (!Float.isFinite(renderedEyeHeight) || lastEyeHeightNanos == 0L) {
+                renderedEyeHeight = target;
+            } else {
+                float seconds = Math.min(0.1f, (now - lastEyeHeightNanos) / 1_000_000_000.0f);
+                float blend = 1.0f - (float) Math.exp(-14.0f * seconds);
+                renderedEyeHeight += (target - renderedEyeHeight) * blend;
+            }
+            lastEyeHeightNanos = now;
+            return renderedEyeHeight;
+        }
+
+        private static Matrix4f viewProjection(WorldState.Player player, float eyeHeight) {
             IntBuffer viewport = BufferUtils.createIntBuffer(4);
             GL11.glGetIntegerv(GL11.GL_VIEWPORT, viewport);
             int width = Math.max(1, viewport.get(2));
             int height = Math.max(1, viewport.get(3));
             float eyeX = player.x();
-            float eyeY = player.z() * LEVEL_HEIGHT + 1.62f;
+            float eyeY = player.z() * LEVEL_HEIGHT + eyeHeight;
             float eyeZ = player.y();
             float pitch = Math.max(-1.45f, Math.min(1.45f, player.verticalAim()));
             float horizontal = (float) Math.cos(pitch);
@@ -360,19 +491,37 @@ public final class InProcessWorldRenderer {
                     attribute vec3 inPosition;
                     attribute vec3 inNormal;
                     attribute vec3 inColor;
+                    attribute vec2 inSourcePixel;
                     uniform mat4 uMvp;
+                    uniform int uTextured;
                     varying vec3 vertexColor;
+                    varying vec2 sourcePixel;
                     void main() {
                         vec3 sun = normalize(vec3(-0.45, 0.82, -0.35));
                         float light = 0.42 + 0.58 * max(dot(normalize(inNormal), sun), 0.0);
-                        vertexColor = inColor * light;
+                        vertexColor = uTextured == 1 ? inColor : inColor * light;
+                        sourcePixel = inSourcePixel;
                         gl_Position = uMvp * vec4(inPosition, 1.0);
                     }
                     """;
             String fragment = """
                     #version 120
+                    uniform int uTextured;
+                    uniform sampler2D uTexture;
+                    uniform vec4 uUvBounds;
+                    uniform vec4 uCrop;
                     varying vec3 vertexColor;
+                    varying vec2 sourcePixel;
                     void main() {
+                        if (uTextured == 1) {
+                            vec2 cropUv = (sourcePixel - uCrop.xy) / uCrop.zw;
+                            if (any(lessThan(cropUv, vec2(0.0))) || any(greaterThan(cropUv, vec2(1.0)))) discard;
+                            vec2 uv = mix(uUvBounds.xy, uUvBounds.zw, cropUv);
+                            vec4 source = texture2D(uTexture, uv);
+                            if (source.a < 0.02) discard;
+                            gl_FragColor = vec4(source.rgb * vertexColor, source.a);
+                            return;
+                        }
                         gl_FragColor = vec4(vertexColor, 1.0);
                     }
                     """;
@@ -384,6 +533,7 @@ public final class InProcessWorldRenderer {
             GL20.glBindAttribLocation(result, 0, "inPosition");
             GL20.glBindAttribLocation(result, 1, "inNormal");
             GL20.glBindAttribLocation(result, 2, "inColor");
+            GL20.glBindAttribLocation(result, 3, "inSourcePixel");
             GL20.glLinkProgram(result);
             if (GL20.glGetProgrami(result, GL20.GL_LINK_STATUS) == GL11.GL_FALSE) {
                 throw new IllegalStateException("shader link failed: " + GL20.glGetProgramInfoLog(result));
@@ -411,9 +561,20 @@ public final class InProcessWorldRenderer {
         }
     }
 
-    private record GpuMesh(long fingerprint, int vbo, int vertexCount) {
+    private record GpuTexturedBatch(String sprite, int vbo, int vertexCount) {
         void destroy() {
             GL15.glDeleteBuffers(vbo);
+        }
+    }
+
+    private record GpuMesh(
+            long fingerprint,
+            int vbo,
+            int vertexCount,
+            List<GpuTexturedBatch> texturedBatches) {
+        void destroy() {
+            if (vbo != 0) GL15.glDeleteBuffers(vbo);
+            for (GpuTexturedBatch batch : texturedBatches) batch.destroy();
         }
     }
 

@@ -13,7 +13,7 @@ final class WorldMeshBuilderTest {
     @TempDir Path temporary;
 
     @Test
-    void compilesVisiblePzSquareIntoFloorAndTileGeometry() throws Exception {
+    void usesAuthoredGeometryBeforeStructuralFallbackAndKeepsOnlyObservedFaces() throws Exception {
         Path registryPath = temporary.resolve("tile-geometry.json");
         Files.writeString(
                 registryPath,
@@ -37,9 +37,10 @@ final class WorldMeshBuilderTest {
         TileGeometryRegistry registry = TileGeometryRegistry.load(registryPath);
         WorldState.TileObject object = new WorldState.TileObject(
                 0, "zombie.iso.IsoObject", "wall", "fixture_chair_0",
-                false, false, false, false, false);
+                false, false, false, true, false, false, false);
         WorldState.Square square = new WorldState.Square(
-                2, 3, 1, 4, 7, 255, 224, 192, true, false, true, List.of(object));
+                2, 3, 1, 4, 7, 255, 224, 192,
+                true, false, true, false, false, false, List.of(object));
         WorldState.Chunk chunk = new WorldState.Chunk(10, 12, 7, 99, List.of(square));
 
         WorldMeshBuilder.MeshData mesh = new WorldMeshBuilder(registry).build(chunk);
@@ -47,8 +48,65 @@ final class WorldMeshBuilderTest {
         assertEquals(1, registry.tileCount());
         assertEquals("fixture-sha", registry.sourceSha256());
         assertEquals(1, mesh.primitiveCount());
-        assertEquals(42, mesh.vertexCount());
+        assertEquals(24, mesh.vertexCount());
         assertTrue(mesh.vertices().length > 0);
+        assertEquals(1, mesh.texturedBatches().size());
+        assertEquals(18, mesh.texturedBatches().getFirst().vertexCount());
+    }
+
+    @Test
+    void placesNorthAndWestWallsOnTileEdgesInsteadOfThroughTheTileCenter() throws Exception {
+        Path registryPath = temporary.resolve("empty-walls.json");
+        Files.writeString(
+                registryPath,
+                "{\"schema_version\":1,\"source_sha256\":\"x\",\"tiles\":{}}");
+        WorldState.TileObject corner = new WorldState.TileObject(
+                0, "zombie.iso.IsoObject", "wall", "walls_fixture_01_0",
+                false, false, false, true, true, false, false);
+        WorldState.Square square = new WorldState.Square(
+                2, 3, 1, 0, 0, 255, 255, 255,
+                false, false, true, false, false, false, List.of(corner));
+        WorldState.Chunk chunk = new WorldState.Chunk(0, 0, 1, 1, List.of(square));
+
+        WorldMeshBuilder.MeshData mesh =
+                new WorldMeshBuilder(TileGeometryRegistry.load(registryPath)).build(chunk);
+
+        assertEquals(2, mesh.primitiveCount());
+        assertEquals(12, mesh.vertexCount());
+        float[] vertices = mesh.texturedBatches().getFirst().vertices();
+        for (int vertex = 0; vertex < 6; vertex++) {
+            assertEquals(3.0f, vertices[vertex * WorldMeshBuilder.TEXTURED_FLOATS_PER_VERTEX + 2]);
+        }
+        for (int vertex = 6; vertex < 12; vertex++) {
+            assertEquals(2.0f, vertices[vertex * WorldMeshBuilder.TEXTURED_FLOATS_PER_VERTEX]);
+        }
+    }
+
+    @Test
+    void projectsRealFloorSpriteCoordinatesOntoTheKnownTopSurface() throws Exception {
+        Path registryPath = temporary.resolve("floor.json");
+        Files.writeString(
+                registryPath,
+                "{\"schema_version\":1,\"source_sha256\":\"x\",\"tiles\":{}}");
+        WorldState.TileObject floor = new WorldState.TileObject(
+                0, "zombie.iso.IsoObject", "floor", "floors_fixture_01_13",
+                false, false, false, false, false, false, false);
+        WorldState.Square square = new WorldState.Square(
+                0, 0, 0, -1, 0, 255, 255, 255,
+                true, true, false, false, false, false, List.of(floor));
+        WorldState.Chunk chunk = new WorldState.Chunk(0, 0, 1, 1, List.of(square));
+
+        WorldMeshBuilder.MeshData mesh =
+                new WorldMeshBuilder(TileGeometryRegistry.load(registryPath)).build(chunk);
+
+        assertEquals(0, mesh.vertices().length);
+        assertEquals(6, mesh.vertexCount());
+        assertEquals("floors_fixture_01_13", mesh.texturedBatches().getFirst().sprite());
+        float[] vertices = mesh.texturedBatches().getFirst().vertices();
+        assertEquals(64.0f, vertices[9]);
+        assertEquals(192.0f, vertices[10]);
+        assertEquals(0.0f, vertices[20]);
+        assertEquals(224.0f, vertices[21]);
     }
 
     @Test
@@ -58,7 +116,8 @@ final class WorldMeshBuilderTest {
                 registryPath,
                 "{\"schema_version\":1,\"source_sha256\":\"x\",\"tiles\":{}}");
         WorldState.Square square = new WorldState.Square(
-                0, 0, 0, -1, 0, 255, 255, 255, true, true, false, List.of());
+                0, 0, 0, -1, 0, 255, 255, 255,
+                true, true, false, false, false, false, List.of());
         WorldState.Chunk chunk = new WorldState.Chunk(0, 0, 1, 1, List.of(square));
 
         WorldMeshBuilder.MeshData mesh =

@@ -2,7 +2,7 @@ class_name PZFPSBridgeClient
 extends RefCounted
 
 const MAGIC := 0x505A4650
-const VERSION := 2
+const VERSION := 3
 const MAX_PACKET_BYTES := 64 * 1024 * 1024
 
 const HELLO := 1
@@ -173,6 +173,7 @@ func _read_player(packet: StreamPeerBuffer) -> Dictionary:
 		"aiming": packet.get_u8() != 0,
 		"attacking": packet.get_u8() != 0,
 		"in_vehicle": packet.get_u8() != 0,
+		"eye_height": packet.get_float(),
 	}
 
 
@@ -269,6 +270,9 @@ func _read_chunk(packet: StreamPeerBuffer) -> Dictionary:
 		square["solid_floor"] = (flags & 1) != 0
 		square["exterior"] = (flags & 2) != 0
 		square["roof"] = (flags & 4) != 0
+		square["stairs"] = (flags & 8) != 0
+		square["stairs_below"] = (flags & 16) != 0
+		square["stair_top"] = (flags & 32) != 0
 		var object_count := packet.get_u16()
 		var objects: Array = []
 		objects.resize(object_count)

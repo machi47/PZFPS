@@ -267,7 +267,11 @@ func _skeleton_mesh(bones: Array) -> ImmediateMesh:
 func _update_camera() -> void:
 	if player.is_empty():
 		return
-	camera.position = _relative_position(float(player["x"]), float(player["y"]), float(player["z"]), 1.68)
+	camera.position = _relative_position(
+		float(player["x"]),
+		float(player["y"]),
+		float(player["z"]),
+		float(player.get("eye_height", 1.62)))
 	var forward := Vector3(cos(yaw) * cos(pitch), sin(pitch), sin(yaw) * cos(pitch))
 	camera.look_at(camera.position + forward, Vector3.UP)
 

@@ -1,9 +1,10 @@
 package dev.pzfps.bridge;
 
-import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.HashMap;
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -17,12 +18,16 @@ public final class BridgeRuntime {
     private static final AtomicLong FRAME_SEQUENCE = new AtomicLong();
     private static final AtomicBoolean WORLD_RENDER_SEEN = new AtomicBoolean();
     private static final AtomicBoolean FIRST_SNAPSHOT_SEEN = new AtomicBoolean();
-    private static final Map<Long, Long> CHUNK_FINGERPRINTS = new HashMap<>();
-    private static final Set<Long> LOADED_CHUNKS = new HashSet<>();
+    private static final int CHUNK_MISSING_GRACE_CAPTURES = 8;
+    private static final int CHUNK_CHANGE_CONFIRMATION_CAPTURES = 2;
+    private static final ChunkLifecycle CHUNK_LIFECYCLE = new ChunkLifecycle(
+            CHUNK_MISSING_GRACE_CAPTURES, CHUNK_CHANGE_CONFIRMATION_CAPTURES);
+    private static final Map<Long, WorldState.Chunk> ACCEPTED_CHUNKS = new HashMap<>();
     private static BridgeConfig config;
     private static BridgeServer server;
     private static long lastEntityCapture;
     private static long lastWorldCapture;
+    private static long worldCaptureCount;
 
     private BridgeRuntime() {}
 
@@ -55,29 +60,33 @@ public final class BridgeRuntime {
         RESNAPSHOT_REQUESTED.set(true);
     }
 
+    /** Capture the collision-authoritative local player after PZ has completed its update. */
     public static void onPlayerUpdate(IsoPlayer player) {
-        capture(player, true, true);
+        if (!isAuthoritativeLocalPlayer(player)) return;
+        capture(player);
+    }
+
+    /** Establish FPS facing before PZ derives movement-facing and animation state. */
+    public static void onPlayerUpdateStart(IsoPlayer player) {
+        if (!STARTED.get() || !isAuthoritativeLocalPlayer(player)) return;
+        updateAndApplyLookInput(player);
     }
 
     /**
-     * B42 does not route every local-player presentation frame through IsoPlayer.update().
-     * IsoWorld.render() is still invoked on the main render-state producer thread, where PZ
-     * itself reads these objects. Use it as the reliable snapshot boundary, without mutating
-     * input state during rendering.
+     * This boundary owns drawing only. PZ exposes buffered player copies to render-state code;
+     * reading those as simulation authority caused the FPS camera to alternate between unrelated
+     * positions. Immutable state is captured after the authoritative IsoPlayer update instead.
      */
     public static void onWorldRender() {
-        IsoPlayer player = IsoPlayer.players.length > 0 ? IsoPlayer.players[0] : null;
         if (WORLD_RENDER_SEEN.compareAndSet(false, true)) {
-            System.out.printf("[PZFPS] world render boundary observed playerPresent=%s%n", player != null);
+            System.out.printf(
+                    "[PZFPS] world render boundary observed thread=%s%n",
+                    Thread.currentThread().getName());
         }
-        capture(player, false, false);
     }
 
-    private static void capture(IsoPlayer player, boolean applyInput, boolean requireLocalIdentity) {
+    private static void capture(IsoPlayer player) {
         if (!STARTED.get() || server == null || player == null) return;
-        if (requireLocalIdentity && (!player.isLocalPlayer() || player.getIndex() != 0)) return;
-
-        applyLookInput(player);
         long now = System.nanoTime();
         long epochMillis = System.currentTimeMillis();
         long sequence = FRAME_SEQUENCE.incrementAndGet();
@@ -98,8 +107,6 @@ public final class BridgeRuntime {
         }
         boolean fullResnapshot = RESNAPSHOT_REQUESTED.getAndSet(false);
         if (fullResnapshot) {
-            CHUNK_FINGERPRINTS.clear();
-            LOADED_CHUNKS.clear();
             lastWorldCapture = 0;
         }
         if (now - lastWorldCapture >= config.worldIntervalNanos()) {
@@ -108,7 +115,7 @@ public final class BridgeRuntime {
         }
     }
 
-    private static void applyLookInput(IsoPlayer player) {
+    private static void updateAndApplyLookInput(IsoPlayer player) {
         InputState.Sample input = InputState.current();
         float yaw;
         float pitch;
@@ -132,26 +139,60 @@ public final class BridgeRuntime {
     }
 
     private static void captureWorld(IsoPlayer player, long sequence, boolean fullResnapshot) {
-        Set<Long> currentKeys = WorldCapture.loadedChunkKeys(player, config.chunkRadius());
-        for (Long oldKey : Set.copyOf(LOADED_CHUNKS)) {
-            if (currentKeys.contains(oldKey)) continue;
-            LOADED_CHUNKS.remove(oldKey);
-            CHUNK_FINGERPRINTS.remove(oldKey);
-            server.removeChunk(oldKey);
-            InProcessWorldRenderer.removeChunk(oldKey);
+        worldCaptureCount++;
+        List<IsoChunk> currentChunks = WorldCapture.loadedChunks(player, config.chunkRadius());
+        Set<Long> currentKeys = new HashSet<>();
+        for (IsoChunk chunk : currentChunks) {
+            currentKeys.add(chunkKey(chunk));
         }
-        for (IsoChunk chunk : WorldCapture.loadedChunks(player, config.chunkRadius())) {
-            long key = ((long) chunk.wx << 32) ^ (chunk.wy & 0xffff_ffffL);
-            LOADED_CHUNKS.add(key);
+
+        ChunkLifecycle.Presence presence = CHUNK_LIFECYCLE.observePresence(currentKeys);
+        for (Long removedKey : presence.removed()) {
+            ACCEPTED_CHUNKS.remove(removedKey);
+            server.removeChunk(removedKey);
+            InProcessWorldRenderer.removeChunk(removedKey);
+        }
+
+        int acceptedChanges = 0;
+        for (IsoChunk chunk : currentChunks) {
+            long key = chunkKey(chunk);
             long fingerprint = WorldCapture.fingerprint(chunk, player.getIndex());
-            Long previous = CHUNK_FINGERPRINTS.put(key, fingerprint);
-            if (previous == null || previous.longValue() != fingerprint) {
+            if (CHUNK_LIFECYCLE.acceptFingerprint(key, fingerprint)) {
                 WorldState.Chunk snapshot =
                         WorldCapture.chunk(chunk, player.getIndex(), fingerprint);
+                ACCEPTED_CHUNKS.put(key, snapshot);
                 server.publishChunk(snapshot);
                 InProcessWorldRenderer.submitChunk(snapshot);
+                acceptedChanges++;
             }
         }
-        if (fullResnapshot) server.publishResnapshotDone(sequence);
+
+        if (fullResnapshot) {
+            for (WorldState.Chunk snapshot : ACCEPTED_CHUNKS.values()) {
+                server.publishChunk(snapshot);
+            }
+            server.publishResnapshotDone(sequence);
+        }
+
+        if ((!presence.removed().isEmpty() || currentChunks.size() < CHUNK_LIFECYCLE.activeCount())
+                && worldCaptureCount % 20 == 0) {
+            System.out.printf(
+                    "[PZFPS] transient chunk window current=%d retained=%d removed=%d acceptedChanges=%d%n",
+                    currentChunks.size(),
+                    CHUNK_LIFECYCLE.activeCount(),
+                    presence.removed().size(),
+                    acceptedChanges);
+        }
+    }
+
+    private static long chunkKey(IsoChunk chunk) {
+        return ((long) chunk.wx << 32) ^ (chunk.wy & 0xffff_ffffL);
+    }
+
+    private static boolean isAuthoritativeLocalPlayer(IsoPlayer player) {
+        return player != null
+                && player == IsoPlayer.getInstance()
+                && player.isLocalPlayer()
+                && player.getIndex() == 0;
     }
 }

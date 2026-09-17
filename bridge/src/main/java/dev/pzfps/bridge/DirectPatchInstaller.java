@@ -32,11 +32,13 @@ public final class DirectPatchInstaller {
         PlayerUpdatePatch.class,
         InputMovePatch.class,
         AimVectorPatch.class,
+        StrafingPatch.class,
         KeyboardInputPatch.Down.class,
         KeyboardInputPatch.Pressed.class,
         MouseUpdatePatch.class,
         MouseInputPatch.Down.class,
-        MouseInputPatch.Pressed.class
+        MouseInputPatch.Pressed.class,
+        MouseInputPatch.UiCheck.class
     };
     private static volatile ClassFileLocator adviceLocator;
 
@@ -57,6 +59,7 @@ public final class DirectPatchInstaller {
                 .with(new HookListener())
                 .type(namedOneOf(
                         "zombie.iso.IsoWorld",
+                        "zombie.characters.IsoGameCharacter",
                         "zombie.characters.IsoPlayer",
                         "zombie.input.GameKeyboard",
                         "zombie.input.Mouse"))
@@ -97,6 +100,12 @@ public final class DirectPatchInstaller {
                         .visit(advice(InputMovePatch.class).on(movement))
                         .visit(advice(AimVectorPatch.class).on(aim));
             }
+            case "zombie.characters.IsoGameCharacter" -> {
+                ElementMatcher.Junction<MethodDescription> strafing =
+                        named("isStrafing").and(takesArguments(0));
+                requireOneTarget(type, strafing, "isStrafing()Z");
+                yield builder.visit(advice(StrafingPatch.class).on(strafing));
+            }
             case "zombie.input.GameKeyboard" -> {
                 ElementMatcher.Junction<MethodDescription> down =
                         named("isKeyDown").and(takesArguments(String.class));
@@ -115,13 +124,17 @@ public final class DirectPatchInstaller {
                         named("isButtonDown").and(takesArguments(int.class));
                 ElementMatcher.Junction<MethodDescription> pressed =
                         named("isButtonPressed").and(takesArguments(int.class));
+                ElementMatcher.Junction<MethodDescription> uiCheck =
+                        named("isButtonDownUICheck").and(takesArguments(int.class));
                 requireOneTarget(type, update, "update()V");
                 requireOneTarget(type, down, "isButtonDown(I)Z");
                 requireOneTarget(type, pressed, "isButtonPressed(I)Z");
+                requireOneTarget(type, uiCheck, "isButtonDownUICheck(I)Z");
                 yield builder
                         .visit(advice(MouseUpdatePatch.class).on(update))
                         .visit(advice(MouseInputPatch.Down.class).on(down))
-                        .visit(advice(MouseInputPatch.Pressed.class).on(pressed));
+                        .visit(advice(MouseInputPatch.Pressed.class).on(pressed))
+                        .visit(advice(MouseInputPatch.UiCheck.class).on(uiCheck));
             }
             default -> builder;
         };

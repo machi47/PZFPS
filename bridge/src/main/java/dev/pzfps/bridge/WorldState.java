@@ -20,7 +20,8 @@ public final class WorldState {
             String actionState,
             boolean aiming,
             boolean attacking,
-            boolean inVehicle) {}
+            boolean inVehicle,
+            float eyeHeight) {}
 
     public record Entity(
             int id,
@@ -96,6 +97,8 @@ public final class WorldState {
             boolean door,
             boolean window,
             boolean north,
+            boolean edgeNorth,
+            boolean edgeWest,
             boolean open,
             boolean hoppable) {}
 
@@ -111,6 +114,9 @@ public final class WorldState {
             boolean solidFloor,
             boolean exterior,
             boolean roof,
+            boolean stairs,
+            boolean stairsBelow,
+            boolean stairTop,
             List<TileObject> objects) {
         public Square {
             objects = List.copyOf(objects);
