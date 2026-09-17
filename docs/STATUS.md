@@ -67,7 +67,7 @@ gameplay:
    player is stationary. The former 169 -> 117/104 -> 169 oscillation is gone.
 5. The perspective room uses source PZ textures on known geometry and retains
    the normal PZ text/UI pass. The owner reported no further whole-world flash.
-6. The current source build passes 43 Java tests and 45 Python tests.
+6. The current source build passes 48 Java tests and 45 Python tests.
 
 No source/enhanced video pair or matched gameplay performance capture has yet
 been accepted.
@@ -206,8 +206,16 @@ been accepted.
   type, sprite and item ID against the live object on PZ's game thread. Before
   the handoff, B42's own `LosUtil.lineClear` rejects ordinary wall occlusion; a
   closed door or window admits only itself and cannot expose a container behind
-  it. The `Interact` observation path logs this resolution but leaves PZ's
-  normal `doContext()` fully authoritative.
+  it.
+- `bridge/src/main/java/dev/pzfps/bridge/PerspectiveInteract.java` and
+  `patches/ContextActionPatch.java` — scope that identity-checked live target to
+  the exact execution of B42's `doContext()`. PZ still constructs and validates
+  its normal contextual-action list. Its private chooser then prefers the
+  highest-priority action whose `IsoObject` is the reticle target, preserving
+  the game's front/behind tie-break. If PZ generated no action for that exact
+  object, execution of a different nearby isometric action is suppressed. The
+  scope is thread-local and cleared on normal or exceptional exit. This path is
+  source-built and Byte Buddy inlining-tested, not live-accepted.
 - `bridge/src/main/java/dev/pzfps/bridge/PerspectiveContextMenu.java` — hands an
   identity-checked live target to the PZ Lua context system on the game thread.
   It releases mouse capture only after PZ reports a non-empty menu; every menu
@@ -279,7 +287,8 @@ Targeted installed-class inspection used `javap -c -p` on `IsoPlayer`,
 `CharacterModelCamera`, `VehicleModelCamera`, `ModelCameraRenderData`,
 `ModelSlotRenderData`, `ModelInstance`, `ModelManager`, `BaseVehicle`,
 `TextureDraw.drawModel`, `SpriteRenderer.drawModel`, `Model`, `Shader`,
-`CharacterInputComponent`, `IsoPlayer.doContext()`, `BallisticsController`,
+`CharacterInputComponent`, `IsoPlayer.doContext()`, `ContextualAction`,
+`BallisticsController`,
 `AimingReticle`, `Bullet` and related input/context-action/model classes. This
 confirmed that B42 snapshots evaluated model data on
 the producer side, reference-counts it until `postRender()`, and delegates the
@@ -297,13 +306,13 @@ native binary was changed. Socket/log diagnostics used `lsof`, `nc`, `xxd` and
 Most recent test results:
 
 - Python/pytest: 45 passed, 0 failed (49 deprecation warnings).
-- Java/Gradle: 43 passed, 0 failed across `ChunkLifecycleTest`,
+- Java/Gradle: 48 passed, 0 failed across `ChunkLifecycleTest`,
   `CursorCaptureStateTest`, `DirectPatchInstallerTest`, `FirstPersonInputTest`,
   `FirstPersonCharacterCameraTest`, `FirstPersonModelCameraTest`,
   `InputStateTest`, `InteractionTargetTest`, `MovementDiagnosticsTest`,
   `NativeActorPassTest`, `NativeFirstPersonHandsPassTest`,
   `NativeVehiclePassTest`, `NativeWorldItemPassTest`,
-  `PerspectiveBallisticsTest`,
+  `PerspectiveBallisticsTest`, `PerspectiveInteractTest`,
   `WireProtocolTest` and `WorldMeshBuilderTest`.
 
 ## Evidence and identities
@@ -321,7 +330,7 @@ Most recent test results:
 - Live-tested staged bridge JAR SHA-256:
   `c0904da6d2f775c6dcd8bfac90ccc1096093640fff7fc05d61149cc8bd8946d2`.
 - Newest built but not live-tested bridge JAR SHA-256:
-  `e65526f78aaa5e258ae84821e63fbc1040df13f6f1e465d28ac0fe33daa5c23b`.
+  `862e2d7110c75de2dc831b0f60980adb023ea5308ce50b61db7bfa99af2f2462`.
 - Offline canonical report:
   `.local/canonical-bed-v64/store/objects/5107aa94b47977535039da77ac4018329c238388ad51c94829dc5a69d01d1a0a/report.json`.
 - Geometry source SHA-256:
@@ -393,6 +402,12 @@ update rates have not been reported as achieved performance.
     matching the installed B42 bytecode, and restores only stacks that were
     successfully pushed. The corrected 43-test build passed; no artifact from
     the failed compile was staged or loaded.
+11. The first contextual-action build declared its advice in a different Java
+    package from the existing bridge patches, so it could not access the
+    package-private selector and the installer could not resolve the advice
+    name. The declaration was aligned with the actual bridge package; the
+    corrected 48-test build, including advice inlining against installed
+    `IsoPlayer`, passed. No failed artifact was staged or loaded.
 
 ## Next smallest experiment
 
@@ -403,9 +418,11 @@ Without restarting the current accepted visual session merely to inspect it:
    Use the new post-update movement-alignment report to distinguish a coordinate
    transform failure from valid collision/action blocking; do not infer either
    from camera motion alone.
-2. Verify that PZ's normal `Interact` action follows the mouse-controlled actor
-   direction for a door and preserves the new candidate/resolution evidence;
-   PZ's own `doContext()` already owns validation/action.
+2. Aim at each of two neighboring doors/windows in turn and verify that the
+   normal `Interact` key executes only the identity-matched reticle object's
+   PZ-generated contextual action. Then aim at a locked/non-actionable target
+   and verify that a different nearby isometric action does not fire. PZ's own
+   `doContext()` still owns action construction, validation and execution.
 3. Press F7 on a centre-view container and verify the new path opens B42's own
    non-empty menu, releases the cursor, executes one normal option, and
    recaptures only after the menu clears. The implementation is built but not

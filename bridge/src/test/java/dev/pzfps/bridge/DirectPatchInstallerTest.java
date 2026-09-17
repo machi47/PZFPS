@@ -29,6 +29,18 @@ final class DirectPatchInstallerTest {
                 player,
                 DirectPatchInstaller.setAngleFromAimMatcher(),
                 "setAngleFromAim()V");
+        DirectPatchInstaller.requireOneTarget(
+                player,
+                DirectPatchInstaller.doContextMatcher(),
+                "doContext()Z");
+        DirectPatchInstaller.requireOneTarget(
+                player,
+                DirectPatchInstaller.pickContextMatcher(),
+                "pickBestContextualAction(Ljava/util/ArrayList;)Lzombie/characters/ContextualAction;");
+        DirectPatchInstaller.requireOneTarget(
+                player,
+                DirectPatchInstaller.performContextMatcher(),
+                "performContextualAction(Lzombie/characters/ContextualAction;)V");
     }
 
     @Test
@@ -52,6 +64,22 @@ final class DirectPatchInstallerTest {
                         .on(DirectPatchInstaller.ballisticsMuzzleMatcher()))
                 .visit(Advice.to(BallisticsAimPatch.CameraTargets.class)
                         .on(DirectPatchInstaller.ballisticsCameraTargetsMatcher()))
+                .make()
+                .getBytes();
+
+        assertTrue(transformed.length > 0);
+    }
+
+    @Test
+    void inlinesContextSelectionAdviceIntoInstalledClass() {
+        byte[] transformed = new ByteBuddy()
+                .redefine(IsoPlayer.class)
+                .visit(Advice.to(ContextActionPatch.Scope.class)
+                        .on(DirectPatchInstaller.doContextMatcher()))
+                .visit(Advice.to(ContextActionPatch.PickBest.class)
+                        .on(DirectPatchInstaller.pickContextMatcher()))
+                .visit(Advice.to(ContextActionPatch.Execute.class)
+                        .on(DirectPatchInstaller.performContextMatcher()))
                 .make()
                 .getBytes();
 

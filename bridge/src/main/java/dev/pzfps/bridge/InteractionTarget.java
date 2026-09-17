@@ -26,7 +26,10 @@ final class InteractionTarget {
             String javaType,
             String objectType,
             String sprite,
-            int worldItemId) {}
+            int worldItemId,
+            boolean door,
+            boolean window,
+            boolean container) {}
 
     private InteractionTarget() {}
 
@@ -218,7 +221,10 @@ final class InteractionTarget {
                 object.javaType(),
                 object.objectType(),
                 object.sprite(),
-                object.worldItem().present() ? object.worldItem().itemId() : -1);
+                object.worldItem().present() ? object.worldItem().itemId() : -1,
+                object.door(),
+                object.window(),
+                object.container());
     }
 
     private static boolean matches(IsoObject object, Reference reference) {

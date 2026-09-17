@@ -77,7 +77,11 @@ target. The cursor is released only when PZ actually creates a non-empty menu.
 Immediately before that handoff, B42's own square sightline traversal rejects a
 target hidden by a wall; a closed door or window admits only itself, not a
 container behind it. PZ still owns the menu options, reach/action checks and
-resulting action.
+resulting action. The ordinary Interact key now uses the same identity-checked
+reticle seam for doors and windows: B42 still constructs and validates its own
+contextual actions, but its private chooser prefers the action whose live
+`IsoObject` is the reticle target. If no validated action belongs to that
+target, a different nearby isometric action is not executed.
 PZ context menus already request cursor ownership; the bridge also marks an
 inventory/loot pair opened with PZ's normal `Toggle Inventory` action as cursor-
 owning until it is hidden. Merely hovering a collapsed UI strip no longer

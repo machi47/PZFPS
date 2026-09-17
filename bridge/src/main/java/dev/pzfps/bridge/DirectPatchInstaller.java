@@ -35,6 +35,9 @@ public final class DirectPatchInstaller {
         AimStatePatch.class,
         BallisticsAimPatch.Muzzle.class,
         BallisticsAimPatch.CameraTargets.class,
+        ContextActionPatch.Scope.class,
+        ContextActionPatch.PickBest.class,
+        ContextActionPatch.Execute.class,
         StrafingPatch.class,
         KeyboardInputPatch.Down.class,
         KeyboardInputPatch.Pressed.class,
@@ -92,6 +95,9 @@ public final class DirectPatchInstaller {
                 ElementMatcher.Junction<MethodDescription> aim = aimMatcher();
                 ElementMatcher.Junction<MethodDescription> calculateAim = calculateAimMatcher();
                 ElementMatcher.Junction<MethodDescription> setAngleFromAim = setAngleFromAimMatcher();
+                ElementMatcher.Junction<MethodDescription> doContext = doContextMatcher();
+                ElementMatcher.Junction<MethodDescription> pickContext = pickContextMatcher();
+                ElementMatcher.Junction<MethodDescription> performContext = performContextMatcher();
                 requireOneTarget(type, update, "update()V");
                 requireOneTarget(
                         type,
@@ -106,11 +112,23 @@ public final class DirectPatchInstaller {
                         calculateAim,
                         "calculateAimVector(Lzombie/iso/Vector2;)Lzombie/iso/Vector2;");
                 requireOneTarget(type, setAngleFromAim, "setAngleFromAim()V");
+                requireOneTarget(type, doContext, "doContext()Z");
+                requireOneTarget(
+                        type,
+                        pickContext,
+                        "pickBestContextualAction(Ljava/util/ArrayList;)Lzombie/characters/ContextualAction;");
+                requireOneTarget(
+                        type,
+                        performContext,
+                        "performContextualAction(Lzombie/characters/ContextualAction;)V");
                 yield builder
                         .visit(advice(PlayerUpdatePatch.class).on(update))
                         .visit(advice(InputMovePatch.class).on(movement))
                         .visit(advice(AimVectorPatch.class).on(aim.or(calculateAim)))
-                        .visit(advice(AimStatePatch.class).on(setAngleFromAim));
+                        .visit(advice(AimStatePatch.class).on(setAngleFromAim))
+                        .visit(advice(ContextActionPatch.Scope.class).on(doContext))
+                        .visit(advice(ContextActionPatch.PickBest.class).on(pickContext))
+                        .visit(advice(ContextActionPatch.Execute.class).on(performContext));
             }
             case "zombie.characters.IsoGameCharacter" -> {
                 ElementMatcher.Junction<MethodDescription> strafing =
@@ -185,6 +203,22 @@ public final class DirectPatchInstaller {
 
     static ElementMatcher.Junction<MethodDescription> setAngleFromAimMatcher() {
         return named("setAngleFromAim").and(takesArguments(0));
+    }
+
+    static ElementMatcher.Junction<MethodDescription> doContextMatcher() {
+        return named("doContext").and(takesArguments(0));
+    }
+
+    static ElementMatcher.Junction<MethodDescription> pickContextMatcher() {
+        return named("pickBestContextualAction")
+                .and(takesArguments(1))
+                .and(takesArgument(0, named("java.util.ArrayList")));
+    }
+
+    static ElementMatcher.Junction<MethodDescription> performContextMatcher() {
+        return named("performContextualAction")
+                .and(takesArguments(1))
+                .and(takesArgument(0, named("zombie.characters.ContextualAction")));
     }
 
     static ElementMatcher.Junction<MethodDescription> ballisticsMuzzleMatcher() {

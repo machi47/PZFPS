@@ -20,6 +20,8 @@ public final class BridgeRuntime {
     private static final AtomicLong FRAME_SEQUENCE = new AtomicLong();
     private static final AtomicBoolean WORLD_RENDER_SEEN = new AtomicBoolean();
     private static final AtomicBoolean FIRST_SNAPSHOT_SEEN = new AtomicBoolean();
+    private static final AtomicBoolean INTERACTION_SELECTION_FAILURE_REPORTED =
+            new AtomicBoolean();
     private static final int CHUNK_MISSING_GRACE_CAPTURES = 8;
     private static final int CHUNK_CHANGE_CONFIRMATION_CAPTURES = 2;
     private static final float INTERACTION_REACH = 2.3f;
@@ -155,6 +157,39 @@ public final class BridgeRuntime {
     public static void restorePerspectiveAim(IsoPlayer player) {
         if (!STARTED.get() || !isAuthoritativeLocalPlayer(player)) return;
         applyPerspectiveAim(player, InputState.current());
+    }
+
+    /**
+     * Called at the exact start of B42's doContext(). PZ still builds, validates and executes the
+     * action; the companion selection hook can only prefer an action carrying this same live
+     * object identity.
+     */
+    public static void beginPerspectiveInteract(IsoPlayer player) {
+        PerspectiveInteract.end();
+        if (!STARTED.get()
+                || !isAuthoritativeLocalPlayer(player)
+                || (!FirstPersonInput.isCaptured() && !InputState.current().active())) {
+            return;
+        }
+        try {
+            long now = System.nanoTime();
+            WorldState.Player viewpoint = WorldCapture.player(
+                    player, FRAME_SEQUENCE.get(), now, System.currentTimeMillis());
+            InteractionTarget.nearestInteractive(
+                            viewpoint, ACCEPTED_CHUNKS.values(), INTERACTION_REACH)
+                    .filter(reference -> reference.door() || reference.window())
+                    .map(reference -> InteractionTarget.resolveLive(
+                            player, reference, INTERACTION_REACH))
+                    .ifPresent(PerspectiveInteract::begin);
+        } catch (RuntimeException | LinkageError error) {
+            PerspectiveInteract.end();
+            if (INTERACTION_SELECTION_FAILURE_REPORTED.compareAndSet(false, true)) {
+                System.err.printf(
+                        "[PZFPS interaction] reticle action selection failed for this request: %s%n",
+                        error);
+                error.printStackTrace(System.err);
+            }
+        }
     }
 
     private static void applyPerspectiveAim(IsoPlayer player, InputState.Sample input) {
