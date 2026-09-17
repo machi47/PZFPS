@@ -19,7 +19,7 @@ import zombie.iso.sprite.IsoSprite;
 import zombie.vehicles.BaseVehicle;
 
 /** Renders live vehicles through PZ's own evaluated model slot instead of a debug box. */
-final class NativeVehiclePass {
+public final class NativeVehiclePass {
     private static final float MAXIMUM_DISTANCE = 64.0f;
     private static final float MODEL_BOUND_RADIUS = 8.0f;
     private static final int MAXIMUM_VEHICLES_PER_FRAME = 128;
@@ -101,7 +101,7 @@ final class NativeVehiclePass {
         error.printStackTrace(System.err);
     }
 
-    static final class PreparedFrame {
+    public static final class PreparedFrame {
         private final List<Drawer> drawers;
         private final Set<Integer> entityIds;
         private boolean consumed;
@@ -115,11 +115,11 @@ final class NativeVehiclePass {
             return new PreparedFrame(new ArrayList<>(), Set.of());
         }
 
-        Set<Integer> entityIds() {
+        public Set<Integer> entityIds() {
             return entityIds;
         }
 
-        void queueAfterWorld() {
+        public void queueAfterWorld() {
             if (consumed) return;
             consumed = true;
             int queuedThisFrame = 0;
@@ -148,7 +148,7 @@ final class NativeVehiclePass {
             }
         }
 
-        void discard() {
+        public void discard() {
             if (consumed) return;
             consumed = true;
             releaseAll(drawers);

@@ -2,6 +2,7 @@ package dev.pzfps.bridge;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.lang.reflect.Modifier;
 import net.bytebuddy.ByteBuddy;
 import net.bytebuddy.asm.Advice;
 import net.bytebuddy.description.type.TypeDescription;
@@ -84,5 +85,28 @@ final class DirectPatchInstallerTest {
                 .getBytes();
 
         assertTrue(transformed.length > 0);
+    }
+
+    @Test
+    void exposesEveryTypeAndOperationReferencedByInlinedWorldAdvice() throws Exception {
+        assertWorldAdviceApi(
+                NativeActorPass.class, NativeActorPass.PreparedFrame.class, true);
+        assertWorldAdviceApi(
+                NativeVehiclePass.class, NativeVehiclePass.PreparedFrame.class, true);
+        assertWorldAdviceApi(
+                NativeFirstPersonHandsPass.class,
+                NativeFirstPersonHandsPass.PreparedFrame.class,
+                false);
+    }
+
+    private static void assertWorldAdviceApi(
+            Class<?> owner, Class<?> frame, boolean exposesEntityIds) throws Exception {
+        assertTrue(Modifier.isPublic(owner.getModifiers()));
+        assertTrue(Modifier.isPublic(frame.getModifiers()));
+        assertTrue(Modifier.isPublic(frame.getDeclaredMethod("queueAfterWorld").getModifiers()));
+        assertTrue(Modifier.isPublic(frame.getDeclaredMethod("discard").getModifiers()));
+        if (exposesEntityIds) {
+            assertTrue(Modifier.isPublic(frame.getDeclaredMethod("entityIds").getModifiers()));
+        }
     }
 }

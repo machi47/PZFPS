@@ -19,7 +19,7 @@ import zombie.core.textures.Texture;
 import zombie.core.textures.TextureDraw;
 
 /** Draws only the local player's PZ-evaluated held models, never the head or torso mesh. */
-final class NativeFirstPersonHandsPass {
+public final class NativeFirstPersonHandsPass {
     private static final ConcurrentLinkedQueue<Drawer> DRAWER_POOL = new ConcurrentLinkedQueue<>();
     private static final AtomicBoolean FAILED = new AtomicBoolean();
     private static final AtomicLong QUEUED = new AtomicLong();
@@ -82,7 +82,7 @@ final class NativeFirstPersonHandsPass {
         error.printStackTrace(System.err);
     }
 
-    static final class PreparedFrame {
+    public static final class PreparedFrame {
         private Drawer drawer;
 
         private PreparedFrame(Drawer drawer) {
@@ -93,7 +93,7 @@ final class NativeFirstPersonHandsPass {
             return new PreparedFrame(null);
         }
 
-        void queueAfterWorld() {
+        public void queueAfterWorld() {
             Drawer value = drawer;
             drawer = null;
             if (value == null) return;
@@ -113,7 +113,7 @@ final class NativeFirstPersonHandsPass {
             }
         }
 
-        void discard() {
+        public void discard() {
             Drawer value = drawer;
             drawer = null;
             if (value != null) value.discard();

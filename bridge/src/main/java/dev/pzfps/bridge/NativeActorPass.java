@@ -18,7 +18,7 @@ import zombie.core.textures.TextureDraw;
 import zombie.iso.IsoMovingObject;
 
 /** Renders nonlocal characters through PZ's native evaluated model snapshots. */
-final class NativeActorPass {
+public final class NativeActorPass {
     private static final float MAXIMUM_DISTANCE = 48.0f;
     private static final float MODEL_BOUND_RADIUS = 2.5f;
     private static final int MAXIMUM_ACTORS_PER_FRAME = 256;
@@ -104,7 +104,7 @@ final class NativeActorPass {
         error.printStackTrace(System.err);
     }
 
-    static final class PreparedFrame {
+    public static final class PreparedFrame {
         private final List<Drawer> drawers;
         private final Set<Integer> entityIds;
         private boolean consumed;
@@ -118,11 +118,11 @@ final class NativeActorPass {
             return new PreparedFrame(new ArrayList<>(), Set.of());
         }
 
-        Set<Integer> entityIds() {
+        public Set<Integer> entityIds() {
             return entityIds;
         }
 
-        void queueAfterWorld() {
+        public void queueAfterWorld() {
             if (consumed) return;
             consumed = true;
             int queuedThisFrame = 0;
@@ -151,7 +151,7 @@ final class NativeActorPass {
             }
         }
 
-        void discard() {
+        public void discard() {
             if (consumed) return;
             consumed = true;
             releaseAll(drawers);
