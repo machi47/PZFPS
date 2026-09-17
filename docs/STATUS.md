@@ -21,7 +21,8 @@ PZ render thread     -> PZFPS perspective world -> PZ text/UI
 
 One isolated PZ process is currently running from the project-local
 disposable profile with staged bridge JAR
-`9a6c54aa25a7a53788e22939d15aa17c76df2c79f864384ee4dd9f37cbcd6163`.
+`c359265922b1c22ba2b60108741882cd1aeecb2c88677c383725775ba891554d`
+(source commit `d816d609`, PID 29349, launched 22:26:32 UTC).
 No normal save, installed game binary or
 unrelated mod was changed.
 
@@ -257,7 +258,7 @@ surface or interaction acceptance. Existing game startup reported invalid room
 metaIDs; no renderer exception was observed in this run. Callback samples were
 ~60 Hz, state age 4–5 ms during active simulation, not a gameplay/GPU benchmark.
 
-**Next batched source, not yet live-accepted:** shared precision/layer repair
+**Loaded batch, not yet live-accepted:** shared precision/layer repair
 uses direction-only camera rotation (no `eye + unitDirection` quantization at
 large map coordinates), chunk-local GPU vertices and chunk-relative camera
 matrices. Native actor cameras retain world coordinates and the same projection.
@@ -281,6 +282,34 @@ other kinds of missing geometry still need treatment. `appearanceFacing` is
 in-process immutable appearance metadata; protocol 5 intentionally remains wire
 compatible and does not export this new field yet. Tests cover four cabinet
 orientations, native facing routing, unchanged unrelated assets and donor UVs.
+
+The batch passes **96 Java tests, zero failures/errors**, and 26 canonical
+tests. Commit `d816d6095cb531bf3f22a2316d750df549cbb92e` was pushed and
+remote-verified. One `stop-isolated`, `stage-isolated`, `launch-app-isolated`
+sequence loaded the changed JAR; no additional instance was launched.
+The preceding console is `.local/reports/live-9a6c54-before-layer-repair.txt`.
+The new console is `.local/reports/live-c359265-layer-repair.txt`: at simulation
+frame 9458 it reports 11,700 completed render callbacks, sampled callback rate
+60 Hz, 169 cached meshes / 62 visible, state age 5 ms. Later pause/focus loss
+correctly increased state age while callbacks continued. These are callback
+measurements, **not measured game FPS, GPU completion or visual acceptance**.
+The console has vanilla startup Lua/asset/room metadata warnings but no observed
+PZFPS renderer exception or shader compilation failure.
+
+UI verification was incomplete: the computer-use service failed to initialize;
+initial captures showed the startup Survival Guide. AppleScript and immediate
+CGEvent down/up did not visibly dismiss it. `tools/click_isolated_game.swift`
+is a bounded fallback requiring an exact foreground PID and coordinates inside
+its current window; it now holds a click for 120 ms to cross an input poll.
+The subsequent attempt correctly refused because Terminal was foreground.
+By then the existing game had progressed to active gameplay, as its console
+records; do not attribute guide dismissal to the unverified click helper.
+Direct window capture later failed with `could not create image from window`
+while the game window was offscreen. No extra restart or forced focus change
+was used. The last accepted visual checkpoint remains the owner's improved
+standing zombies and continuous floors; window/shelf/bench flicker is pending
+moving-view acceptance. Before images are preserved as
+`.local/captures/layer-window-before.png` and `layer-bench-before.png`.
 
 **Lighting diagnosis, not a lighting fix:** current world meshes bake captured
 square RGB, clamp it to >=0.42, and do not invalidate on light changes. Therefore
@@ -988,12 +1017,15 @@ update rates have not been reported as achieved performance.
 
 ## Next smallest experiment
 
-Keep the currently running single PID 26206 for the next acceptance pass.
-Observe a real nonlocal actor at a visible location: correct scale, depth,
-evaluated pose and clothing/equipment must be seen, not inferred from callbacks.
-Exercise display-thread capture through mouse look, F8, focus changes and UI
-ownership. Continue geometry/material correspondence repair from actual source
-evidence while those gameplay checks proceed.
+Keep the currently running single PID 29349 for the next acceptance pass.
+At a window/sill, shelf bracket and multi-tile bench, hold player position fixed
+and sweep the camera slowly through the formerly unstable angles. Preserve
+moving evidence and distinguish depth-layer flicker from alpha-edge aliasing,
+real geometry intersections and source-projection errors. Inspect a tool chest's
+new opposite side and verify the drawer front was not copied onto its back.
+Do not reload merely to inspect these source changes: this batch is loaded.
+The older gameplay and coverage checks below remain outstanding regression
+work, not instructions to restart an already running instance.
 
 1. Stage one batched build and live-test simultaneous W+A/W+D, A/D,
    Shift+W/A/D and backward movement while keeping mouse view fixed. Confirm
