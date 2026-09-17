@@ -136,7 +136,8 @@ def launch(install: Path) -> dict[str, Any]:
     java_root = _java_root(install)
     java = install / "Project Zomboid.app" / "Contents" / "PlugIns" / "jre-aarch64" / "Contents" / "Home" / "bin" / "java"
     agent = MODS / "ZombieBuddy" / "libs" / "ZombieBuddy.jar"
-    for required in (java, java_root / "projectzomboid.jar", agent):
+    bridge = MODS / "PZFPSBridge" / "42" / "media" / "java" / "PZFPSBridge.jar"
+    for required in (java, java_root / "projectzomboid.jar", agent, bridge):
         if not required.is_file():
             raise RuntimeError(f"launch prerequisite is absent: {required}")
 
@@ -157,14 +158,16 @@ def launch(install: Path) -> dict[str, Any]:
         "-Dpzfps.bind=127.0.0.1",
         "-Dpzfps.port=24872",
         "-Dpzfps.chunkRadius=6",
+        "-Dpzfps.renderDistanceChunks=24",
         "-Dpzfps.worldHz=4",
         "-Dpzfps.entityHz=30",
         "-Dpzfps.renderer.enabled=true",
         f"-Dpzfps.assetRegistry={ASSET_REGISTRY}",
+        f"-Dpzfps.bridgeJar={bridge}",
         "-Xmx3072m",
         "-XX:+UseZGC",
         "-XX:-OmitStackTraceInFastThrow",
-        f"-javaagent:{agent}=verbosity=1,policy=deny-new,config_dir={ZB_CONFIG}",
+        _agent_option(agent, bridge),
         "-cp",
         "projectzomboid.jar",
         "zombie.gameStates.MainScreenState",
@@ -311,6 +314,7 @@ def _build_launch_app(install: Path, agent: Path) -> None:
     """Create a small local bundle that references, but never modifies, the Steam install."""
     _require_project_local(LAUNCH_APP)
     original = install / "Project Zomboid.app" / "Contents"
+    bridge = MODS / "PZFPSBridge" / "42" / "media" / "java" / "PZFPSBridge.jar"
     if LAUNCH_APP.exists():
         shutil.rmtree(LAUNCH_APP)
     contents = LAUNCH_APP / "Contents"
@@ -339,11 +343,13 @@ def _build_launch_app(install: Path, agent: Path) -> None:
             f"-Dpzfps.bind=127.0.0.1",
             f"-Dpzfps.port=24872",
             f"-Dpzfps.chunkRadius=6",
+            "-Dpzfps.renderDistanceChunks=24",
             f"-Dpzfps.worldHz=4",
             f"-Dpzfps.entityHz=30",
             "-Dpzfps.renderer.enabled=true",
             f"-Dpzfps.assetRegistry={ASSET_REGISTRY}",
-            f"-javaagent:{agent}=verbosity=1,policy=deny-new,config_dir={ZB_CONFIG}",
+            f"-Dpzfps.bridgeJar={bridge}",
+            _agent_option(agent, bridge),
         ]
     )
     info["JVMOptions"] = options
@@ -352,6 +358,11 @@ def _build_launch_app(install: Path, agent: Path) -> None:
     info["WorkingDirectory"] = str(original / "Java")
     with (contents / "Info.plist").open("wb") as handle:
         plistlib.dump(info, handle, sort_keys=True)
+
+
+def _agent_option(agent: Path, bridge: Path) -> str:
+    """Load the approved Java mod; it installs and verifies its exact runtime hooks."""
+    return f"-javaagent:{agent}=verbosity=1,policy=deny-new,config_dir={ZB_CONFIG}"
 
 
 def _configure_windowed_profile() -> None:

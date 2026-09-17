@@ -9,7 +9,17 @@ public final class WorldMeshBuilder {
     private static final int CYLINDER_SEGMENTS = 10;
     private static final int MAX_VERTICES_PER_CHUNK = 500_000;
 
-    public record MeshData(long key, long fingerprint, float[] vertices, int primitiveCount) {
+    public record MeshData(
+            long key,
+            long fingerprint,
+            float[] vertices,
+            int primitiveCount,
+            float minX,
+            float minY,
+            float minZ,
+            float maxX,
+            float maxY,
+            float maxZ) {
         public int vertexCount() {
             return vertices.length / FLOATS_PER_VERTEX;
         }
@@ -28,7 +38,6 @@ public final class WorldMeshBuilder {
         float chunkX = chunk.worldX() * blockSize;
         float chunkZ = chunk.worldY() * blockSize;
         for (WorldState.Square square : chunk.squares()) {
-            if ((square.visibility() & 1) == 0) continue;
             float baseX = chunkX + square.localX();
             float baseY = square.z() * LEVEL_HEIGHT;
             float baseZ = chunkZ + square.localY();
@@ -57,21 +66,59 @@ public final class WorldMeshBuilder {
             }
             for (WorldState.TileObject object : square.objects()) {
                 float[] color = identityColor(object.sprite(), light);
-                List<TileGeometryRegistry.Primitive> geometry = registry.geometry(object.sprite());
-                if (geometry.isEmpty()) {
+                if (isStructuralPanel(object)) {
                     addFallback(output, baseX, baseY, baseZ, object, color);
                     primitiveCount++;
-                } else {
-                    for (TileGeometryRegistry.Primitive primitive : geometry) {
-                        addPrimitive(output, baseX, baseY, baseZ, primitive, color);
-                        primitiveCount++;
-                    }
                 }
                 if (output.vertexCount() >= MAX_VERTICES_PER_CHUNK) break;
             }
             if (output.vertexCount() >= MAX_VERTICES_PER_CHUNK) break;
         }
-        return new MeshData(chunk.key(), chunk.fingerprint(), output.toArray(), primitiveCount);
+        float[] vertices = output.toArray();
+        float[] bounds = bounds(vertices);
+        return new MeshData(
+                chunk.key(),
+                chunk.fingerprint(),
+                vertices,
+                primitiveCount,
+                bounds[0],
+                bounds[1],
+                bounds[2],
+                bounds[3],
+                bounds[4],
+                bounds[5]);
+    }
+
+    private static boolean isStructuralPanel(WorldState.TileObject object) {
+        if (object.door() || object.window()) return true;
+        String type = object.objectType().toLowerCase(java.util.Locale.ROOT);
+        String sprite = object.sprite().toLowerCase(java.util.Locale.ROOT);
+        return type.contains("wall")
+                || sprite.startsWith("walls_")
+                || sprite.startsWith("wall_")
+                || sprite.startsWith("fencing_");
+    }
+
+    private static float[] bounds(float[] vertices) {
+        if (vertices.length == 0) return new float[] {0, 0, 0, 0, 0, 0};
+        float minX = Float.POSITIVE_INFINITY;
+        float minY = Float.POSITIVE_INFINITY;
+        float minZ = Float.POSITIVE_INFINITY;
+        float maxX = Float.NEGATIVE_INFINITY;
+        float maxY = Float.NEGATIVE_INFINITY;
+        float maxZ = Float.NEGATIVE_INFINITY;
+        for (int index = 0; index < vertices.length; index += FLOATS_PER_VERTEX) {
+            float x = vertices[index];
+            float y = vertices[index + 1];
+            float z = vertices[index + 2];
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            minZ = Math.min(minZ, z);
+            maxX = Math.max(maxX, x);
+            maxY = Math.max(maxY, y);
+            maxZ = Math.max(maxZ, z);
+        }
+        return new float[] {minX, minY, minZ, maxX, maxY, maxZ};
     }
 
     private static void addPrimitive(
@@ -111,21 +158,25 @@ public final class WorldMeshBuilder {
             WorldState.TileObject object,
             float[] color) {
         String objectType = object.objectType().toLowerCase(java.util.Locale.ROOT);
-        boolean panel = object.door() || object.window() || objectType.contains("wall");
+        boolean panel = object.door()
+                || object.window()
+                || objectType.contains("wall")
+                || object.sprite().startsWith("walls_")
+                || object.sprite().startsWith("wall_")
+                || object.sprite().startsWith("fencing_");
         if (panel) {
             float thickness = 0.06f;
             float height = object.door() ? 2.15f : object.window() ? 1.45f : 2.7f;
-            if (object.north()) {
+            boolean north = object.open() && (object.door() || object.window())
+                    ? !object.north()
+                    : object.north();
+            if (north) {
                 addBox(output, baseX, baseY, baseZ, identityPrimitive(),
                         -0.5f, 0, -thickness, 0.5f, height, thickness, color);
             } else {
                 addBox(output, baseX, baseY, baseZ, identityPrimitive(),
                         -thickness, 0, -0.5f, thickness, height, 0.5f, color);
             }
-        } else if (!object.sprite().isEmpty()) {
-            float[] dim = {color[0] * 0.65f, color[1] * 0.65f, color[2] * 0.65f};
-            addBox(output, baseX, baseY, baseZ, identityPrimitive(),
-                    -0.18f, 0, -0.18f, 0.18f, 0.55f, 0.18f, dim);
         }
     }
 
@@ -289,11 +340,10 @@ public final class WorldMeshBuilder {
     }
 
     private static float[] squareLight(WorldState.Square square) {
-        float visibility = (square.visibility() & 4) != 0 ? 1.0f : 0.42f;
         return new float[] {
-            Math.max(0.08f, Math.min(1, square.lightR() / 255.0f)) * visibility,
-            Math.max(0.08f, Math.min(1, square.lightG() / 255.0f)) * visibility,
-            Math.max(0.08f, Math.min(1, square.lightB() / 255.0f)) * visibility
+            Math.max(0.42f, Math.min(1, square.lightR() / 255.0f)),
+            Math.max(0.42f, Math.min(1, square.lightG() / 255.0f)),
+            Math.max(0.42f, Math.min(1, square.lightB() / 255.0f))
         };
     }
 

@@ -2,7 +2,14 @@
 
 ## 1. The project in one paragraph
 
-PZ Neural View uses Project Zomboid as the authoritative simulation and develops a replaceable visual frontend. Known game state constrains room layout, object placement, identity, damage and interactions. Procedural geometry, reusable assets and generative completion fill missing visual detail; generated results persist rather than changing whenever the camera moves. A real-time renderer presents that world, with optional neural appearance enhancement when it fits the machine's latency and memory budget. The first experiment reuses existing software to test whether the visual payoff is worthwhile before engineering the full frontend.
+PZ Neural View uses Project Zomboid as the authoritative simulation and replaces
+its world presentation without replacing the game. Known game state constrains
+room layout, object placement, identity, damage and interactions. Procedural
+geometry, reusable assets and generative completion fill missing visual detail;
+generated results persist rather than changing whenever the camera moves. A
+single live renderer presents that world, followed by PZ's normal text and UI,
+with optional neural appearance enhancement when it fits the machine's latency
+and memory budget.
 
 ## 2. Connection to the room-video reconstruction project
 
@@ -14,29 +21,45 @@ For a cupboard, the source game can constrain footprint, placement and gameplay 
 
 The low-detail source is an artistic opportunity, not proof that accurate reconstruction is trivial. Fewer visual constraints also mean more ambiguity. Use state and procedural rules to reduce that ambiguity before involving a learned generator.
 
-## 3. Two experiments, not one giant prerequisite chain
+## 3. Evidence-driven slices, not one giant prerequisite chain
 
-### Experiment A: neural appearance over an existing playable view
+### Completed selection work: existing view and neural overlay
 
-Reuse a functioning first-person PZ presentation, capture its output, process it through the native Mac overlay candidate and keep input in PZ. This tests visual benefit and responsiveness with minimal simulation integration. It does not establish persistent 3D completion or perfect gameplay preservation.
+The released Workshop first-person candidate was inspected and rejected because
+it is a Lua/UI raycaster with documented rendering and performance limits. It
+cannot serve as the base view for the intended system. The pinned native Mac
+overlay also remains blocked on this host by its operating-system, Swift and
+model prerequisites. These results are recorded evidence, not permission to
+describe an isometric filter as first person.
 
 The concrete overlay exists as an experimental source project using MLX/Metal. Its architecture already includes screen capture, bounded frame handling, temporal processing and composition. Reuse it rather than rebuilding those pieces. [S1, S4]
 
 If no compatible first-person mod runs on this installation, an isometric overlay test can still assess appearance, but must be labeled isometric. It is not a completed first-person milestone.
 
-### Experiment B: state-constrained presentation
+### Active slice: state-constrained presentation
 
-Only after A yields useful evidence, expose a small live neighborhood and render it with known geometry and persistent assets. A renderer need not wait for a complete export of the map. Prove one room, one working door and one moving entity first.
+Expose a small live neighborhood and render it with known geometry and
+persistent assets. A renderer need not wait for a complete export of the map.
+Prove one room, one working door, one moving entity, normal UI composition and
+one authoritative interaction first.
 
-Experiment B may be justified even if neural enhancement is too expensive: persistent generated materials and assets can still support a conventional renderer without a heavy model on every displayed frame. However, that is a separate, explicitly approved scope decision, not a hidden extension of the quick overlay experiment.
+Persistent generated materials and assets can support the renderer without a
+heavy model on every displayed frame. The generative system should compile
+identity-stable appearance; it must not regenerate the room every frame.
 
-## 4. Clarifying the external-renderer claim
+## 4. One visible renderer and one authoritative client
 
-An independent renderer is a plausible architecture, not a verified off-the-shelf PZ mode. PZ still runs its simulation. We have not established a supported headless local player API, complete state export, full animation access or bidirectional gameplay control.
+The current integration replaces `IsoWorld.render()` inside PZ's existing frame
+and backbuffer. PZ still runs its simulation, evaluates animation and draws its
+normal text and UI afterward. This avoids concurrently presenting the original
+isometric world and a second visible renderer.
 
 ZombieBuddy documents Java-agent hooks and a macOS installation route. That makes it a bridge candidate, not proof that every desired renderer and input operation is exposed. Prefer ordinary mod APIs where sufficient; add Java hooks only for specific measured gaps. [S7]
 
-An independent process can use a different graphics backend and asset representation. That does not guarantee higher overall FPS. Initially the game, bridge, new renderer and neural processing may all compete for CPU/GPU resources. Suppressing or reducing the original graphics work is a later measured task, provided simulation timing, audio, focus and input remain correct.
+The Godot frontend remains useful as an offline/protocol diagnostic, not the
+live presentation. A later native renderer or shared-memory data plane is a
+measured optimization option; it must retain the one-window composition order
+and cannot create a second gameplay authority.
 
 An external observer that displays a moving PZ character is a spectator. It becomes playable only when camera control, movement, aiming, interactions, combat, inventory/UI and recovery paths work correctly together. Keep these acceptance labels distinct.
 
@@ -64,7 +87,11 @@ Validate generated candidates against dimensions, clearance, door swing, silhoue
 
 ### Conventional real-time renderer
 
-A Godot 4 frontend using its native Metal path is a reasonable candidate after the external-state gate. Reuse its scene, animation and rendering facilities rather than starting a custom engine. Verify the chosen Godot version and renderer on the actual Mac. [S9]
+The active implementation queues renderer-owned GL work at PZ's verified world
+draw boundary and restores state before PZ's UI pass. Geometry/asset compilation
+occurs from immutable snapshots on a bounded worker queue; live PZ objects never
+move to that worker. Godot 4 is retained only as an offline/protocol reference
+for comparing mesh output. [S9]
 
 Keep geometry authoritative around windows, doors, stairs and interacting entities. Use generated appearance as cached materials/meshes, not as collision authority. Keep simulation physics in PZ. Stream only the validated neighborhood and respect gameplay visibility rather than displaying hidden information accidentally.
 

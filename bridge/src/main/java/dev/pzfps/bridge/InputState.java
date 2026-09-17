@@ -34,7 +34,7 @@ public final class InputState {
 
     public static Vector2 movementVector(Vector2 result) {
         Sample sample = current();
-        if (!sample.active()) return result;
+        if (!sample.active()) return FirstPersonInput.movementVector(result);
 
         float sin = (float) Math.sin(sample.yaw());
         float cos = (float) Math.cos(sample.yaw());
@@ -51,7 +51,7 @@ public final class InputState {
 
     public static Vector2 aimVector(Vector2 result) {
         Sample sample = current();
-        if (!sample.active()) return result;
+        if (!sample.active()) return FirstPersonInput.aimVector(result);
         return result.set((float) Math.cos(sample.yaw()), (float) Math.sin(sample.yaw()));
     }
 

@@ -77,7 +77,7 @@ public final class BridgeRuntime {
         if (!STARTED.get() || server == null || player == null) return;
         if (requireLocalIdentity && (!player.isLocalPlayer() || player.getIndex() != 0)) return;
 
-        if (applyInput) applyLookInput(player);
+        applyLookInput(player);
         long now = System.nanoTime();
         long epochMillis = System.currentTimeMillis();
         long sequence = FRAME_SEQUENCE.incrementAndGet();
@@ -110,14 +110,25 @@ public final class BridgeRuntime {
 
     private static void applyLookInput(IsoPlayer player) {
         InputState.Sample input = InputState.current();
-        if (!input.active()) return;
-        float forwardX = (float) Math.cos(input.yaw());
-        float forwardY = (float) Math.sin(input.yaw());
+        float yaw;
+        float pitch;
+        if (input.active()) {
+            yaw = input.yaw();
+            pitch = input.pitch();
+        } else {
+            FirstPersonInput.update(player);
+            if (!FirstPersonInput.isCaptured()) return;
+            yaw = FirstPersonInput.yaw();
+            pitch = FirstPersonInput.pitch();
+        }
+        float forwardX = (float) Math.cos(yaw);
+        float forwardY = (float) Math.sin(yaw);
         player.setForwardDirection(forwardX, forwardY);
         player.setTargetAndCurrentDirection(forwardX, forwardY);
-        player.setTargetVerticalAimAngle(input.pitch());
-        player.setCurrentVerticalAimAngle(input.pitch());
-        player.setIsAiming((input.buttons() & InputState.AIM) != 0);
+        float pitchDegrees = (float) Math.toDegrees(pitch);
+        player.setTargetVerticalAimAngle(pitchDegrees);
+        player.setCurrentVerticalAimAngle(pitchDegrees);
+        if (input.active()) player.setIsAiming((input.buttons() & InputState.AIM) != 0);
     }
 
     private static void captureWorld(IsoPlayer player, long sequence, boolean fullResnapshot) {

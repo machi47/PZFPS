@@ -15,12 +15,12 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import org.joml.FrustumIntersection;
 import org.joml.Matrix4f;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL20;
-import org.lwjgl.opengl.GL30;
 import zombie.core.SpriteRenderer;
 import zombie.core.textures.TextureDraw;
 
@@ -29,9 +29,13 @@ import zombie.core.textures.TextureDraw;
  * world-space text, and UI; renderer-owned immutable meshes fill only the world slot.
  */
 public final class InProcessWorldRenderer {
-    private static final int MAX_PENDING_CHUNKS = 64;
+    private static final int MAX_PENDING_CHUNKS = 256;
     private static final int STRIDE_BYTES = WorldMeshBuilder.FLOATS_PER_VERTEX * Float.BYTES;
     private static final float LEVEL_HEIGHT = 3.0f;
+    private static final int RENDER_DISTANCE_CHUNKS =
+            Math.max(1, Integer.getInteger("pzfps.renderDistanceChunks", 24));
+    private static final float RENDER_DISTANCE =
+            RENDER_DISTANCE_CHUNKS * zombie.iso.IsoChunkMap.CHUNK_SIZE_IN_SQUARES;
     private static final AtomicBoolean STARTED = new AtomicBoolean();
     private static final AtomicBoolean ASSETS_READY = new AtomicBoolean();
     private static final AtomicBoolean RENDER_FAILED = new AtomicBoolean();
@@ -175,8 +179,11 @@ public final class InProcessWorldRenderer {
         private final Map<Long, GpuMesh> meshes = new HashMap<>();
         private final int program;
         private final int mvpUniform;
-        private int entityVao;
+        private boolean entityBufferCreated;
         private int entityVbo;
+        private long visibleChunkSamples;
+        private long distanceCulledSamples;
+        private long frustumCulledSamples;
 
         GpuState() {
             program = createProgram();
@@ -186,12 +193,12 @@ public final class InProcessWorldRenderer {
 
         void render(RenderSnapshot snapshot) {
             int previousProgram = GL11.glGetInteger(GL20.GL_CURRENT_PROGRAM);
-            int previousVao = GL11.glGetInteger(GL30.GL_VERTEX_ARRAY_BINDING);
             int previousArrayBuffer = GL11.glGetInteger(GL15.GL_ARRAY_BUFFER_BINDING);
             boolean previousDepth = GL11.glIsEnabled(GL11.GL_DEPTH_TEST);
             boolean previousBlend = GL11.glIsEnabled(GL11.GL_BLEND);
             boolean previousCull = GL11.glIsEnabled(GL11.GL_CULL_FACE);
             boolean previousDepthMask = GL11.glGetBoolean(GL11.GL_DEPTH_WRITEMASK);
+            GL11.glPushClientAttrib(GL11.GL_CLIENT_VERTEX_ARRAY_BIT);
             try {
                 GL11.glClearColor(0.025f, 0.03f, 0.04f, 1.0f);
                 GL11.glClearDepth(1.0);
@@ -203,18 +210,25 @@ public final class InProcessWorldRenderer {
                 GL11.glDisable(GL11.GL_CULL_FACE);
                 GL20.glUseProgram(program);
 
-                FloatBuffer matrix = viewProjection(snapshot.player);
-                GL20.glUniformMatrix4fv(mvpUniform, false, matrix);
+                Matrix4f matrix = viewProjection(snapshot.player);
+                FloatBuffer matrixBuffer = BufferUtils.createFloatBuffer(16);
+                matrix.get(matrixBuffer);
+                GL20.glUniformMatrix4fv(mvpUniform, false, matrixBuffer);
+                FrustumIntersection frustum = new FrustumIntersection(matrix);
                 synchronizeMeshes(snapshot.meshes);
-                for (WorldMeshBuilder.MeshData source : snapshot.meshes) {
+                List<WorldMeshBuilder.MeshData> visible = visibleMeshes(snapshot, frustum);
+                visible.sort(java.util.Comparator.comparingDouble(
+                        source -> distanceSquared(source, snapshot.player)));
+                for (WorldMeshBuilder.MeshData source : visible) {
                     GpuMesh mesh = meshes.get(source.key());
                     if (mesh == null || mesh.vertexCount == 0) continue;
-                    GL30.glBindVertexArray(mesh.vao);
+                    GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, mesh.vbo);
+                    configureAttributes();
                     GL11.glDrawArrays(GL11.GL_TRIANGLES, 0, mesh.vertexCount);
                 }
                 drawEntities(snapshot.entities);
             } finally {
-                GL30.glBindVertexArray(previousVao);
+                GL11.glPopClientAttrib();
                 GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, previousArrayBuffer);
                 GL20.glUseProgram(previousProgram);
                 setEnabled(GL11.GL_DEPTH_TEST, previousDepth);
@@ -222,6 +236,37 @@ public final class InProcessWorldRenderer {
                 setEnabled(GL11.GL_CULL_FACE, previousCull);
                 GL11.glDepthMask(previousDepthMask);
             }
+        }
+
+        private List<WorldMeshBuilder.MeshData> visibleMeshes(
+                RenderSnapshot snapshot, FrustumIntersection frustum) {
+            ArrayList<WorldMeshBuilder.MeshData> visible = new ArrayList<>();
+            float maximumDistanceSquared = RENDER_DISTANCE * RENDER_DISTANCE;
+            for (WorldMeshBuilder.MeshData source : snapshot.meshes) {
+                if (source.vertexCount() == 0) continue;
+                if (distanceSquared(source, snapshot.player) > maximumDistanceSquared) {
+                    distanceCulledSamples++;
+                    continue;
+                }
+                if (!frustum.testAab(
+                        source.minX(), source.minY(), source.minZ(),
+                        source.maxX(), source.maxY(), source.maxZ())) {
+                    frustumCulledSamples++;
+                    continue;
+                }
+                visibleChunkSamples++;
+                visible.add(source);
+            }
+            return visible;
+        }
+
+        private static double distanceSquared(
+                WorldMeshBuilder.MeshData source, WorldState.Player player) {
+            double centerX = (source.minX() + source.maxX()) * 0.5;
+            double centerZ = (source.minZ() + source.maxZ()) * 0.5;
+            double dx = centerX - player.x();
+            double dz = centerZ - player.y();
+            return dx * dx + dz * dz;
         }
 
         private void synchronizeMeshes(List<WorldMeshBuilder.MeshData> sourceMeshes) {
@@ -243,30 +288,27 @@ public final class InProcessWorldRenderer {
         }
 
         private static GpuMesh upload(WorldMeshBuilder.MeshData source) {
-            int vao = GL30.glGenVertexArrays();
             int vbo = GL15.glGenBuffers();
-            GL30.glBindVertexArray(vao);
             GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, vbo);
             FloatBuffer vertices = BufferUtils.createFloatBuffer(source.vertices().length);
             vertices.put(source.vertices()).flip();
             GL15.glBufferData(GL15.GL_ARRAY_BUFFER, vertices, GL15.GL_STATIC_DRAW);
             configureAttributes();
-            return new GpuMesh(source.fingerprint(), vao, vbo, source.vertexCount());
+            return new GpuMesh(source.fingerprint(), vbo, source.vertexCount());
         }
 
         private void drawEntities(WorldState.Entities entities) {
             if (entities == null || entities.values().isEmpty()) return;
             float[] vertices = entityVertices(entities.values());
             if (vertices.length == 0) return;
-            if (entityVao == 0) {
-                entityVao = GL30.glGenVertexArrays();
+            if (!entityBufferCreated) {
+                entityBufferCreated = true;
                 entityVbo = GL15.glGenBuffers();
-                GL30.glBindVertexArray(entityVao);
                 GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, entityVbo);
                 configureAttributes();
             } else {
-                GL30.glBindVertexArray(entityVao);
                 GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, entityVbo);
+                configureAttributes();
             }
             FloatBuffer buffer = BufferUtils.createFloatBuffer(vertices.length);
             buffer.put(vertices).flip();
@@ -284,7 +326,7 @@ public final class InProcessWorldRenderer {
             GL20.glVertexAttribPointer(2, 3, GL11.GL_FLOAT, false, STRIDE_BYTES, 6L * Float.BYTES);
         }
 
-        private static FloatBuffer viewProjection(WorldState.Player player) {
+        private static Matrix4f viewProjection(WorldState.Player player) {
             IntBuffer viewport = BufferUtils.createIntBuffer(4);
             GL11.glGetIntegerv(GL11.GL_VIEWPORT, viewport);
             int width = Math.max(1, viewport.get(2));
@@ -298,7 +340,7 @@ public final class InProcessWorldRenderer {
             float directionY = (float) Math.sin(pitch);
             float directionZ = player.forwardY() * horizontal;
             if (Math.abs(directionX) + Math.abs(directionZ) < 0.001f) directionZ = 1.0f;
-            Matrix4f matrix = new Matrix4f()
+            return new Matrix4f()
                     .perspective((float) Math.toRadians(82.0), (float) width / height, 0.035f, 400.0f)
                     .lookAt(
                             eyeX,
@@ -310,19 +352,16 @@ public final class InProcessWorldRenderer {
                             0,
                             1,
                             0);
-            FloatBuffer result = BufferUtils.createFloatBuffer(16);
-            matrix.get(result);
-            return result;
         }
 
         private static int createProgram() {
             String vertex = """
-                    #version 330 core
-                    layout(location=0) in vec3 inPosition;
-                    layout(location=1) in vec3 inNormal;
-                    layout(location=2) in vec3 inColor;
+                    #version 120
+                    attribute vec3 inPosition;
+                    attribute vec3 inNormal;
+                    attribute vec3 inColor;
                     uniform mat4 uMvp;
-                    out vec3 vertexColor;
+                    varying vec3 vertexColor;
                     void main() {
                         vec3 sun = normalize(vec3(-0.45, 0.82, -0.35));
                         float light = 0.42 + 0.58 * max(dot(normalize(inNormal), sun), 0.0);
@@ -331,11 +370,10 @@ public final class InProcessWorldRenderer {
                     }
                     """;
             String fragment = """
-                    #version 330 core
-                    in vec3 vertexColor;
-                    out vec4 outColor;
+                    #version 120
+                    varying vec3 vertexColor;
                     void main() {
-                        outColor = vec4(vertexColor, 1.0);
+                        gl_FragColor = vec4(vertexColor, 1.0);
                     }
                     """;
             int vertexShader = compile(GL20.GL_VERTEX_SHADER, vertex);
@@ -343,6 +381,9 @@ public final class InProcessWorldRenderer {
             int result = GL20.glCreateProgram();
             GL20.glAttachShader(result, vertexShader);
             GL20.glAttachShader(result, fragmentShader);
+            GL20.glBindAttribLocation(result, 0, "inPosition");
+            GL20.glBindAttribLocation(result, 1, "inNormal");
+            GL20.glBindAttribLocation(result, 2, "inColor");
             GL20.glLinkProgram(result);
             if (GL20.glGetProgrami(result, GL20.GL_LINK_STATUS) == GL11.GL_FALSE) {
                 throw new IllegalStateException("shader link failed: " + GL20.glGetProgramInfoLog(result));
@@ -370,10 +411,9 @@ public final class InProcessWorldRenderer {
         }
     }
 
-    private record GpuMesh(long fingerprint, int vao, int vbo, int vertexCount) {
+    private record GpuMesh(long fingerprint, int vbo, int vertexCount) {
         void destroy() {
             GL15.glDeleteBuffers(vbo);
-            GL30.glDeleteVertexArrays(vao);
         }
     }
 

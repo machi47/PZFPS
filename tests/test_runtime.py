@@ -7,6 +7,14 @@ from pzfps import runtime
 
 
 class RuntimeProcessTests(unittest.TestCase):
+    def test_agent_uses_project_local_zombie_buddy_config(self) -> None:
+        option = runtime._agent_option(Path("/tmp/ZombieBuddy.jar"), Path("/tmp/PZFPSBridge.jar"))
+        self.assertEqual(
+            option,
+            "-javaagent:/tmp/ZombieBuddy.jar=verbosity=1,policy=deny-new,"
+            f"config_dir={runtime.ZB_CONFIG}",
+        )
+
     @patch("pzfps.runtime.subprocess.run")
     def test_detects_direct_and_packaged_clients(self, run) -> None:
         run.return_value.returncode = 0

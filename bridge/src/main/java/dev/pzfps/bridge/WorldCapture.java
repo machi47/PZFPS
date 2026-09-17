@@ -52,11 +52,18 @@ public final class WorldCapture {
                 player.getZ(),
                 player.getForwardDirectionX(),
                 player.getForwardDirectionY(),
-                player.getCurrentVerticalAimAngle(),
+                cameraPitchRadians(player),
                 nonNull(player.getCurrentActionContextStateName()),
                 player.isAiming(),
                 player.isAttacking(),
                 player.getVehicle() != null);
+    }
+
+    private static float cameraPitchRadians(IsoPlayer player) {
+        InputState.Sample input = InputState.current();
+        if (input.active()) return input.pitch();
+        if (FirstPersonInput.isCaptured()) return FirstPersonInput.pitch();
+        return (float) Math.toRadians(player.getCurrentVerticalAimAngle());
     }
 
     public static WorldState.Entities entities(
@@ -237,8 +244,8 @@ public final class WorldCapture {
     }
 
     public static long fingerprint(IsoChunk chunk, int playerIndex) {
-        long hash = mix(FNV_OFFSET, chunk.revision);
-        hash = mix(hash, chunk.objectsSyncCount);
+        long hash = mix(FNV_OFFSET, chunk.wx);
+        hash = mix(hash, chunk.wy);
         hash = mix(hash, chunk.getMinLevel());
         hash = mix(hash, chunk.getMaxLevel());
         int size = IsoChunkMap.CHUNK_SIZE_IN_SQUARES;
@@ -250,15 +257,15 @@ public final class WorldCapture {
                         hash = mix(hash, -1);
                         continue;
                     }
-                    hash = mix(hash, square.hashCodeObjects);
-                    hash = mix(hash, square.getRoomID());
-                    hash = mix(hash, visibility(square, playerIndex));
-                    hash = mix(hash, square.GetRLightLevel());
-                    hash = mix(hash, square.GetGLightLevel());
-                    hash = mix(hash, square.GetBLightLevel());
+                    hash = mix(hash, square.isSolidFloor() ? 1 : 0);
                     PZArrayList<IsoObject> objects = square.getObjects();
+                    hash = mix(hash, objects.size());
                     for (int index = 0; index < objects.size(); index++) {
                         IsoObject object = objects.get(index);
+                        if (object == null) {
+                            hash = mix(hash, -1);
+                            continue;
+                        }
                         hash = mix(hash, stringHash(spriteName(object)));
                         hash = mix(hash, objectFlags(object));
                     }

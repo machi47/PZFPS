@@ -36,7 +36,7 @@ final class WorldMeshBuilderTest {
                 """);
         TileGeometryRegistry registry = TileGeometryRegistry.load(registryPath);
         WorldState.TileObject object = new WorldState.TileObject(
-                0, "zombie.iso.IsoObject", "normal", "fixture_chair_0",
+                0, "zombie.iso.IsoObject", "wall", "fixture_chair_0",
                 false, false, false, false, false);
         WorldState.Square square = new WorldState.Square(
                 2, 3, 1, 4, 7, 255, 224, 192, true, false, true, List.of(object));
@@ -52,7 +52,7 @@ final class WorldMeshBuilderTest {
     }
 
     @Test
-    void doesNotRenderSquaresPzSaysAreUndiscovered() throws Exception {
+    void retainsLoadedVerticalWorldInsteadOfApplyingIsometricSeenGating() throws Exception {
         Path registryPath = temporary.resolve("empty.json");
         Files.writeString(
                 registryPath,
@@ -64,6 +64,6 @@ final class WorldMeshBuilderTest {
         WorldMeshBuilder.MeshData mesh =
                 new WorldMeshBuilder(TileGeometryRegistry.load(registryPath)).build(chunk);
 
-        assertEquals(0, mesh.vertexCount());
+        assertEquals(6, mesh.vertexCount());
     }
 }
