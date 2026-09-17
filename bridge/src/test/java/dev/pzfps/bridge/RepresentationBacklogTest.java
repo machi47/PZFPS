@@ -47,6 +47,7 @@ final class RepresentationBacklogTest {
                 key,
                 new float[0],
                 List.of(),
+                List.of(),
                 0,
                 WorldMeshBuilder.Coverage.none(),
                 unsupported,

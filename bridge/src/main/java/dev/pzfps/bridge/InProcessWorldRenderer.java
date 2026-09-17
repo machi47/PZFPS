@@ -225,7 +225,7 @@ public final class InProcessWorldRenderer {
                 CullingCounts culling = state.lastCulling;
                 WorldMeshBuilder.Coverage coverage = state.lastCoverage;
                 System.out.printf(
-                        "[PZFPS renderer] completedFrames=%d enqueuedFrames=%d completedCallbackHz=%s meshes=%d visible=%d empty=%d distanceCulled=%d frustumCulled=%d built=%d dropped=%d stateAgeMs=%d sourceFloors=%d flatFloors=%d stairOpenings=%d indexedObjects=%d structuralFallbacks=%d nativeItems=%d unsupportedObjects=%d collisionHoles=%d truncatedChunks=%d%n",
+                        "[PZFPS renderer] completedFrames=%d enqueuedFrames=%d completedCallbackHz=%s meshes=%d visible=%d empty=%d distanceCulled=%d frustumCulled=%d built=%d dropped=%d stateAgeMs=%d sourceFloors=%d flatFloors=%d stairOpenings=%d indexedObjects=%d structuralFallbacks=%d mirroredStructuralFaces=%d completedInteriorCeilings=%d nativeItems=%d unsupportedObjects=%d collisionHoles=%d truncatedChunks=%d%n",
                         completed,
                         ENQUEUED_FRAMES.get(),
                         Double.isFinite(completedHz)
@@ -244,6 +244,8 @@ public final class InProcessWorldRenderer {
                         coverage.stairFloorOpenings(),
                         coverage.authoredGeometryObjects(),
                         coverage.structuralFallbackObjects(),
+                        coverage.mirroredStructuralFaces(),
+                        coverage.completedInteriorCeilings(),
                         coverage.nativeWorldItems(),
                         coverage.unsupportedObjects(),
                         coverage.collisionCriticalUnsupportedObjects(),
@@ -343,6 +345,7 @@ public final class InProcessWorldRenderer {
         private final int program;
         private final int mvpUniform;
         private final int texturedUniform;
+        private final int materialUniform;
         private final int textureUniform;
         private final int uvBoundsUniform;
         private final int cropUniform;
@@ -361,11 +364,13 @@ public final class InProcessWorldRenderer {
             program = createProgram();
             mvpUniform = GL20.glGetUniformLocation(program, "uMvp");
             texturedUniform = GL20.glGetUniformLocation(program, "uTextured");
+            materialUniform = GL20.glGetUniformLocation(program, "uMaterial");
             textureUniform = GL20.glGetUniformLocation(program, "uTexture");
             uvBoundsUniform = GL20.glGetUniformLocation(program, "uUvBounds");
             cropUniform = GL20.glGetUniformLocation(program, "uCrop");
             if (mvpUniform < 0
                     || texturedUniform < 0
+                    || materialUniform < 0
                     || textureUniform < 0
                     || uvBoundsUniform < 0
                     || cropUniform < 0) {
@@ -429,17 +434,22 @@ public final class InProcessWorldRenderer {
                     if (mesh == null) continue;
                     if (mesh.vertexCount > 0) {
                         GL20.glUniform1i(texturedUniform, 0);
+                        GL20.glUniform1i(materialUniform, 0);
                         GL11.glDisable(GL11.GL_BLEND);
                         GL11.glDisable(GL11.GL_TEXTURE_2D);
                         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, mesh.vbo);
                         configureAttributes(STRIDE_BYTES, false);
                         GL11.glDrawArrays(GL11.GL_TRIANGLES, 0, mesh.vertexCount);
                     }
+                    for (GpuMaterialBatch batch : mesh.materialBatches) {
+                        drawMaterialBatch(batch);
+                    }
                     for (GpuTexturedBatch batch : mesh.texturedBatches) {
                         drawTexturedBatch(batch);
                     }
                 }
                 GL20.glUniform1i(texturedUniform, 0);
+                GL20.glUniform1i(materialUniform, 0);
                 GL11.glDisable(GL11.GL_BLEND);
                 GL11.glDisable(GL11.GL_TEXTURE_2D);
                 drawEntities(snapshot.entities, snapshot.nativeEntityIds);
@@ -478,6 +488,7 @@ public final class InProcessWorldRenderer {
             }
             GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, batch.vbo);
             configureAttributes(TEXTURED_STRIDE_BYTES, true);
+            GL20.glUniform1i(materialUniform, 0);
             if (texture == null || texture.getID() == 0) {
                 GL20.glUniform1i(texturedUniform, 0);
                 GL11.glDisable(GL11.GL_TEXTURE_2D);
@@ -504,6 +515,20 @@ public final class InProcessWorldRenderer {
                         Math.max(1, texture.getHeight()));
             }
             GL11.glDrawArrays(GL11.GL_TRIANGLES, 0, batch.vertexCount);
+        }
+
+        private void drawMaterialBatch(GpuMaterialBatch batch) {
+            GL20.glUniform1i(texturedUniform, 0);
+            GL20.glUniform1i(materialUniform, materialId(batch.material));
+            GL11.glDisable(GL11.GL_BLEND);
+            GL11.glDisable(GL11.GL_TEXTURE_2D);
+            GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, batch.vbo);
+            configureAttributes(STRIDE_BYTES, false);
+            GL11.glDrawArrays(GL11.GL_TRIANGLES, 0, batch.vertexCount);
+        }
+
+        private static int materialId(String material) {
+            return "interior-plaster".equals(material) ? 1 : 0;
         }
 
         private VisibleMeshes visibleMeshes(
@@ -583,7 +608,22 @@ public final class InProcessWorldRenderer {
                 textured.add(new GpuTexturedBatch(
                         sourceBatch.sprite(), texturedVbo, sourceBatch.vertexCount()));
             }
-            return new GpuMesh(source.fingerprint(), vbo, vertexCount, List.copyOf(textured));
+            ArrayList<GpuMaterialBatch> materials = new ArrayList<>();
+            for (WorldMeshBuilder.MaterialBatch sourceBatch : source.materialBatches()) {
+                int materialVbo = GL15.glGenBuffers();
+                GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, materialVbo);
+                FloatBuffer vertices = BufferUtils.createFloatBuffer(sourceBatch.vertices().length);
+                vertices.put(sourceBatch.vertices()).flip();
+                GL15.glBufferData(GL15.GL_ARRAY_BUFFER, vertices, GL15.GL_STATIC_DRAW);
+                materials.add(new GpuMaterialBatch(
+                        sourceBatch.material(), materialVbo, sourceBatch.vertexCount()));
+            }
+            return new GpuMesh(
+                    source.fingerprint(),
+                    vbo,
+                    vertexCount,
+                    List.copyOf(textured),
+                    List.copyOf(materials));
         }
 
         private void drawEntities(WorldState.Entities entities, Set<Integer> nativeActorIds) {
@@ -652,24 +692,34 @@ public final class InProcessWorldRenderer {
                     attribute vec2 inSourcePixel;
                     uniform mat4 uMvp;
                     uniform int uTextured;
+                    uniform int uMaterial;
                     varying vec3 vertexColor;
                     varying vec2 sourcePixel;
+                    varying vec3 worldPosition;
+                    varying vec3 surfaceNormal;
                     void main() {
                         vec3 sun = normalize(vec3(-0.45, 0.82, -0.35));
-                        float light = 0.42 + 0.58 * max(dot(normalize(inNormal), sun), 0.0);
+                        float light = uMaterial == 1
+                                ? 1.0
+                                : 0.42 + 0.58 * max(dot(normalize(inNormal), sun), 0.0);
                         vertexColor = uTextured == 1 ? inColor : inColor * light;
                         sourcePixel = inSourcePixel;
+                        worldPosition = inPosition;
+                        surfaceNormal = inNormal;
                         gl_Position = uMvp * vec4(inPosition, 1.0);
                     }
                     """;
             String fragment = """
                     #version 120
                     uniform int uTextured;
+                    uniform int uMaterial;
                     uniform sampler2D uTexture;
                     uniform vec4 uUvBounds;
                     uniform vec4 uCrop;
                     varying vec3 vertexColor;
                     varying vec2 sourcePixel;
+                    varying vec3 worldPosition;
+                    varying vec3 surfaceNormal;
                     void main() {
                         if (uTextured == 1) {
                             vec2 cropUv = (sourcePixel - uCrop.xy) / uCrop.zw;
@@ -678,6 +728,13 @@ public final class InProcessWorldRenderer {
                             vec4 source = texture2D(uTexture, uv);
                             if (source.a < 0.02) discard;
                             gl_FragColor = vec4(source.rgb * vertexColor, source.a);
+                            return;
+                        }
+                        if (uMaterial == 1) {
+                            float fine = sin(worldPosition.x * 31.7 + worldPosition.z * 19.9);
+                            float broad = sin(worldPosition.x * 2.3 - worldPosition.z * 3.1);
+                            float variation = 0.965 + 0.018 * fine + 0.012 * broad;
+                            gl_FragColor = vec4(vertexColor * variation, 1.0);
                             return;
                         }
                         gl_FragColor = vec4(vertexColor, 1.0);
@@ -725,14 +782,22 @@ public final class InProcessWorldRenderer {
         }
     }
 
+    private record GpuMaterialBatch(String material, int vbo, int vertexCount) {
+        void destroy() {
+            GL15.glDeleteBuffers(vbo);
+        }
+    }
+
     private record GpuMesh(
             long fingerprint,
             int vbo,
             int vertexCount,
-            List<GpuTexturedBatch> texturedBatches) {
+            List<GpuTexturedBatch> texturedBatches,
+            List<GpuMaterialBatch> materialBatches) {
         void destroy() {
             if (vbo != 0) GL15.glDeleteBuffers(vbo);
             for (GpuTexturedBatch batch : texturedBatches) batch.destroy();
+            for (GpuMaterialBatch batch : materialBatches) batch.destroy();
         }
     }
 

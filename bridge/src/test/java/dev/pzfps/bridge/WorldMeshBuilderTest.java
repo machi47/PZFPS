@@ -41,7 +41,7 @@ final class WorldMeshBuilderTest {
                 false, false, false, true, false, false, false);
         WorldState.Square square = new WorldState.Square(
                 2, 3, 1, 4, 7, 255, 224, 192,
-                true, false, true, false, false, false, List.of(object));
+                true, false, false, false, false, false, List.of(object));
         WorldState.Chunk chunk = new WorldState.Chunk(10, 12, 7, 99, List.of(square));
 
         WorldMeshBuilder.MeshData mesh = new WorldMeshBuilder(registry).build(chunk);
@@ -69,7 +69,7 @@ final class WorldMeshBuilderTest {
                 false, false, false, true, true, false, false);
         WorldState.Square square = new WorldState.Square(
                 2, 3, 1, 0, 0, 255, 255, 255,
-                false, false, true, false, false, false, List.of(corner));
+                false, false, false, false, false, false, List.of(corner));
         WorldState.Chunk chunk = new WorldState.Chunk(0, 0, 1, 1, List.of(square));
 
         WorldMeshBuilder.MeshData mesh =
@@ -77,14 +77,40 @@ final class WorldMeshBuilderTest {
 
         assertEquals(2, mesh.primitiveCount());
         assertEquals(1, mesh.coverage().structuralFallbackObjects());
-        assertEquals(12, mesh.vertexCount());
+        assertEquals(2, mesh.coverage().mirroredStructuralFaces());
+        assertEquals(24, mesh.vertexCount());
         float[] vertices = mesh.texturedBatches().getFirst().vertices();
-        for (int vertex = 0; vertex < 6; vertex++) {
+        for (int vertex = 0; vertex < 12; vertex++) {
             assertEquals(3.0f, vertices[vertex * WorldMeshBuilder.TEXTURED_FLOATS_PER_VERTEX + 2]);
         }
-        for (int vertex = 6; vertex < 12; vertex++) {
+        for (int vertex = 12; vertex < 24; vertex++) {
             assertEquals(2.0f, vertices[vertex * WorldMeshBuilder.TEXTURED_FLOATS_PER_VERTEX]);
         }
+    }
+
+    @Test
+    void doesNotMirrorStatefulDoorOrWindowFallbacks() throws Exception {
+        Path registryPath = temporary.resolve("empty-openings.json");
+        Files.writeString(
+                registryPath,
+                "{\"schema_version\":1,\"source_sha256\":\"x\",\"tiles\":{}}");
+        WorldState.TileObject door = new WorldState.TileObject(
+                0, "zombie.iso.objects.IsoDoor", "door", "fixtures_doors_01_0",
+                true, false, true, true, false, false, false);
+        WorldState.TileObject window = new WorldState.TileObject(
+                1, "zombie.iso.objects.IsoWindow", "window", "fixtures_windows_01_0",
+                false, true, false, false, true, false, false);
+        WorldState.Square square = new WorldState.Square(
+                0, 0, 0, 1, 0, 255, 255, 255,
+                false, false, false, false, false, false, List.of(door, window));
+
+        WorldMeshBuilder.MeshData mesh = new WorldMeshBuilder(
+                        TileGeometryRegistry.load(registryPath))
+                .build(new WorldState.Chunk(0, 0, 1, 1, List.of(square)));
+
+        assertEquals(2, mesh.coverage().structuralFallbackObjects());
+        assertEquals(0, mesh.coverage().mirroredStructuralFaces());
+        assertEquals(12, mesh.vertexCount());
     }
 
     @Test
@@ -181,10 +207,10 @@ final class WorldMeshBuilderTest {
                 false, false, false, false, false, false, false);
         WorldState.Square opening = new WorldState.Square(
                 0, 0, 1, 4, 7, 255, 255, 255,
-                true, false, true, false, true, false, List.of(floor));
+                true, false, false, false, true, false, List.of(floor));
         WorldState.Square stairsOnThisLevel = new WorldState.Square(
                 1, 0, 1, 4, 7, 255, 255, 255,
-                true, false, true, true, false, true, List.of(floor));
+                true, false, false, true, false, true, List.of(floor));
         WorldState.Chunk chunk = new WorldState.Chunk(
                 0, 0, 1, 1, List.of(opening, stairsOnThisLevel));
 
@@ -194,6 +220,71 @@ final class WorldMeshBuilderTest {
         assertEquals(1, mesh.coverage().stairFloorOpenings());
         assertEquals(1, mesh.coverage().sourceTexturedFloors());
         assertEquals(6, mesh.vertexCount());
+    }
+
+    @Test
+    void completesAnInteriorCeilingOnlyWhereAnUpperFloorProvesTheBoundary() throws Exception {
+        Path registryPath = temporary.resolve("stacked-room.json");
+        Files.writeString(
+                registryPath,
+                "{\"schema_version\":1,\"source_sha256\":\"x\",\"tiles\":{}}");
+        WorldState.Square lower = new WorldState.Square(
+                2, 3, 0, 9, 0, 240, 230, 220,
+                true, false, false, false, false, false, List.of());
+        WorldState.Square upper = new WorldState.Square(
+                2, 3, 1, -1, 0, 240, 230, 220,
+                true, true, false, false, false, false, List.of());
+
+        WorldMeshBuilder.MeshData mesh = new WorldMeshBuilder(
+                        TileGeometryRegistry.load(registryPath))
+                .build(new WorldState.Chunk(0, 0, 1, 1, List.of(lower, upper)));
+
+        assertEquals(1, mesh.coverage().completedInteriorCeilings());
+        assertEquals(1, mesh.materialBatches().size());
+        assertEquals("interior-plaster", mesh.materialBatches().getFirst().material());
+        assertEquals(6, mesh.materialBatches().getFirst().vertexCount());
+        float[] vertices = mesh.materialBatches().getFirst().vertices();
+        assertEquals(3.0f, vertices[1]);
+        assertEquals(-1.0f, vertices[4]);
+    }
+
+    @Test
+    void keepsCeilingOpenWhereUpperSquareReportsStairsBelow() throws Exception {
+        Path registryPath = temporary.resolve("ceiling-stair-opening.json");
+        Files.writeString(
+                registryPath,
+                "{\"schema_version\":1,\"source_sha256\":\"x\",\"tiles\":{}}");
+        WorldState.Square lower = new WorldState.Square(
+                2, 3, 0, 9, 0, 255, 255, 255,
+                true, false, true, false, false, false, List.of());
+        WorldState.Square upperOpening = new WorldState.Square(
+                2, 3, 1, 10, 0, 255, 255, 255,
+                true, false, false, false, true, false, List.of());
+
+        WorldMeshBuilder.MeshData mesh = new WorldMeshBuilder(
+                        TileGeometryRegistry.load(registryPath))
+                .build(new WorldState.Chunk(0, 0, 1, 1, List.of(lower, upperOpening)));
+
+        assertEquals(0, mesh.coverage().completedInteriorCeilings());
+        assertTrue(mesh.materialBatches().isEmpty());
+    }
+
+    @Test
+    void completesTopStoreyCeilingFromAuthoritativeRoofFlag() throws Exception {
+        Path registryPath = temporary.resolve("roofed-room.json");
+        Files.writeString(
+                registryPath,
+                "{\"schema_version\":1,\"source_sha256\":\"x\",\"tiles\":{}}");
+        WorldState.Square roofed = new WorldState.Square(
+                1, 1, 4, 21, 0, 255, 255, 255,
+                true, false, true, false, false, false, List.of());
+
+        WorldMeshBuilder.MeshData mesh = new WorldMeshBuilder(
+                        TileGeometryRegistry.load(registryPath))
+                .build(new WorldState.Chunk(0, 0, 1, 1, List.of(roofed)));
+
+        assertEquals(1, mesh.coverage().completedInteriorCeilings());
+        assertEquals(6, mesh.materialBatches().getFirst().vertexCount());
     }
 
     @Test

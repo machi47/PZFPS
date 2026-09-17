@@ -43,7 +43,10 @@ public final class DirectPatchInstaller {
         MouseUpdatePatch.class,
         MouseInputPatch.Down.class,
         MouseInputPatch.Pressed.class,
-        MouseInputPatch.UiCheck.class
+        MouseInputPatch.UiCheck.class,
+        CursorVisibilityPatch.class,
+        LocomotionPatch.DeferredMovement.class,
+        LocomotionPatch.StrafePresentation.class
     };
     private static volatile ClassFileLocator adviceLocator;
 
@@ -65,6 +68,7 @@ public final class DirectPatchInstaller {
                 .type(namedOneOf(
                         "zombie.iso.IsoWorld",
                         "zombie.characters.IsoPlayer",
+                        "zombie.characters.IsoGameCharacter",
                         "zombie.core.physics.BallisticsController",
                         "zombie.input.GameKeyboard",
                         "zombie.input.Mouse"))
@@ -128,6 +132,20 @@ public final class DirectPatchInstaller {
                         .visit(advice(ContextActionPatch.PickBest.class).on(pickContext))
                         .visit(advice(ContextActionPatch.Execute.class).on(performContext));
             }
+            case "zombie.characters.IsoGameCharacter" -> {
+                ElementMatcher.Junction<MethodDescription> deferredMovement =
+                        deferredMovementMatcher();
+                ElementMatcher.Junction<MethodDescription> strafing = isStrafingMatcher();
+                requireOneTarget(
+                        type,
+                        deferredMovement,
+                        "getDeferredMovement(Lzombie/iso/Vector2;Z)Lzombie/iso/Vector2;");
+                requireOneTarget(type, strafing, "isStrafing()Z");
+                yield builder
+                        .visit(advice(LocomotionPatch.DeferredMovement.class)
+                                .on(deferredMovement))
+                        .visit(advice(LocomotionPatch.StrafePresentation.class).on(strafing));
+            }
             case "zombie.core.physics.BallisticsController" -> {
                 ElementMatcher.Junction<MethodDescription> muzzle = ballisticsMuzzleMatcher();
                 ElementMatcher.Junction<MethodDescription> cameraTargets =
@@ -161,15 +179,19 @@ public final class DirectPatchInstaller {
                         named("isButtonPressed").and(takesArguments(int.class));
                 ElementMatcher.Junction<MethodDescription> uiCheck =
                         named("isButtonDownUICheck").and(takesArguments(int.class));
+                ElementMatcher.Junction<MethodDescription> cursorVisible =
+                        mouseCursorVisibilityMatcher();
                 requireOneTarget(type, update, "update()V");
                 requireOneTarget(type, down, "isButtonDown(I)Z");
                 requireOneTarget(type, pressed, "isButtonPressed(I)Z");
                 requireOneTarget(type, uiCheck, "isButtonDownUICheck(I)Z");
+                requireOneTarget(type, cursorVisible, "setCursorVisible(Z)V");
                 yield builder
                         .visit(advice(MouseUpdatePatch.class).on(update))
                         .visit(advice(MouseInputPatch.Down.class).on(down))
                         .visit(advice(MouseInputPatch.Pressed.class).on(pressed))
-                        .visit(advice(MouseInputPatch.UiCheck.class).on(uiCheck));
+                        .visit(advice(MouseInputPatch.UiCheck.class).on(uiCheck))
+                        .visit(advice(CursorVisibilityPatch.class).on(cursorVisible));
             }
             default -> builder;
         };
@@ -197,6 +219,17 @@ public final class DirectPatchInstaller {
         return named("setAngleFromAim").and(takesArguments(0));
     }
 
+    static ElementMatcher.Junction<MethodDescription> deferredMovementMatcher() {
+        return named("getDeferredMovement")
+                .and(takesArguments(2))
+                .and(takesArgument(0, named("zombie.iso.Vector2")))
+                .and(takesArgument(1, boolean.class));
+    }
+
+    static ElementMatcher.Junction<MethodDescription> isStrafingMatcher() {
+        return named("isStrafing").and(takesArguments(0));
+    }
+
     static ElementMatcher.Junction<MethodDescription> doContextMatcher() {
         return named("doContext").and(takesArguments(0));
     }
@@ -218,6 +251,12 @@ public final class DirectPatchInstaller {
                 .and(takesArguments(2))
                 .and(takesArgument(0, named("zombie.iso.Vector3")))
                 .and(takesArgument(1, named("zombie.iso.Vector3")));
+    }
+
+    static ElementMatcher.Junction<MethodDescription> mouseCursorVisibilityMatcher() {
+        return named("setCursorVisible")
+                .and(takesArguments(1))
+                .and(takesArgument(0, boolean.class));
     }
 
     static ElementMatcher.Junction<MethodDescription> ballisticsCameraTargetsMatcher() {

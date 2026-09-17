@@ -8,8 +8,10 @@ import net.bytebuddy.asm.Advice;
 import net.bytebuddy.description.type.TypeDescription;
 import org.junit.jupiter.api.Test;
 import zombie.characters.ContextualAction;
+import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.core.physics.BallisticsController;
+import zombie.input.Mouse;
 
 final class DirectPatchInstallerTest {
     @Test
@@ -56,6 +58,44 @@ final class DirectPatchInstallerTest {
                 ballistics,
                 DirectPatchInstaller.ballisticsCameraTargetsMatcher(),
                 "getCameraTargets(FZ)V");
+    }
+
+    @Test
+    void matchesAndInlinesInstalledLocomotionDescriptors() {
+        TypeDescription character = new TypeDescription.ForLoadedType(IsoGameCharacter.class);
+        DirectPatchInstaller.requireOneTarget(
+                character,
+                DirectPatchInstaller.deferredMovementMatcher(),
+                "getDeferredMovement(Lzombie/iso/Vector2;Z)Lzombie/iso/Vector2;");
+        DirectPatchInstaller.requireOneTarget(
+                character,
+                DirectPatchInstaller.isStrafingMatcher(),
+                "isStrafing()Z");
+        byte[] transformed = new ByteBuddy()
+                .redefine(IsoGameCharacter.class)
+                .visit(Advice.to(LocomotionPatch.DeferredMovement.class)
+                        .on(DirectPatchInstaller.deferredMovementMatcher()))
+                .visit(Advice.to(LocomotionPatch.StrafePresentation.class)
+                        .on(DirectPatchInstaller.isStrafingMatcher()))
+                .make()
+                .getBytes();
+        assertTrue(transformed.length > 0);
+    }
+
+    @Test
+    void matchesAndInlinesInstalledCursorVisibilityDescriptor() {
+        TypeDescription mouse = new TypeDescription.ForLoadedType(Mouse.class);
+        DirectPatchInstaller.requireOneTarget(
+                mouse,
+                DirectPatchInstaller.mouseCursorVisibilityMatcher(),
+                "setCursorVisible(Z)V");
+        byte[] transformed = new ByteBuddy()
+                .redefine(Mouse.class)
+                .visit(Advice.to(CursorVisibilityPatch.class)
+                        .on(DirectPatchInstaller.mouseCursorVisibilityMatcher()))
+                .make()
+                .getBytes();
+        assertTrue(transformed.length > 0);
     }
 
     @Test

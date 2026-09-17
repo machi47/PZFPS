@@ -19,6 +19,7 @@ public final class WorldMeshBuilder {
             long fingerprint,
             float[] vertices,
             List<TexturedBatch> texturedBatches,
+            List<MaterialBatch> materialBatches,
             int primitiveCount,
             Coverage coverage,
             Map<String, Integer> unsupportedSprites,
@@ -31,6 +32,7 @@ public final class WorldMeshBuilder {
             float maxZ) {
         public MeshData {
             texturedBatches = List.copyOf(texturedBatches);
+            materialBatches = List.copyOf(materialBatches);
             unsupportedSprites = Map.copyOf(unsupportedSprites);
             unsupportedCollisionSprites = Map.copyOf(unsupportedCollisionSprites);
         }
@@ -38,6 +40,7 @@ public final class WorldMeshBuilder {
         public int vertexCount() {
             int count = vertices.length / FLOATS_PER_VERTEX;
             for (TexturedBatch batch : texturedBatches) count += batch.vertexCount();
+            for (MaterialBatch batch : materialBatches) count += batch.vertexCount();
             return count;
         }
     }
@@ -49,12 +52,14 @@ public final class WorldMeshBuilder {
             int stairFloorOpenings,
             int authoredGeometryObjects,
             int structuralFallbackObjects,
+            int mirroredStructuralFaces,
+            int completedInteriorCeilings,
             int nativeWorldItems,
             int unsupportedObjects,
             int collisionCriticalUnsupportedObjects,
             int truncatedChunks) {
         public static Coverage none() {
-            return new Coverage(0, 0, 0, 0, 0, 0, 0, 0, 0);
+            return new Coverage(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
         }
 
         public Coverage plus(Coverage other) {
@@ -64,6 +69,8 @@ public final class WorldMeshBuilder {
                     stairFloorOpenings + other.stairFloorOpenings,
                     authoredGeometryObjects + other.authoredGeometryObjects,
                     structuralFallbackObjects + other.structuralFallbackObjects,
+                    mirroredStructuralFaces + other.mirroredStructuralFaces,
+                    completedInteriorCeilings + other.completedInteriorCeilings,
                     nativeWorldItems + other.nativeWorldItems,
                     unsupportedObjects + other.unsupportedObjects,
                     collisionCriticalUnsupportedObjects
@@ -79,6 +86,13 @@ public final class WorldMeshBuilder {
         }
     }
 
+    /** Deterministic persistent material recipe evaluated from continuous world coordinates. */
+    public record MaterialBatch(String material, float[] vertices) {
+        public int vertexCount() {
+            return vertices.length / FLOATS_PER_VERTEX;
+        }
+    }
+
     private final TileGeometryRegistry registry;
 
     public WorldMeshBuilder(TileGeometryRegistry registry) {
@@ -88,12 +102,15 @@ public final class WorldMeshBuilder {
     public MeshData build(WorldState.Chunk chunk) {
         FloatBuilder output = new FloatBuilder(16_384, FLOATS_PER_VERTEX);
         Map<String, FloatBuilder> textured = new LinkedHashMap<>();
+        Map<String, FloatBuilder> materials = new LinkedHashMap<>();
         int primitiveCount = 0;
         int sourceTexturedFloors = 0;
         int flatFallbackFloors = 0;
         int stairFloorOpenings = 0;
         int authoredGeometryObjects = 0;
         int structuralFallbackObjects = 0;
+        int mirroredStructuralFaces = 0;
+        int completedInteriorCeilings = 0;
         int nativeWorldItems = 0;
         int unsupportedObjects = 0;
         int collisionCriticalUnsupportedObjects = 0;
@@ -103,6 +120,7 @@ public final class WorldMeshBuilder {
         int blockSize = zombie.iso.IsoChunkMap.CHUNK_SIZE_IN_SQUARES;
         float chunkX = chunk.worldX() * blockSize;
         float chunkZ = chunk.worldY() * blockSize;
+        Map<Long, WorldState.Square> squaresByPosition = squareIndex(chunk.squares());
         for (WorldState.Square square : chunk.squares()) {
             float baseX = chunkX + square.localX();
             float baseY = square.z() * LEVEL_HEIGHT;
@@ -159,6 +177,14 @@ public final class WorldMeshBuilder {
             } else if (square.solidFloor()) {
                 stairFloorOpenings++;
             }
+            if (shouldCompleteInteriorCeiling(square, squaresByPosition)) {
+                FloatBuilder ceiling = materials.computeIfAbsent(
+                        "interior-plaster",
+                        ignored -> new FloatBuilder(512, FLOATS_PER_VERTEX));
+                addInteriorCeiling(ceiling, baseX, baseY + LEVEL_HEIGHT, baseZ, light);
+                completedInteriorCeilings++;
+                primitiveCount++;
+            }
             for (WorldState.TileObject object : square.objects()) {
                 // The installed game exposes solidfloor as the semantic source of truth. Keep
                 // the name fallback only for protocol fixtures/older snapshots; relying on the
@@ -185,20 +211,37 @@ public final class WorldMeshBuilder {
                     }
                 } else if (isStructuralPanel(object)) {
                     structuralFallbackObjects++;
+                    boolean mirrorSafe = isMirrorSafeStructuralPanel(object);
                     FloatBuilder batch = textured.computeIfAbsent(
                             object.sprite(),
                             ignored -> new FloatBuilder(512, TEXTURED_FLOATS_PER_VERTEX));
                     boolean emitted = false;
                     if (object.edgeNorth()) {
                         addSourceEdgePanel(
-                                batch, baseX, baseY, baseZ, true, object.index(), light);
+                                batch,
+                                baseX,
+                                baseY,
+                                baseZ,
+                                true,
+                                object.index(),
+                                light,
+                                mirrorSafe);
                         primitiveCount++;
+                        if (mirrorSafe) mirroredStructuralFaces++;
                         emitted = true;
                     }
                     if (object.edgeWest()) {
                         addSourceEdgePanel(
-                                batch, baseX, baseY, baseZ, false, object.index(), light);
+                                batch,
+                                baseX,
+                                baseY,
+                                baseZ,
+                                false,
+                                object.index(),
+                                light,
+                                mirrorSafe);
                         primitiveCount++;
+                        if (mirrorSafe) mirroredStructuralFaces++;
                         emitted = true;
                     }
                     // Some door/window subclasses expose orientation but not collision flags.
@@ -211,7 +254,8 @@ public final class WorldMeshBuilder {
                                 baseZ,
                                 object.north(),
                                 object.index(),
-                                light);
+                                light,
+                                false);
                         primitiveCount++;
                     }
                 } else {
@@ -223,12 +267,12 @@ public final class WorldMeshBuilder {
                         unsupportedCollisionSprites.merge(identity, 1, Integer::sum);
                     }
                 }
-                if (totalVertexCount(output, textured) >= MAX_VERTICES_PER_CHUNK) {
+                if (totalVertexCount(output, textured, materials) >= MAX_VERTICES_PER_CHUNK) {
                     truncated = true;
                     break;
                 }
             }
-            if (totalVertexCount(output, textured) >= MAX_VERTICES_PER_CHUNK) {
+            if (totalVertexCount(output, textured, materials) >= MAX_VERTICES_PER_CHUNK) {
                 truncated = true;
                 break;
             }
@@ -240,12 +284,19 @@ public final class WorldMeshBuilder {
                 texturedBatches.add(new TexturedBatch(entry.getKey(), entry.getValue().toArray()));
             }
         }
-        float[] bounds = chunkBounds(chunk, vertices, texturedBatches);
+        ArrayList<MaterialBatch> materialBatches = new ArrayList<>(materials.size());
+        for (Map.Entry<String, FloatBuilder> entry : materials.entrySet()) {
+            if (entry.getValue().vertexCount() > 0) {
+                materialBatches.add(new MaterialBatch(entry.getKey(), entry.getValue().toArray()));
+            }
+        }
+        float[] bounds = chunkBounds(chunk, vertices, texturedBatches, materialBatches);
         return new MeshData(
                 chunk.key(),
                 chunk.fingerprint(),
                 vertices,
                 texturedBatches,
+                materialBatches,
                 primitiveCount,
                 new Coverage(
                         sourceTexturedFloors,
@@ -253,6 +304,8 @@ public final class WorldMeshBuilder {
                         stairFloorOpenings,
                         authoredGeometryObjects,
                         structuralFallbackObjects,
+                        mirroredStructuralFaces,
+                        completedInteriorCeilings,
                         nativeWorldItems,
                         unsupportedObjects,
                         collisionCriticalUnsupportedObjects,
@@ -297,6 +350,22 @@ public final class WorldMeshBuilder {
                 || sprite.startsWith("fencing_");
     }
 
+    /**
+     * A missing reverse face is safely mirrored only for a non-stateful structural boundary that
+     * has no authored geometry (this method is reached only on that fallback path). Doors and
+     * windows require distinct open/frame/glass assemblies; mirroring their full sprite would
+     * cover or misorient the real opening.
+     */
+    private static boolean isMirrorSafeStructuralPanel(WorldState.TileObject object) {
+        if (object.door() || object.window()) return false;
+        String type = object.objectType().toLowerCase(java.util.Locale.ROOT);
+        String sprite = object.sprite().toLowerCase(java.util.Locale.ROOT);
+        return type.contains("wall")
+                || sprite.startsWith("walls_")
+                || sprite.startsWith("wall_")
+                || sprite.startsWith("fencing_");
+    }
+
     private static void addSourceEdgePanel(
             FloatBuilder output,
             float baseX,
@@ -304,7 +373,8 @@ public final class WorldMeshBuilder {
             float baseZ,
             boolean north,
             int objectLayer,
-            float[] light) {
+            float[] light,
+            boolean mirrorReverseFace) {
         float height = 3.0f;
         // PZ composes several sprite layers on the same tile edge. Preserve that
         // deterministic order without coplanar depth fighting in perspective.
@@ -335,12 +405,84 @@ public final class WorldMeshBuilder {
         float[] faceNormal = normal(world[0], world[1], world[2]);
         addTexturedQuad(output, world[0], world[1], world[2], world[3],
                 faceNormal, light, source);
+        if (mirrorReverseFace) {
+            float[] reverseNormal = new float[] {
+                -faceNormal[0], -faceNormal[1], -faceNormal[2]
+            };
+            // Reversing both winding and point order keeps each world/source coordinate paired.
+            // With back-face culling exactly one side submits fragments, so this does not create
+            // coplanar depth competition while it closes the unobserved side of the boundary.
+            addTexturedQuad(
+                    output,
+                    world[3],
+                    world[2],
+                    world[1],
+                    world[0],
+                    reverseNormal,
+                    light,
+                    new float[][] {source[3], source[2], source[1], source[0]});
+        }
+    }
+
+    private static Map<Long, WorldState.Square> squareIndex(
+            List<WorldState.Square> squares) {
+        Map<Long, WorldState.Square> result = new HashMap<>(squares.size());
+        for (WorldState.Square square : squares) {
+            result.put(squarePositionKey(square.localX(), square.localY(), square.z()), square);
+        }
+        return result;
+    }
+
+    private static long squarePositionKey(int localX, int localY, int z) {
+        return ((long) (z & 0xffff) << 32)
+                | ((long) (localY & 0xffff) << 16)
+                | (localX & 0xffffL);
+    }
+
+    /**
+     * Completes only an interior horizontal boundary PZ already proves exists. An upper solid
+     * floor is authoritative for stacked storeys; haveRoof covers a top-storey room. Stair
+     * metadata wins over either signal so the completion cannot cap a traversable opening.
+     */
+    private static boolean shouldCompleteInteriorCeiling(
+            WorldState.Square square, Map<Long, WorldState.Square> squaresByPosition) {
+        if (square.roomId() < 0
+                || square.exterior()
+                || square.stairs()
+                || square.stairTop()) {
+            return false;
+        }
+        WorldState.Square upper = squaresByPosition.get(
+                squarePositionKey(square.localX(), square.localY(), square.z() + 1));
+        if (upper != null) return upper.solidFloor() && !upper.stairsBelow();
+        return square.roof();
+    }
+
+    private static void addInteriorCeiling(
+            FloatBuilder output, float x, float y, float z, float[] light) {
+        float[] color = new float[] {
+            light[0] * 0.92f,
+            light[1] * 0.90f,
+            light[2] * 0.86f
+        };
+        // Clockwise from above is counter-clockwise from the room, producing a -Y normal.
+        addQuad(
+                output,
+                new float[] {x, y, z},
+                new float[] {x + 1.0f, y, z},
+                new float[] {x + 1.0f, y, z + 1.0f},
+                new float[] {x, y, z + 1.0f},
+                new float[] {0.0f, -1.0f, 0.0f},
+                color);
     }
 
     private static int totalVertexCount(
-            FloatBuilder flat, Map<String, FloatBuilder> textured) {
+            FloatBuilder flat,
+            Map<String, FloatBuilder> textured,
+            Map<String, FloatBuilder> materials) {
         int count = flat.vertexCount();
         for (FloatBuilder batch : textured.values()) count += batch.vertexCount();
+        for (FloatBuilder batch : materials.values()) count += batch.vertexCount();
         return count;
     }
 
@@ -357,7 +499,10 @@ public final class WorldMeshBuilder {
     }
 
     private static float[] chunkBounds(
-            WorldState.Chunk chunk, float[] vertices, List<TexturedBatch> texturedBatches) {
+            WorldState.Chunk chunk,
+            float[] vertices,
+            List<TexturedBatch> texturedBatches,
+            List<MaterialBatch> materialBatches) {
         float minX = Float.POSITIVE_INFINITY;
         float minY = Float.POSITIVE_INFINITY;
         float minZ = Float.POSITIVE_INFINITY;
@@ -381,6 +526,20 @@ public final class WorldMeshBuilder {
                 float x = textured[index];
                 float y = textured[index + 1];
                 float z = textured[index + 2];
+                minX = Math.min(minX, x);
+                minY = Math.min(minY, y);
+                minZ = Math.min(minZ, z);
+                maxX = Math.max(maxX, x);
+                maxY = Math.max(maxY, y);
+                maxZ = Math.max(maxZ, z);
+            }
+        }
+        for (MaterialBatch batch : materialBatches) {
+            float[] material = batch.vertices();
+            for (int index = 0; index < material.length; index += FLOATS_PER_VERTEX) {
+                float x = material[index];
+                float y = material[index + 1];
+                float z = material[index + 2];
                 minX = Math.min(minX, x);
                 minY = Math.min(minY, y);
                 minZ = Math.min(minZ, z);

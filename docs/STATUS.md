@@ -19,11 +19,12 @@ PZ simulation/update -> immutable authoritative snapshot
 PZ render thread     -> PZFPS perspective world -> PZ text/UI
 ```
 
-Exactly one isolated PZ process is currently running as PID 23376. It loaded the
-staged bridge JAR `9a96314174656c3e6c7a9228c6fc03e5073cab4560b52dea0406e4c140ef2cdc`
-from the project-local disposable profile. The source tree is ahead of that
-process; the hashes below distinguish the live-loaded JAR from the newest built
-JAR. No normal save, installed game binary or unrelated mod was changed.
+No PZ process is currently running. The last isolated process was PID 23376 and
+loaded staged bridge JAR
+`9a96314174656c3e6c7a9228c6fc03e5073cab4560b52dea0406e4c140ef2cdc` from the
+project-local disposable profile. The newest source build is not staged or
+live-tested; the hashes below distinguish it from that last live artifact. No
+normal save, installed game binary or unrelated mod was changed.
 
 ## Truthful acceptance state
 
@@ -44,11 +45,15 @@ JAR. No normal save, installed game binary or unrelated mod was changed.
   shapes, missing unseen surfaces, crude actor/world-item representations and
   material/projection errors remain visible.
 - **Accepted live first-person gameplay:** **NO**. The owner rejected the last
-  live build because W+D moved forward-left and Shift+A/Shift+D collapsed to
-  forward sprinting. The source fix now separates mouse-owned camera/reticle
-  facing from PZ-owned body locomotion facing and removes the forced-strafe
-  hook. That fix is loaded in PID 23376 but has not yet received an owner
-  acceptance result. Cursor/UI transitions, continuously tracked centre-view
+  live build because lateral reversals still inherited PZ's third-person
+  turn-to-travel delay, and Space could expose an isometric cursor while GLFW
+  mouse-look remained captured. The newest source instead makes camera yaw own
+  ordinary locomotion facing, selects B42's native no-aim left/right/backward
+  strafe family, and redirects only normal locomotion's native root-motion
+  magnitude along camera-relative WASD before PZ's collision path. Canned
+  actions, climbing, vehicles, ragdolls and timed actions are excluded. The
+  Space cursor request is suppressed only while capture is active. These fixes
+  are source-built but not live-tested. Continuously tracked centre-view
   selection, aiming/combat and ordinary inventory/container play also remain
   unaccepted.
 - **Performance checkpoint:** unavailable. The log records completed render
@@ -72,9 +77,11 @@ gameplay:
    player is stationary. The former 169 -> 117/104 -> 169 oscillation is gone.
 5. The perspective room uses source PZ textures on known geometry and retains
    the normal PZ text/UI pass. The owner reported no further whole-world flash.
-6. The current source build passes 70 Java tests and 45 Python tests. The newest
-   native-actor activation, deferred-movement measurement and shared reticle-ray
-   changes are source-built but not loaded into PID 23376.
+6. The current source build passes 79 Java tests; the last canonical suite run
+   passes 45 Python tests. Native actor activation, shared reticle-ray tracking,
+   FPS locomotion/root-motion adaptation, captured-cursor filtering, safe wall
+   reverse faces and structural ceilings are source-built but have not been
+   loaded into a game process.
 
 No source/enhanced video pair or matched gameplay performance capture has yet
 been accepted.
@@ -104,6 +111,10 @@ been accepted.
   `topCollisionHoles` using B42's captured `solid`/`solidtrans` facts, so an
   invisible movement blocker can be prioritized without drawing fabricated
   collision geometry or changing PZ's authoritative collision.
+  It also consumes persistent material batches. The first recipe is a
+  continuous-world-coordinate interior plaster ceiling, which avoids restarting
+  a texture pattern at chunk boundaries and remains separate from source sprite
+  batches.
 - `bridge/src/main/java/dev/pzfps/bridge/WorldMeshBuilder.java` — converts
   immutable chunk snapshots into source-textured indexed geometry, puts
   structural north/west faces on square boundaries instead of centered slabs,
@@ -116,11 +127,20 @@ been accepted.
   stairs on the current level do not remove the supporting floor beneath them.
   Unsupported sprite identities and counts are retained immutably per chunk so
   repeated holes can be selected as a structured asset-completion backlog.
+  A structural wall fallback with no authored geometry now emits an exact
+  reverse-winding source-textured face. Back-face culling selects one winding
+  per viewpoint, so the two sides do not compete in the depth buffer. Doors,
+  windows and authored geometry are excluded. Interior ceilings are completed
+  only when room topology plus an upper solid floor or `haveRoof` proves the
+  boundary; stairs, stair tops and `HasStairsBelow` openings remain open. The
+  renderer reports `mirroredStructuralFaces` and
+  `completedInteriorCeilings` separately.
 - `bridge/src/main/java/dev/pzfps/bridge/WorldCapture.java` and
   `WorldState.java` — capture geometry/state plus authoritative stair, stairs-
   below and stair-top flags. These flags preserve portal facts and now prevent
-  a false floor across the opening; they do not fabricate missing ceiling or
-  stairwell surface geometry.
+  a false floor across the opening. The capture itself does not fabricate
+  geometry; the builder's separately measured ceiling rule consumes these
+  facts.
   Tile-object snapshots now also retain B42's `solid`, `solidtrans` and
   `blocksight` properties. The first two classify collision-critical visible
   holes; they do not grant the renderer authority to alter collision. Each
@@ -137,6 +157,13 @@ been accepted.
   transform so camera-space WASD remains in world space. `Toggle Inventory`
   releases capture on the same mouse-input poll instead of waiting for the Lua
   UI visibility change.
+  Its deferred request now redirects the direction—not the magnitude—of B42's
+  normal-locomotion root motion, after which PZ still calls its own
+  `moveUnmodded` collision path. Off-axis input opts into the installed B42
+  no-aim strafe blend (`DeltaX`/`DeltaY`); camera yaw is reasserted before and
+  after the player update so A-to-D reversal does not require a 180-degree body
+  turn. The adapter is disabled for canned/timed actions, climbing, vehicles
+  and ragdolls.
 - `bridge/src/main/java/dev/pzfps/bridge/PerspectiveViewRay.java` — defines the
   single normalized centre-view contract used by the renderer camera,
   interaction ray, PZ aim-vector override and native ballistics adapter. It
@@ -149,14 +176,12 @@ been accepted.
   dropped items are distinguished from ordinary world surfaces. After B42's
   native ballistics query, its accepted camera-target count can supersede that
   geometric state. This tracker never authorizes, executes or damages a target.
-- `bridge/src/main/java/dev/pzfps/bridge/WorldCapture.java` now publishes the
+- `bridge/src/main/java/dev/pzfps/bridge/WorldCapture.java` publishes the
   mouse-owned perspective yaw as camera/reticle direction independently of the
-  local character's locomotion direction. During ordinary non-aim movement PZ
-  may therefore turn its body root toward the requested camera-relative WASD
-  vector and retain its own walk/run/sprint root motion, collision and stamina.
-  Actual aim/attack paths still align action facing to the camera ray. This
-  replaces the rejected forced-camera-facing/forced-strafe behavior and is
-  source-built but not live-accepted.
+  movement vector. `BridgeRuntime` now keeps the ordinary local locomotion body
+  and action facing on that yaw while A/D/S select translation relative to it.
+  This supersedes the rejected turn-the-body-toward-every-WASD-vector behavior
+  and is source-built but not live-accepted.
 - `bridge/src/main/java/dev/pzfps/bridge/CursorCaptureState.java` — distinguishes
   gameplay capture, deliberate F8 release and temporary UI ownership. Modal or
   explicitly force-cursor UI releases mouse-look and requires two consecutive
@@ -164,6 +189,18 @@ been accepted.
   auto-recaptures. `FirstPersonInput` deliberately inspects the force-cursor
   property itself because B42's aggregate helper also treats incidental UI
   hover as force-cursor state.
+- `bridge/src/main/java/dev/pzfps/bridge/patches/CursorVisibilityPatch.java` —
+  intercepts the installed `Mouse.setCursorVisible(boolean)` boundary. B42's
+  Melee/Space aim-state transition may request a visible isometric cursor after
+  `Mouse.update()` even though GLFW remains grabbed; only a `true` request made
+  while FPS capture is active is rejected. F8 and cursor-owning UI change the
+  capture state first, so their visibility requests remain intact.
+- `bridge/src/main/java/dev/pzfps/bridge/patches/LocomotionPatch.java` — hooks
+  the exact installed `IsoGameCharacter.isStrafing()` and protected
+  `getDeferredMovement(Vector2, boolean)` descriptors. It activates B42's
+  existing directional strafe presentation for local off-axis FPS input and
+  redirects native normal-locomotion root motion without setting world
+  position or bypassing PZ collision/action authority.
 - `bridge/src/main/java/dev/pzfps/bridge/MovementDiagnostics.java` — compares
   requested FPS world direction with authoritative post-`IsoPlayer.update()`
   displacement over bounded 180-input-update windows. It reports directional
@@ -387,7 +424,8 @@ PZFPS_BRIDGE_PORT=24873 PZFPS_TEST_EXIT_ON_CHUNK=1 \
 ```
 
 Targeted installed-class inspection used `javap -c -p` on `IsoPlayer`,
-`IsoWorld`, `UIManager`, `IsoWorldInventoryObject`, `InventoryItem`,
+`IsoGameCharacter`, `IsoWorld`, `UIManager`, `Mouse`,
+`IsoWorldInventoryObject`, `InventoryItem`,
 `ItemModelRenderer`, `WorldItemModelDrawer`, `IModelCamera`, `ModelCamera`,
 `CharacterModelCamera`, `VehicleModelCamera`, `ModelCameraRenderData`,
 `ModelSlotRenderData`, `ModelInstance`, `ModelManager`, `BaseVehicle`,
@@ -410,6 +448,14 @@ negative-Z column of that quaternion through the supplied world point. No
 native binary was changed. Socket/log diagnostics used `lsof`, `nc`, `xxd` and
 `rg`; these did not modify the installation.
 
+The latest locomotion pass also read the installed `IsoPlayer.updateInternal2`,
+`updateMovementFromInput`, `IsoGameCharacter.isStrafing` and
+`getDeferredMovement` implementations plus the installed player action-group
+transitions and `AnimSets/player/strafe/*`. That evidence established that B42
+already supplies no-aim left/right/backward/diagonal clips driven by
+`DeltaX`/`DeltaY`, while normal locomotion rotates root motion with actor
+facing. The inspected files were not modified.
+
 The latest context pass also used installed B42 Lua read-only to verify that
 `ISMenuContextWorld.createMenu(..., test=true)` is the controller-oriented
 non-visible action-discovery path and that one selected object expands to every
@@ -421,7 +467,7 @@ states and returned `PZFPS_LUA_PARSE_OK`.
 Most recent test results:
 
 - Python/pytest: 45 passed, 0 failed (49 deprecation warnings).
-- Java/Gradle: 70 passed, 0 failed across `ChunkLifecycleTest`,
+- Java/Gradle: 79 passed, 0 failed across `ChunkLifecycleTest`,
   `CursorCaptureStateTest`, `DirectPatchInstallerTest`, `FirstPersonInputTest`,
   `FirstPersonCharacterCameraTest`, `FirstPersonModelCameraTest`,
   `InputStateTest`, `InteractionTargetTest`, `MovementDiagnosticsTest`,
@@ -444,11 +490,11 @@ Most recent test results:
 - Live console: `.local/pz-runtime/user-cache/Zomboid/console.txt`.
 - Disposable save:
   `.local/pz-runtime/user-cache/Zomboid/Saves/Top Of The World/46507890207760758489`.
-- Live-loaded staged bridge JAR SHA-256:
+- Last live-loaded staged bridge JAR SHA-256:
   `9a96314174656c3e6c7a9228c6fc03e5073cab4560b52dea0406e4c140ef2cdc`.
 - Newest built but not live-tested bridge JAR SHA-256:
-  `2795bf48d555dcd12740af3b6c9a9955ccdf40efd47518e592f645e7dd9abcee`.
-- Current live screenshots:
+  `9073b35640b7d86a01681b622783ea70958b30b2486de82827245b27c5a4fbed`.
+- Last live screenshots:
   `.local/captures/current-window.png`, `.local/captures/pz-front.png`,
   `.local/captures/pz-clicked-close.png` and
   `.local/captures/pz-ui-closed.png`.
@@ -510,7 +556,8 @@ update rates have not been reported as achieved performance.
    build still reports `queued=0` because skipping `IsoWorld.render()` also
    skipped the isometric `sceneCullZombies/Animals` methods that normally create
    model slots. The newest source activates a bounded nearest-first set through
-   PZ's own model lifecycle seam; it has not been loaded into the live process.
+   PZ's own model lifecycle seam; it was not loaded by the last process and no
+   process is currently running.
    It still needs a disposable-session check
    of standing, walking, crawling, held equipment, occlusion and at least one
    seated actor; an exception disables only this pass and restores diagnostic
@@ -598,21 +645,50 @@ update rates have not been reported as achieved performance.
     in `InteractionTarget` and failed before producing a JAR. It was replaced by
     the shared constant; the subsequent clean build passed all 70 tests. No
     failed artifact was staged or loaded.
+20. The installed project-local key profile binds Space to `Melee` and leaves
+    `PanCamera` unbound. Live logs showed no capture-state transition when Space
+    exposed the cursor, proving this was not F8/UI release: B42 requested
+    `Mouse.setCursorVisible(true)` after the bridge's mouse-update hook while
+    GLFW remained grabbed. The source-built filter now rejects only that
+    contradictory visible request during capture; it does not consume Space or
+    replace PZ's shove/attack path. Live shove and cursor behavior remain to be
+    accepted.
+21. The owner rejected the camera/body split loaded by the last process:
+    holding A then D still required the third-person locomotion body to turn
+    through 180 degrees. Installed B42 code showed why: non-strafing movement
+    sets facing from `playerMoveDir`, then native root motion follows that
+    facing. The replacement source keeps camera yaw as body/action facing, uses
+    B42's existing no-aim directional strafe blend for A/D/S, and preserves the
+    native root-motion length while changing its direction to the deferred FPS
+    request. Tests cover opposite/diagonal mapping, one-frame request handoff,
+    exact installed descriptors and magnitude preservation. This is not yet a
+    live gameplay acceptance result.
+22. A first ceiling/material edit was only partially applied and failed Java
+    compilation because its topology helpers and extended batch signatures were
+    absent. Those methods were completed before any checkpoint. Four fixture
+    assertions then failed because older test rooms had `haveRoof=true`; the
+    fixtures were corrected to isolate their intended behavior, while dedicated
+    tests now cover upper-floor ceilings, roofed top-storey ceilings and stair
+    openings. The final clean build passes all 79 tests; no failed artifact was
+    staged or loaded.
 
 ## Next smallest experiment
 
-Keep PID 23376 available for the owner to finish evaluating the live-loaded
-camera/body locomotion split. The next restart has three specific new artifacts
-to test together: native actor lifecycle activation, corrected deferred-motion
-measurement and shared reticle tracking.
+Stage the single 79-test artifact and launch one isolated process. This restart
+has a specific batched target: replace the rejected turn-to-travel locomotion,
+fix the captured Space cursor leak, activate native actors/shared reticle
+tracking, and expose the first safe reverse walls and structural ceilings.
 
 1. Stage one batched build and live-test simultaneous W+A/W+D, A/D,
    Shift+W/A/D and backward movement while keeping mouse view fixed. Confirm
-   that ordinary locomotion turns PZ's body root toward the requested movement
-   while the rendered camera/reticle retains mouse yaw, and that aim mode alone
-   locks action facing to that ray. Use the corrected previous-request versus
-   `nextX/nextY` diagnostic; its direction alignment is evidence about movement,
-   not gameplay FPS.
+   that ordinary locomotion retains camera-facing body/action yaw and reverses
+   lateral translation without a 180-degree turn delay. Confirm PZ still owns
+   collision, bump/vault behavior, stamina, run/sprint authorization and actual
+   position. Use the corrected previous-request versus `nextX/nextY` diagnostic;
+   its direction alignment is evidence about movement, not gameplay FPS.
+   Press Space while captured and confirm the normal shove executes without a
+   visible/free cursor; then verify F8, inventory and context menus still expose
+   the cursor normally.
 2. Aim at each of two neighboring doors/windows in turn and verify that the
    normal `Interact` key executes only the identity-matched reticle object's
    PZ-generated contextual action. Then aim at a locked/non-actionable target
@@ -654,13 +730,18 @@ measurement and shared reticle tracking.
 8. Revisit the downward stairwell and verify that the former solid floor plane
    is now an actual opening, that upward stairs retain their supporting floor,
    and that the indexed stair geometry remains traversable and depth-occluded.
-9. Start the architectural hole pass with the real current scene rather than an
-   isolated neural demo: classify the measured roof, indoor-light, counter and
-   office-furniture families; add structural ceiling/roof rules that preserve
-   stairwell/window openings and continuous material coordinates; then inspect
-   the same rules across multiple real rooms. Confirm visually that a ranked
-   collision hole corresponds to the invisible blocker before replacing its
-   presentation. Do not infer geometry solely from the collision flag.
+9. Inspect both sides of several ordinary structural walls. Confirm missing
+   backs now show mirrored source appearance without flicker or duplicate
+   same-side fragments, while doors/windows and authored meshes remain
+   unchanged. Inspect stacked and top-storey rooms for completed ceilings and
+   verify that stairwell/roof-access openings remain traversable and visually
+   open. Record live `mirroredStructuralFaces` and
+   `completedInteriorCeilings`; counts alone are not acceptance.
+10. Continue the architectural hole pass from the measured real scene: classify
+   the roof, switch, counter and office-furniture families and inspect the same
+   rule across multiple rooms. Confirm visually that a ranked collision hole
+   corresponds to the invisible blocker before replacing its presentation. Do
+   not infer geometry solely from the collision flag.
 
 Irregular assets that remain after deterministic family compilation are then
 the candidates for identity-stable constrained completion and multi-view

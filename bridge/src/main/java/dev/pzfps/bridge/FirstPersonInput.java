@@ -3,6 +3,7 @@ package dev.pzfps.bridge;
 import org.lwjglx.input.Keyboard;
 import se.krka.kahlua.vm.KahluaTable;
 import zombie.Lua.LuaManager;
+import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.core.Core;
 import zombie.input.GameKeyboard;
@@ -148,6 +149,19 @@ public final class FirstPersonInput {
     }
 
     /**
+     * PZ's shove/aim transition may request its isometric cursor after Mouse.update(), while the
+     * GLFW pointer remains grabbed and still supplies FPS deltas. Reject only that contradictory
+     * request. Deliberate F8/UI release changes CURSOR first, so its visible request is preserved.
+     */
+    public static boolean filterCursorVisibilityRequest(boolean requestedVisible) {
+        return filterCursorVisibilityRequest(requestedVisible, isCaptured());
+    }
+
+    static boolean filterCursorVisibilityRequest(boolean requestedVisible, boolean captured) {
+        return requestedVisible && !captured;
+    }
+
+    /**
      * The FPS coordinate system remains authoritative while its cursor is released for PZ UI.
      * Capture controls only relative mouse deltas; it must never switch WASD, character facing or
      * aiming back to PZ's isometric interpretation.
@@ -218,6 +232,52 @@ public final class FirstPersonInput {
                 && (isBoundKeyDown("Left")
                         || isBoundKeyDown("Right")
                         || isBoundKeyDown("Backward"));
+    }
+
+    public static boolean requiresStrafePresentation(IsoGameCharacter character) {
+        return character instanceof IsoPlayer player
+                && player.isLocalPlayer()
+                && normalLocomotion(player)
+                && requiresStrafePresentation();
+    }
+
+    /**
+     * PZ's walk/run clips emit root motion in the body's facing direction. FPS locomotion instead
+     * keeps the body on camera yaw and applies that native movement magnitude along the previous
+     * frame's camera-relative WASD request. PZ's own moveUnmodded path still performs collision,
+     * bumping, vault checks, endurance and authoritative position updates after this vector.
+     */
+    public static void redirectDeferredMovement(
+            IsoGameCharacter character, Vector2 movement) {
+        if (!(character instanceof IsoPlayer player)
+                || !player.isLocalPlayer()
+                || !normalLocomotion(player)) {
+            return;
+        }
+        redirectDeferredMovement(movement, deferredMovementRequest, true);
+    }
+
+    static void redirectDeferredMovement(
+            Vector2 movement, MovementRequest request, boolean eligible) {
+        if (!eligible || movement == null || request == null || !request.active()) return;
+        float length = movement.getLength();
+        if (length <= 0.000001f) return;
+        movement.set(request.worldX(), request.worldY());
+        if (movement.getLengthSquared() <= 0.000001f) return;
+        movement.setLength(length);
+    }
+
+    /** Normal locomotion only; canned actions retain their authored facing and root motion. */
+    public static boolean normalLocomotion(IsoPlayer player) {
+        return player != null
+                && isPerspectiveActive()
+                && !player.isDead()
+                && player.getVehicle() == null
+                && !player.isRagdoll()
+                && !player.isClimbing()
+                && !player.isBlockMovement()
+                && !player.getIgnoreMovement()
+                && !player.isPerformingAnAction();
     }
 
     static Vector2 rotateDigitalMovement(

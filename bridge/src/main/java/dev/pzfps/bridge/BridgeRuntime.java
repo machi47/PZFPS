@@ -71,6 +71,11 @@ public final class BridgeRuntime {
         if (!isAuthoritativeLocalPlayer(player)) return;
         MovementDiagnostics.end(player);
         FirstPersonInput.finishMovementSample();
+        if (FirstPersonInput.normalLocomotion(player)
+                || player.isAttacking()
+                || player.isPerformingHostileAnimation()) {
+            applyPerspectiveFacing(player);
+        }
         capture(player);
     }
 
@@ -156,7 +161,10 @@ public final class BridgeRuntime {
             player.setIsAiming((input.buttons() & InputState.AIM) != 0);
         }
         applyPerspectivePitch(player);
-        if (player.isAiming() || player.isAttacking()) {
+        if (FirstPersonInput.normalLocomotion(player)
+                || player.isAiming()
+                || player.isAttacking()
+                || player.isPerformingHostileAnimation()) {
             applyPerspectiveFacing(player);
         }
     }

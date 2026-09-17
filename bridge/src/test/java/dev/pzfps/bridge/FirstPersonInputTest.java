@@ -71,6 +71,14 @@ final class FirstPersonInputTest {
     }
 
     @Test
+    void cursorVisibilityFilterLeavesUncapturedRequestsAlone() {
+        assertTrue(FirstPersonInput.filterCursorVisibilityRequest(true, false));
+        assertFalse(FirstPersonInput.filterCursorVisibilityRequest(false, false));
+        assertFalse(FirstPersonInput.filterCursorVisibilityRequest(true, true));
+        assertFalse(FirstPersonInput.filterCursorVisibilityRequest(false, true));
+    }
+
+    @Test
     void advancesOnlyTheRequestedIsolatedSaveLoadingGate() {
         assertTrue(FirstPersonInput.shouldAdvanceDisposableLoadingScreen(true, true, false));
         assertFalse(FirstPersonInput.shouldAdvanceDisposableLoadingScreen(false, true, false));
@@ -94,6 +102,30 @@ final class FirstPersonInputTest {
         FirstPersonInput.beginMovementSample();
         assertFalse(FirstPersonInput.lastMovementRequest().active());
         assertTrue(FirstPersonInput.deferredMovementRequest().active());
+    }
+
+    @Test
+    void redirectsNativeRootMotionImmediatelyWithoutChangingItsMagnitude() {
+        Vector2 movement = new Vector2(-0.12f, 0.0f);
+        FirstPersonInput.MovementRequest right =
+                FirstPersonInput.movementFor(0.0f, 0.0f, 1.0f, 1.0f);
+
+        FirstPersonInput.redirectDeferredMovement(movement, right, true);
+
+        assertEquals(0.0f, movement.x, 0.0001f);
+        assertEquals(0.12f, movement.y, 0.0001f);
+    }
+
+    @Test
+    void leavesCannedOrIneligibleRootMotionUntouched() {
+        Vector2 movement = new Vector2(-0.12f, 0.0f);
+        FirstPersonInput.MovementRequest right =
+                FirstPersonInput.movementFor(0.0f, 0.0f, 1.0f, 1.0f);
+
+        FirstPersonInput.redirectDeferredMovement(movement, right, false);
+
+        assertEquals(-0.12f, movement.x, 0.0001f);
+        assertEquals(0.0f, movement.y, 0.0001f);
     }
 
     private static Vector2 pzWorldMovement(Vector2 input) {
