@@ -232,16 +232,25 @@ final class WorldMeshBuilderTest {
         WorldState.TileObject decor = new WorldState.TileObject(
                 0, "zombie.iso.IsoObject", "normal", "fixtures_unknown_01_7",
                 false, false, false, false, false, false, false);
+        WorldState.TileObject repeatedDecor = new WorldState.TileObject(
+                1, "zombie.iso.IsoObject", "normal", "fixtures_unknown_01_7",
+                false, false, false, false, false, false, false);
         WorldState.Square square = new WorldState.Square(
                 0, 0, 0, -1, 0, 255, 255, 255,
-                false, true, false, false, false, false, List.of(decor));
+                false, true, false, false, false, false, List.of(decor, repeatedDecor));
 
         WorldMeshBuilder.MeshData mesh = new WorldMeshBuilder(
                 TileGeometryRegistry.load(registryPath))
-                .build(new WorldState.Chunk(0, 0, 1, 1, List.of(square)));
+                .build(new WorldState.Chunk(2, 3, 1, 1, List.of(square)));
 
         assertEquals(0, mesh.vertexCount());
-        assertEquals(1, mesh.coverage().unsupportedObjects());
+        assertEquals(2, mesh.coverage().unsupportedObjects());
         assertEquals(0, mesh.coverage().structuralFallbackObjects());
+        assertEquals(2, mesh.unsupportedSprites().get("fixtures_unknown_01_7"));
+        int chunkSize = zombie.iso.IsoChunkMap.CHUNK_SIZE_IN_SQUARES;
+        assertEquals(2.0f * chunkSize, mesh.minX());
+        assertEquals(3.0f * chunkSize, mesh.maxX());
+        assertEquals(3.0f * chunkSize, mesh.minZ());
+        assertEquals(4.0f * chunkSize, mesh.maxZ());
     }
 }

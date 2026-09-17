@@ -206,6 +206,15 @@ public final class InProcessWorldRenderer {
                         coverage.nativeWorldItems(),
                         coverage.unsupportedObjects(),
                         coverage.truncatedChunks());
+                List<SpriteCount> unsupported =
+                        topUnsupportedSprites(state.lastVisibleMeshes, 8);
+                if (!unsupported.isEmpty()) {
+                    System.out.printf(
+                            "[PZFPS coverage] topUnsupported=%s%n",
+                            unsupported.stream()
+                                    .map(value -> value.sprite() + ":" + value.count())
+                                    .collect(java.util.stream.Collectors.joining(",")));
+                }
             }
         } catch (Throwable error) {
             if (RENDER_FAILED.compareAndSet(false, true)) {
@@ -227,6 +236,26 @@ public final class InProcessWorldRenderer {
         private static CullingCounts none() {
             return new CullingCounts(0, 0, 0, 0);
         }
+    }
+
+    record SpriteCount(String sprite, int count) {}
+
+    static List<SpriteCount> topUnsupportedSprites(
+            List<WorldMeshBuilder.MeshData> visibleMeshes, int limit) {
+        if (limit < 1) throw new IllegalArgumentException("limit must be positive");
+        Map<String, Integer> counts = new HashMap<>();
+        for (WorldMeshBuilder.MeshData mesh : visibleMeshes) {
+            for (Map.Entry<String, Integer> entry : mesh.unsupportedSprites().entrySet()) {
+                counts.merge(entry.getKey(), entry.getValue(), Integer::sum);
+            }
+        }
+        return counts.entrySet().stream()
+                .map(entry -> new SpriteCount(entry.getKey(), entry.getValue()))
+                .sorted(java.util.Comparator.comparingInt(SpriteCount::count)
+                        .reversed()
+                        .thenComparing(SpriteCount::sprite))
+                .limit(limit)
+                .toList();
     }
 
     private static final class WorldDrawer extends TextureDraw.GenericDrawer {
@@ -258,6 +287,7 @@ public final class InProcessWorldRenderer {
         private volatile CullingCounts lastCulling = CullingCounts.none();
         private volatile WorldMeshBuilder.Coverage lastCoverage =
                 WorldMeshBuilder.Coverage.none();
+        private volatile List<WorldMeshBuilder.MeshData> lastVisibleMeshes = List.of();
         private float renderedEyeHeight = Float.NaN;
         private long lastEyeHeightNanos;
 
@@ -324,6 +354,7 @@ public final class InProcessWorldRenderer {
                     visibleCoverage = visibleCoverage.plus(source.coverage());
                 }
                 lastCoverage = visibleCoverage;
+                lastVisibleMeshes = List.copyOf(visible);
                 visible.sort(java.util.Comparator.comparingDouble(
                         source -> distanceSquared(source, snapshot.player)));
                 for (WorldMeshBuilder.MeshData source : visible) {
@@ -416,10 +447,6 @@ public final class InProcessWorldRenderer {
             int frustumCulled = 0;
             float maximumDistanceSquared = RENDER_DISTANCE * RENDER_DISTANCE;
             for (WorldMeshBuilder.MeshData source : snapshot.meshes) {
-                if (source.vertexCount() == 0) {
-                    empty++;
-                    continue;
-                }
                 if (distanceSquared(source, snapshot.player) > maximumDistanceSquared) {
                     distanceCulled++;
                     continue;
@@ -430,11 +457,13 @@ public final class InProcessWorldRenderer {
                     frustumCulled++;
                     continue;
                 }
+                if (source.vertexCount() == 0) empty++;
                 visible.add(source);
             }
             return new VisibleMeshes(
                     visible,
-                    new CullingCounts(visible.size(), empty, distanceCulled, frustumCulled));
+                    new CullingCounts(
+                            visible.size() - empty, empty, distanceCulled, frustumCulled));
         }
 
         private record VisibleMeshes(

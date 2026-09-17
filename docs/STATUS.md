@@ -67,7 +67,7 @@ gameplay:
    player is stationary. The former 169 -> 117/104 -> 169 oscillation is gone.
 5. The perspective room uses source PZ textures on known geometry and retains
    the normal PZ text/UI pass. The owner reported no further whole-world flash.
-6. The current source build passes 50 Java tests and 45 Python tests.
+6. The current source build passes 51 Java tests and 45 Python tests.
 
 No source/enhanced video pair or matched gameplay performance capture has yet
 been accepted.
@@ -90,6 +90,10 @@ been accepted.
   empty, distance-culled and frustum-culled chunk counts for the completed frame.
   It now also aggregates representation coverage only across that completed
   frame's visible chunks; these counts are not presented as visual quality.
+  Every report deterministically ranks the eight most repeated unsupported
+  sprite identities. Chunks containing only honest holes use their
+  authoritative chunk volume for distance/frustum classification and remain in
+  coverage without submitting a draw call.
 - `bridge/src/main/java/dev/pzfps/bridge/WorldMeshBuilder.java` — converts
   immutable chunk snapshots into source-textured indexed geometry, puts
   structural north/west faces on square boundaries instead of centered slabs,
@@ -100,6 +104,8 @@ been accepted.
   can be prioritized from real scene evidence. A solid-floor square with B42's
   `HasStairsBelow` flag deliberately omits the generic full-tile floor plane;
   stairs on the current level do not remove the supporting floor beneath them.
+  Unsupported sprite identities and counts are retained immutably per chunk so
+  repeated holes can be selected as a structured asset-completion backlog.
 - `bridge/src/main/java/dev/pzfps/bridge/WorldCapture.java` and
   `WorldState.java` — capture geometry/state plus authoritative stair, stairs-
   below and stair-top flags. These flags preserve portal facts and now prevent
@@ -319,13 +325,14 @@ native binary was changed. Socket/log diagnostics used `lsof`, `nc`, `xxd` and
 Most recent test results:
 
 - Python/pytest: 45 passed, 0 failed (49 deprecation warnings).
-- Java/Gradle: 50 passed, 0 failed across `ChunkLifecycleTest`,
+- Java/Gradle: 51 passed, 0 failed across `ChunkLifecycleTest`,
   `CursorCaptureStateTest`, `DirectPatchInstallerTest`, `FirstPersonInputTest`,
   `FirstPersonCharacterCameraTest`, `FirstPersonModelCameraTest`,
   `InputStateTest`, `InteractionTargetTest`, `MovementDiagnosticsTest`,
   `NativeActorPassTest`, `NativeFirstPersonHandsPassTest`,
   `NativeVehiclePassTest`, `NativeWorldItemPassTest`,
   `PerspectiveBallisticsTest`, `PerspectiveInteractTest`,
+  `RepresentationBacklogTest`,
   `WireProtocolTest` and `WorldMeshBuilderTest`.
 
 ## Evidence and identities
@@ -343,7 +350,7 @@ Most recent test results:
 - Live-tested staged bridge JAR SHA-256:
   `c0904da6d2f775c6dcd8bfac90ccc1096093640fff7fc05d61149cc8bd8946d2`.
 - Newest built but not live-tested bridge JAR SHA-256:
-  `7fcb9a2bfe40194ee4f46decc53414c89649bbdb4fe50a1ce41b6bc9902dbfc5`.
+  `f6245bf5d37397299ff1e68f1f3e46a0d33200ac077d02ab3c44ae354667103f`.
 - Offline canonical report:
   `.local/canonical-bed-v64/store/objects/5107aa94b47977535039da77ac4018329c238388ad51c94829dc5a69d01d1a0a/report.json`.
 - Geometry source SHA-256:
@@ -432,6 +439,11 @@ update rates have not been reported as achieved performance.
     `Mouse.isCursorVisible`, `getTexture` and `UIManager.DrawTexture` calls were
     also checked read-only against installed B42 Lua and Java signatures; live
     loading remains the required behavioral validation.
+14. The first unsupported-backlog bounds test assumed a ten-square chunk and
+    failed (`expected 20`, `actual 16`). Installed B42 defines
+    `IsoChunkMap.CHUNK_SIZE_IN_SQUARES` as eight; the test now derives all
+    expected bounds from that authoritative constant. The corrected 51-test
+    build passed, and no failed artifact was staged or loaded.
 
 ## Next smallest experiment
 
@@ -477,6 +489,10 @@ Without restarting the current accepted visual session merely to inspect it:
 8. Revisit the downward stairwell and verify that the former solid floor plane
    is now an actual opening, that upward stairs retain their supporting floor,
    and that the indexed stair geometry remains traversable and depth-occluded.
+9. Capture one completed-frame coverage report and preserve its
+   `topUnsupported` ranking. Confirm visually that at least the first repeated
+   sprite corresponds to a real visible hole before selecting it for the later
+   persistent completion experiment.
 
 The later appearance experiment is one identity-stable real asset carried
 through constrained completion and inspected from multiple moving views. It is

@@ -20,6 +20,12 @@ plane across the stairwell. These are counts of representation paths—not
 inferred visual quality or game FPS—and make the remaining holes a measurable
 asset backlog instead of an anecdotal one.
 
+Every unsupported object also retains its sprite identity per chunk. At each
+completed-frame report, the renderer aggregates only the chunks inside the
+current distance/frustum volume and logs the eight most repeated unsupported
+sprites. Coverage-only chunks with no drawable triangles remain in this
+backlog; they are not incorrectly discarded as off-screen empty geometry.
+
 `pzcanonical from-pz` directly reads the actual B42 geometry registry and sprite extraction manifest formats, including primitive rotations, tapered cylinders and concave polygons. It fits the source image anchor by silhouette overlap and refuses bad matches rather than warping known geometry. This connects the new compiler to the published asset indexers without a manual schema rewrite.
 
 **Validation:** the canonical CPU suite has 25 passing tests and a complete offline orbit. See [the measured result](evidence/canonical-validation.json). Its original calibration fixture is not a PZ asset. Learned inference has not been executed with model weights in the Chat environment. The existing game's runtime diagnostics are in `docs/STATUS.md`; no CPU fixture establishes accepted gameplay, multiplayer correctness, photorealistic quality or Mac GPU performance.

@@ -1,6 +1,7 @@
 package dev.pzfps.bridge;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -20,6 +21,7 @@ public final class WorldMeshBuilder {
             List<TexturedBatch> texturedBatches,
             int primitiveCount,
             Coverage coverage,
+            Map<String, Integer> unsupportedSprites,
             float minX,
             float minY,
             float minZ,
@@ -28,6 +30,7 @@ public final class WorldMeshBuilder {
             float maxZ) {
         public MeshData {
             texturedBatches = List.copyOf(texturedBatches);
+            unsupportedSprites = Map.copyOf(unsupportedSprites);
         }
 
         public int vertexCount() {
@@ -88,6 +91,7 @@ public final class WorldMeshBuilder {
         int structuralFallbackObjects = 0;
         int nativeWorldItems = 0;
         int unsupportedObjects = 0;
+        Map<String, Integer> unsupportedSprites = new HashMap<>();
         boolean truncated = false;
         int blockSize = zombie.iso.IsoChunkMap.CHUNK_SIZE_IN_SQUARES;
         float chunkX = chunk.worldX() * blockSize;
@@ -201,6 +205,7 @@ public final class WorldMeshBuilder {
                     }
                 } else {
                     unsupportedObjects++;
+                    unsupportedSprites.merge(unsupportedIdentity(object), 1, Integer::sum);
                 }
                 if (totalVertexCount(output, textured) >= MAX_VERTICES_PER_CHUNK) {
                     truncated = true;
@@ -219,7 +224,7 @@ public final class WorldMeshBuilder {
                 texturedBatches.add(new TexturedBatch(entry.getKey(), entry.getValue().toArray()));
             }
         }
-        float[] bounds = bounds(vertices, texturedBatches);
+        float[] bounds = chunkBounds(chunk, vertices, texturedBatches);
         return new MeshData(
                 chunk.key(),
                 chunk.fingerprint(),
@@ -235,6 +240,7 @@ public final class WorldMeshBuilder {
                         nativeWorldItems,
                         unsupportedObjects,
                         truncated ? 1 : 0),
+                unsupportedSprites,
                 bounds[0],
                 bounds[1],
                 bounds[2],
@@ -250,6 +256,12 @@ public final class WorldMeshBuilder {
             if (sprite.startsWith("floors_")) return sprite;
         }
         return "";
+    }
+
+    private static String unsupportedIdentity(WorldState.TileObject object) {
+        if (!object.sprite().isBlank()) return object.sprite();
+        if (!object.objectType().isBlank()) return "<type:" + object.objectType() + ">";
+        return "<class:" + object.javaType() + ">";
     }
 
     private static boolean isStructuralPanel(WorldState.TileObject object) {
@@ -321,7 +333,8 @@ public final class WorldMeshBuilder {
         return sourcePixel(point[0], point[1], point[2]);
     }
 
-    private static float[] bounds(float[] vertices, List<TexturedBatch> texturedBatches) {
+    private static float[] chunkBounds(
+            WorldState.Chunk chunk, float[] vertices, List<TexturedBatch> texturedBatches) {
         float minX = Float.POSITIVE_INFINITY;
         float minY = Float.POSITIVE_INFINITY;
         float minZ = Float.POSITIVE_INFINITY;
@@ -353,7 +366,19 @@ public final class WorldMeshBuilder {
                 maxZ = Math.max(maxZ, z);
             }
         }
-        if (!Float.isFinite(minX)) return new float[] {0, 0, 0, 0, 0, 0};
+        int chunkSize = zombie.iso.IsoChunkMap.CHUNK_SIZE_IN_SQUARES;
+        minX = Math.min(minX, chunk.worldX() * chunkSize);
+        minZ = Math.min(minZ, chunk.worldY() * chunkSize);
+        maxX = Math.max(maxX, (chunk.worldX() + 1) * chunkSize);
+        maxZ = Math.max(maxZ, (chunk.worldY() + 1) * chunkSize);
+        for (WorldState.Square square : chunk.squares()) {
+            minY = Math.min(minY, square.z() * LEVEL_HEIGHT);
+            maxY = Math.max(maxY, (square.z() + 1) * LEVEL_HEIGHT);
+        }
+        if (!Float.isFinite(minY)) {
+            minY = 0;
+            maxY = LEVEL_HEIGHT;
+        }
         return new float[] {minX, minY, minZ, maxX, maxY, maxZ};
     }
 
