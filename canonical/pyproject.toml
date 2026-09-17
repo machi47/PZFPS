@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pzfps-canonical"
+version = "0.1.0"
+description = "Persistent, visibility-constrained geometry and appearance compilation for PZFPS"
+requires-python = ">=3.11"
+dependencies = ["numpy>=1.26", "scipy>=1.11", "trimesh>=4.4", "Pillow>=10", "scikit-image>=0.22", "filelock>=3.13"]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+neural = ["torch>=2.4", "diffusers>=0.32", "transformers>=4.44", "accelerate>=1.0", "safetensors>=0.4"]
+
+[project.scripts]
+pzcanonical = "pzcanonical.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pzcanonical*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
