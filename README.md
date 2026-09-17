@@ -54,9 +54,13 @@ active `ModelSlot` into the same `ModelSlotRenderData` used by the game, then
 draws that evaluated pose, clothing, attachments and held-item state through a
 perspective `ModelCamera` after the replacement world's depth pass. It does not
 advance a second animation clock. The local character is intentionally omitted
-until a first-person body/arms treatment can avoid head, neck and shoulder
-clipping. Unavailable native models retain the explicit diagnostic-box fallback.
-This path is source-built and unit-tested but not yet live-accepted.
+so its head, neck and torso cannot clip through the camera. A separate local
+first-person pass selects only the evaluated primary/secondary hand-model roots
+and their descendants, preserving PZ's attachment transforms and action timing
+without drawing the body. Unavailable native models retain the explicit
+diagnostic-box fallback. Both paths are source-built and unit-tested but not yet
+live-accepted; the held models may still need a first-person pose adjustment
+after the live placement and occlusion check.
 
 Vehicles now use that same evaluated-model boundary instead of remaining
 uniform diagnostic boxes. The bridge validates each live vehicle `ModelSlot`,

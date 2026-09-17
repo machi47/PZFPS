@@ -108,6 +108,11 @@ public final class BridgeRuntime {
         return NativeVehiclePass.prepareVisible(IsoPlayer.getInstance());
     }
 
+    /** Snapshot only the local player's evaluated primary/secondary held models. */
+    public static NativeFirstPersonHandsPass.PreparedFrame prepareNativeHands() {
+        return NativeFirstPersonHandsPass.prepare(IsoPlayer.getInstance());
+    }
+
     private static void capture(IsoPlayer player) {
         if (!STARTED.get() || server == null || player == null) return;
         long now = System.nanoTime();

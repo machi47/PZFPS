@@ -67,7 +67,7 @@ gameplay:
    player is stationary. The former 169 -> 117/104 -> 169 oscillation is gone.
 5. The perspective room uses source PZ textures on known geometry and retains
    the normal PZ text/UI pass. The owner reported no further whole-world flash.
-6. The current source build passes 42 Java tests and 45 Python tests.
+6. The current source build passes 43 Java tests and 45 Python tests.
 
 No source/enhanced video pair or matched gameplay performance capture has yet
 been accepted.
@@ -178,6 +178,15 @@ been accepted.
   disabled only around the synchronous native draw and restored in `finally`.
   Queued and completed callbacks are logged separately and are not called game
   FPS. This path is source-built and unit-tested, not yet live-accepted.
+- `bridge/src/main/java/dev/pzfps/bridge/NativeFirstPersonHandsPass.java` —
+  snapshots the local player's real `ModelSlotRenderData` but submits only the
+  evaluated primary/secondary hand-model roots and their descendants. The local
+  body, head, neck and torso are never selected, while weapon/tool parts retain
+  PZ's evaluated attachment transforms and action timing. Snapshot reference
+  counts and OpenGL/model-camera state are restored on success or failure. This
+  is source-built and unit-tested, not live-accepted; third-person attachment
+  poses may still require a perspective-specific viewmodel adjustment after a
+  live placement, animation and world-occlusion check.
 - `bridge/src/main/java/dev/pzfps/bridge/NativeVehiclePass.java` — replaces a
   visible vehicle's uniform diagnostic box only after validating its active
   B42 `ModelSlot` and snapshotting it through `ModelSlotRenderData`. The native
@@ -268,7 +277,7 @@ Targeted installed-class inspection used `javap -c -p` on `IsoPlayer`,
 `IsoWorld`, `UIManager`, `IsoWorldInventoryObject`, `InventoryItem`,
 `ItemModelRenderer`, `WorldItemModelDrawer`, `IModelCamera`, `ModelCamera`,
 `CharacterModelCamera`, `VehicleModelCamera`, `ModelCameraRenderData`,
-`ModelSlotRenderData`, `BaseVehicle`,
+`ModelSlotRenderData`, `ModelInstance`, `ModelManager`, `BaseVehicle`,
 `TextureDraw.drawModel`, `SpriteRenderer.drawModel`, `Model`, `Shader`,
 `CharacterInputComponent`, `IsoPlayer.doContext()`, `BallisticsController`,
 `AimingReticle`, `Bullet` and related input/context-action/model classes. This
@@ -288,11 +297,12 @@ native binary was changed. Socket/log diagnostics used `lsof`, `nc`, `xxd` and
 Most recent test results:
 
 - Python/pytest: 45 passed, 0 failed (49 deprecation warnings).
-- Java/Gradle: 42 passed, 0 failed across `ChunkLifecycleTest`,
+- Java/Gradle: 43 passed, 0 failed across `ChunkLifecycleTest`,
   `CursorCaptureStateTest`, `DirectPatchInstallerTest`, `FirstPersonInputTest`,
   `FirstPersonCharacterCameraTest`, `FirstPersonModelCameraTest`,
   `InputStateTest`, `InteractionTargetTest`, `MovementDiagnosticsTest`,
-  `NativeActorPassTest`, `NativeVehiclePassTest`, `NativeWorldItemPassTest`,
+  `NativeActorPassTest`, `NativeFirstPersonHandsPassTest`,
+  `NativeVehiclePassTest`, `NativeWorldItemPassTest`,
   `PerspectiveBallisticsTest`,
   `WireProtocolTest` and `WorldMeshBuilderTest`.
 
@@ -311,7 +321,7 @@ Most recent test results:
 - Live-tested staged bridge JAR SHA-256:
   `c0904da6d2f775c6dcd8bfac90ccc1096093640fff7fc05d61149cc8bd8946d2`.
 - Newest built but not live-tested bridge JAR SHA-256:
-  `b160b8b8bfa88908cbce9dce6092a5780c4d2d9a214126d96af187b40070f3b1`.
+  `e65526f78aaa5e258ae84821e63fbc1040df13f6f1e465d28ac0fe33daa5c23b`.
 - Offline canonical report:
   `.local/canonical-bed-v64/store/objects/5107aa94b47977535039da77ac4018329c238388ad51c94829dc5a69d01d1a0a/report.json`.
 - Geometry source SHA-256:
@@ -378,6 +388,11 @@ update rates have not been reported as achieved performance.
 9. The first interaction-sightline test compilation omitted the static
    `assertFalse` import. The import was added and the complete 42-test Java
    build then passed; no failed artifact was staged or loaded.
+10. The first held-model build used a symbolic `GL_ALL_CLIENT_ATTRIB_BITS`
+    constant absent from PZ's LWJGL compatibility binding. It now passes `-1`,
+    matching the installed B42 bytecode, and restores only stacks that were
+    successfully pushed. The corrected 43-test build passed; no artifact from
+    the failed compile was staged or loaded.
 
 ## Next smallest experiment
 
@@ -411,6 +426,11 @@ Without restarting the current accepted visual session merely to inspect it:
    lights and damage textures replace the box at the correct world pose. Test an
    occupied local vehicle separately because near-camera exterior clipping is
    not evidence of a usable first-person interior.
+7. Equip one primary-hand and one two-handed item, then verify that the local
+   pass draws their evaluated PZ models through idle, walking and one real
+   action without revealing the local head/torso or drawing through nearby
+   world geometry. Treat a badly placed third-person attachment as a viewmodel
+   calibration failure, not as accepted first-person hands.
 
 The later appearance experiment is one identity-stable real asset carried
 through constrained completion and inspected from multiple moving views. It is
