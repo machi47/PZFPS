@@ -176,6 +176,7 @@ final class WorldMeshBuilderTest {
                 false,
                 false,
                 false,
+                false,
                 placement);
         WorldState.Square square = new WorldState.Square(
                 2, 3, 1, -1, 0, 255, 255, 255,

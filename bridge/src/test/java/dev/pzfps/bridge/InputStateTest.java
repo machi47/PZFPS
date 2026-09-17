@@ -17,7 +17,7 @@ final class InputStateTest {
     @Test
     void convertsCameraRelativeMovementToWorldVector() {
         InputState.set(new InputState.Sample(true, 4, 0, 1, (float) (Math.PI / 2), 0, 0, 0));
-        Vector2 result = InputState.movementVector(new Vector2());
+        Vector2 result = pzWorldMovement(InputState.movementVector(new Vector2()));
         assertEquals(0.0f, result.x, 0.0001f);
         assertEquals(1.0f, result.y, 0.0001f);
     }
@@ -26,7 +26,7 @@ final class InputStateTest {
     void normalizesDiagonalMovementAndTracksButtonEdges() {
         InputState.set(new InputState.Sample(
                 true, 8, 1, 1, 0, 0, InputState.CROUCH, 0));
-        Vector2 result = InputState.movementVector(new Vector2());
+        Vector2 result = pzWorldMovement(InputState.movementVector(new Vector2()));
         assertEquals(1.0f, result.getLength(), 0.0001f);
         assertTrue(InputState.isActionPressed("Crouch"));
         assertTrue(InputState.isActionDown("Crouch"));
@@ -39,5 +39,9 @@ final class InputStateTest {
         assertEquals(value, InputState.movementVector(value));
         assertEquals(0.25f, value.x, 0.0001f);
         assertEquals(-0.75f, value.y, 0.0001f);
+    }
+
+    private static Vector2 pzWorldMovement(Vector2 input) {
+        return new Vector2(input.y + input.x, input.y - input.x);
     }
 }

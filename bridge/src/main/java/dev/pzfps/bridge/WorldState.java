@@ -101,6 +101,7 @@ public final class WorldState {
             boolean edgeWest,
             boolean open,
             boolean hoppable,
+            boolean container,
             WorldItem worldItem) {
         public TileObject {
             worldItem = worldItem == null ? WorldItem.none() : worldItem;
@@ -130,6 +131,7 @@ public final class WorldState {
                     edgeWest,
                     open,
                     hoppable,
+                    false,
                     WorldItem.none());
         }
     }

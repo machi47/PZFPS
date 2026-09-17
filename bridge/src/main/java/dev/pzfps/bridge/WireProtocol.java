@@ -142,7 +142,8 @@ public final class WireProtocol {
                             | (object.open() ? 1 << 3 : 0)
                             | (object.hoppable() ? 1 << 4 : 0)
                             | (object.edgeNorth() ? 1 << 5 : 0)
-                            | (object.edgeWest() ? 1 << 6 : 0);
+                            | (object.edgeWest() ? 1 << 6 : 0)
+                            | (object.container() ? 1 << 7 : 0);
                     out.writeByte(objectFlags);
                     writeWorldItem(out, object.worldItem());
                 }

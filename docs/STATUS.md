@@ -67,7 +67,7 @@ gameplay:
    player is stationary. The former 169 -> 117/104 -> 169 oscillation is gone.
 5. The perspective room uses source PZ textures on known geometry and retains
    the normal PZ text/UI pass. The owner reported no further whole-world flash.
-6. The current source build passes 21 Java tests and 42 Python tests.
+6. The current source build passes 24 Java tests and 42 Python tests.
 
 No source/enhanced video pair or matched gameplay performance capture has yet
 been accepted.
@@ -111,6 +111,12 @@ been accepted.
   item's real ID/type, static/world model identities, world texture, absolute
   placement, rotations, scale and extended-placement state. The mesh builder
   now refuses to treat its generated item sprite as map-tile geometry.
+- `bridge/src/main/java/dev/pzfps/bridge/InteractionTarget.java` — chooses only
+  authoritative door/window/container candidates inside a short perspective
+  reticle, uses their actual square-edge placement, and re-resolves square,
+  index, Java type, object type, sprite and item ID against the live object on
+  PZ's game thread. The `Interact` observation path logs this resolution but
+  leaves PZ's normal `doContext()` fully authoritative.
 - `bridge/src/main/java/dev/pzfps/bridge/WireProtocol.java`,
   `renderer/scripts/bridge_client.gd`, and `src/pzfps/runtime.py` — protocol
   version 4, including eye height/actor pose, stair-state flags and world-item
@@ -165,9 +171,10 @@ and `rg`; these did not modify the installation.
 Most recent test results:
 
 - Python/pytest: 42 passed, 0 failed (49 deprecation warnings).
-- Java/Gradle: 21 passed, 0 failed across `ChunkLifecycleTest`,
+- Java/Gradle: 24 passed, 0 failed across `ChunkLifecycleTest`,
   `CursorCaptureStateTest`, `DirectPatchInstallerTest`, `FirstPersonInputTest`,
-  `InputStateTest`, `WireProtocolTest` and `WorldMeshBuilderTest`.
+  `InputStateTest`, `InteractionTargetTest`, `WireProtocolTest` and
+  `WorldMeshBuilderTest`.
 
 ## Evidence and identities
 
@@ -182,7 +189,7 @@ Most recent test results:
 - Live-tested staged bridge JAR SHA-256:
   `c0904da6d2f775c6dcd8bfac90ccc1096093640fff7fc05d61149cc8bd8946d2`.
 - Newest built but not live-tested bridge JAR SHA-256:
-  `a91a25981b64265794853106fe94f829b3734d96eaa40317048d5a0fd6af150a`.
+  `c10caa4f5c1b22069f437322481beadf2814a007b17c570ee299df19af961fa7`.
 - Offline canonical report:
   `.local/canonical-bed-v64/store/objects/5107aa94b47977535039da77ac4018329c238388ad51c94829dc5a69d01d1a0a/report.json`.
 - Geometry source SHA-256:
@@ -213,9 +220,10 @@ update rates have not been reported as achieved performance.
    tile-geometry substitution; consuming PZ's real static model remains the
    exact prerequisite for drawing the item rather than leaving an honest hole.
 4. Center-view doors/containers/context menus and combat must resolve a stable
-   snapshot reference back to the exact live PZ object on the game thread and
-   request PZ's own validated action. Direct position or state mutation is not
-   an acceptable substitute.
+   snapshot reference back to the exact live PZ object on the game thread. That
+   reference/re-resolution seam is now implemented and unit-tested; opening a
+   PZ context menu for it and live acceptance remain. Direct position or state
+   mutation is not an acceptable substitute.
 5. The native neural overlay is blocked by the host/toolchain/model prerequisites
    above. No other renderer/model rewrite has been substituted for it.
 6. Visible holes and unsupported backs/ceilings are now honestly exposed. Their
@@ -229,7 +237,8 @@ Without restarting the current accepted visual session merely to inspect it:
 1. Stage one batched build and live-test simultaneous W+A/W+D, backward/strafe
    movement, F8, Escape/UI release, and stable rendering in the disposable save.
 2. Verify that PZ's normal `Interact` action follows the mouse-controlled actor
-   direction for a door; PZ's own `doContext()` already owns validation/action.
+   direction for a door and preserves the new candidate/resolution evidence;
+   PZ's own `doContext()` already owns validation/action.
 3. Then implement one center-view container/context-menu interaction by re-resolving
    and validating the live object on PZ's game thread. Acceptance requires PZ's
    real action/context code to run; a visual or locally simulated interaction

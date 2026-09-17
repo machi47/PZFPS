@@ -1,15 +1,17 @@
 package dev.pzfps.bridge;
 
+import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.HashMap;
-import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import zombie.characters.IsoPlayer;
+import zombie.input.GameKeyboard;
 import zombie.iso.IsoChunk;
+import zombie.iso.IsoObject;
 
 /** Coordinates game-thread capture and the isolated transport worker. */
 public final class BridgeRuntime {
@@ -20,6 +22,7 @@ public final class BridgeRuntime {
     private static final AtomicBoolean FIRST_SNAPSHOT_SEEN = new AtomicBoolean();
     private static final int CHUNK_MISSING_GRACE_CAPTURES = 8;
     private static final int CHUNK_CHANGE_CONFIRMATION_CAPTURES = 2;
+    private static final float INTERACTION_REACH = 2.3f;
     private static final ChunkLifecycle CHUNK_LIFECYCLE = new ChunkLifecycle(
             CHUNK_MISSING_GRACE_CAPTURES, CHUNK_CHANGE_CONFIRMATION_CAPTURES);
     private static final Map<Long, WorldState.Chunk> ACCEPTED_CHUNKS = new HashMap<>();
@@ -70,6 +73,7 @@ public final class BridgeRuntime {
     public static void onPlayerUpdateStart(IsoPlayer player) {
         if (!STARTED.get() || !isAuthoritativeLocalPlayer(player)) return;
         updateAndApplyLookInput(player);
+        observeInteractionRequest(player);
     }
 
     /**
@@ -136,6 +140,40 @@ public final class BridgeRuntime {
         player.setTargetVerticalAimAngle(pitchDegrees);
         player.setCurrentVerticalAimAngle(pitchDegrees);
         if (input.active()) player.setIsAiming((input.buttons() & InputState.AIM) != 0);
+    }
+
+    /**
+     * Records the perspective candidate while leaving PZ's normal Interact/doContext path in
+     * complete control of validity and the resulting action.
+     */
+    private static void observeInteractionRequest(IsoPlayer player) {
+        InputState.Sample input = InputState.current();
+        boolean pressed = input.active()
+                ? InputState.isActionPressed("Interact")
+                : FirstPersonInput.isCaptured() && GameKeyboard.isKeyPressed("Interact");
+        if (!pressed) return;
+
+        long now = System.nanoTime();
+        WorldState.Player viewpoint = WorldCapture.player(
+                player, FRAME_SEQUENCE.get(), now, System.currentTimeMillis());
+        InteractionTarget.nearestInteractive(
+                        viewpoint, ACCEPTED_CHUNKS.values(), INTERACTION_REACH)
+                .ifPresentOrElse(
+                        reference -> {
+                            IsoObject live = InteractionTarget.resolveLive(
+                                    player, reference, INTERACTION_REACH);
+                            System.out.printf(
+                                    "[PZFPS interaction] Interact candidate square=(%d,%d,%d) index=%d type=%s sprite=%s liveResolved=%s; PZ doContext remains authoritative%n",
+                                    reference.squareX(),
+                                    reference.squareY(),
+                                    reference.z(),
+                                    reference.objectIndex(),
+                                    reference.javaType(),
+                                    reference.sprite(),
+                                    live != null);
+                        },
+                        () -> System.out.println(
+                                "[PZFPS interaction] Interact has no perspective candidate; PZ doContext remains authoritative"));
     }
 
     private static void captureWorld(IsoPlayer player, long sequence, boolean fullResnapshot) {

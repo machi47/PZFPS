@@ -362,6 +362,7 @@ public final class WorldCapture {
                 edgeWest,
                 open,
                 object.isHoppable(),
+                object.getContainerCount() > 0 || object.getContainer() != null,
                 worldItem(object));
     }
 
@@ -382,6 +383,7 @@ public final class WorldCapture {
         if (value.hoppable()) flags |= 1 << 4;
         if (value.edgeNorth()) flags |= 1 << 5;
         if (value.edgeWest()) flags |= 1 << 6;
+        if (value.container()) flags |= 1 << 7;
         return flags;
     }
 

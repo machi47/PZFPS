@@ -291,6 +291,7 @@ func _read_chunk(packet: StreamPeerBuffer) -> Dictionary:
 			object["hoppable"] = (object_flags & 16) != 0
 			object["edge_north"] = (object_flags & 32) != 0
 			object["edge_west"] = (object_flags & 64) != 0
+			object["container"] = (object_flags & 128) != 0
 			object["world_item"] = _read_world_item(packet)
 			objects[object_index] = object
 		square["objects"] = objects

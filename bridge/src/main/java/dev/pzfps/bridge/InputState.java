@@ -35,18 +35,8 @@ public final class InputState {
     public static Vector2 movementVector(Vector2 result) {
         Sample sample = current();
         if (!sample.active()) return FirstPersonInput.movementVector(result);
-
-        float sin = (float) Math.sin(sample.yaw());
-        float cos = (float) Math.cos(sample.yaw());
-        float x = sample.forward() * cos - sample.strafe() * sin;
-        float y = sample.forward() * sin + sample.strafe() * cos;
-        float lengthSquared = x * x + y * y;
-        if (lengthSquared > 1.0f) {
-            float inverseLength = 1.0f / (float) Math.sqrt(lengthSquared);
-            x *= inverseLength;
-            y *= inverseLength;
-        }
-        return result.set(x, y);
+        return FirstPersonInput.rotateDigitalMovement(
+                result, sample.yaw(), sample.forward(), sample.strafe());
     }
 
     public static Vector2 aimVector(Vector2 result) {
