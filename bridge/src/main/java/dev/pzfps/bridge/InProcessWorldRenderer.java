@@ -89,7 +89,7 @@ public final class InProcessWorldRenderer {
     }
 
     /** Called by advice on the game/render-state producer thread. */
-    public static boolean replaceWorldDraw() {
+    public static boolean replaceWorldDraw(Set<Integer> nativeActorIds) {
         if (!ENABLED
                 || !ASSETS_READY.get()
                 || RENDER_FAILED.get()
@@ -98,7 +98,10 @@ public final class InProcessWorldRenderer {
             return false;
         }
         RenderSnapshot snapshot = new RenderSnapshot(
-                PLAYER.get(), ENTITIES.get(), List.copyOf(MESHES.values()));
+                PLAYER.get(),
+                ENTITIES.get(),
+                List.copyOf(MESHES.values()),
+                Set.copyOf(nativeActorIds));
         SpriteRenderer.instance.drawGeneric(new WorldDrawer(snapshot));
         ENQUEUED_FRAMES.incrementAndGet();
         if (REPLACEMENT_ANNOUNCED.compareAndSet(false, true)) {
@@ -208,7 +211,8 @@ public final class InProcessWorldRenderer {
     private record RenderSnapshot(
             WorldState.Player player,
             WorldState.Entities entities,
-            List<WorldMeshBuilder.MeshData> meshes) {}
+            List<WorldMeshBuilder.MeshData> meshes,
+            Set<Integer> nativeActorIds) {}
 
     private record CullingCounts(int visible, int empty, int distance, int frustum) {
         private static CullingCounts none() {
@@ -324,7 +328,7 @@ public final class InProcessWorldRenderer {
                 GL20.glUniform1i(texturedUniform, 0);
                 GL11.glDisable(GL11.GL_BLEND);
                 GL11.glDisable(GL11.GL_TEXTURE_2D);
-                drawEntities(snapshot.entities);
+                drawEntities(snapshot.entities, snapshot.nativeActorIds);
             } finally {
                 GL11.glPopClientAttrib();
                 GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, previousArrayBuffer);
@@ -470,9 +474,9 @@ public final class InProcessWorldRenderer {
             return new GpuMesh(source.fingerprint(), vbo, vertexCount, List.copyOf(textured));
         }
 
-        private void drawEntities(WorldState.Entities entities) {
+        private void drawEntities(WorldState.Entities entities, Set<Integer> nativeActorIds) {
             if (entities == null || entities.values().isEmpty()) return;
-            float[] vertices = entityVertices(entities.values());
+            float[] vertices = entityVertices(entities.values(), nativeActorIds);
             if (vertices.length == 0) return;
             if (!entityBufferCreated) {
                 entityBufferCreated = true;
@@ -643,9 +647,11 @@ public final class InProcessWorldRenderer {
         }
     }
 
-    private static float[] entityVertices(List<WorldState.Entity> entities) {
+    static float[] entityVertices(
+            List<WorldState.Entity> entities, Set<Integer> nativeActorIds) {
         EntityFloatBuilder output = new EntityFloatBuilder(Math.max(324, entities.size() * 324));
         for (WorldState.Entity entity : entities) {
+            if (nativeActorIds.contains(entity.id())) continue;
             float x = entity.x();
             float y = entity.z() * LEVEL_HEIGHT;
             float z = entity.y();

@@ -42,6 +42,15 @@ draw the installed mesh, texture, attachments, tint and item-state variants in
 the replacement perspective depth. That path is built and unit-tested but has
 not yet been accepted in a live session.
 
+Nonlocal characters have a parallel native path: the bridge snapshots B42's
+active `ModelSlot` into the same `ModelSlotRenderData` used by the game, then
+draws that evaluated pose, clothing, attachments and held-item state through a
+perspective `ModelCamera` after the replacement world's depth pass. It does not
+advance a second animation clock. The local character is intentionally omitted
+until a first-person body/arms treatment can avoid head, neck and shoulder
+clipping. Unavailable native models retain the explicit diagnostic-box fallback.
+This path is source-built and unit-tested but not yet live-accepted.
+
 Live FPS controls currently reserve two editable entries under the `[PZFPS]`
 key-binding section: F8 releases/recaptures mouse look, and F7 asks PZ to open
 its own world context menu for the identity-checked three-dimensional reticle

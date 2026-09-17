@@ -98,6 +98,11 @@ public final class BridgeRuntime {
         NativeWorldItemPass.queueVisible(IsoPlayer.getInstance());
     }
 
+    /** Snapshot native actor render data before the replacement world is queued. */
+    public static NativeActorPass.PreparedFrame prepareNativeActors() {
+        return NativeActorPass.prepareVisible(IsoPlayer.getInstance());
+    }
+
     private static void capture(IsoPlayer player) {
         if (!STARTED.get() || server == null || player == null) return;
         long now = System.nanoTime();

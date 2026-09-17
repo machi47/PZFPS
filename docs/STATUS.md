@@ -67,7 +67,7 @@ gameplay:
    player is stationary. The former 169 -> 117/104 -> 169 oscillation is gone.
 5. The perspective room uses source PZ textures on known geometry and retains
    the normal PZ text/UI pass. The owner reported no further whole-world flash.
-6. The current source build passes 30 Java tests and 45 Python tests.
+6. The current source build passes 34 Java tests and 45 Python tests.
 
 No source/enhanced video pair or matched gameplay performance capture has yet
 been accepted.
@@ -136,6 +136,20 @@ been accepted.
   each synchronous item draw so PZ's isometric `targetDepth` offset cannot
   corrupt perspective depth. The prior value is restored in `finally`. This is
   source-built and unit-tested, not yet live-accepted.
+- `bridge/src/main/java/dev/pzfps/bridge/NativeActorPass.java` and
+  `FirstPersonCharacterCamera.java` — select visible nonlocal characters with
+  validated active model slots, snapshot them through B42's own
+  `ModelSlotRenderData`, and queue them after the replacement world so they use
+  its perspective depth. This preserves the client's already-evaluated
+  animation matrices, clothing, attachments, held models, seated transforms,
+  ambient state and model lifecycle rather than advancing a second animator.
+  Native-queued entity IDs suppress only their corresponding diagnostic boxes;
+  missing/unusable model slots retain the box fallback. The local character is
+  deliberately excluded to prevent head/neck/shoulder clipping until a
+  first-person body treatment is implemented. Isometric chunk `targetDepth` is
+  disabled only around the synchronous native draw and restored in `finally`.
+  Queued and completed callbacks are logged separately and are not called game
+  FPS. This path is source-built and unit-tested, not yet live-accepted.
 - `bridge/src/main/java/dev/pzfps/bridge/InteractionTarget.java` — chooses only
   authoritative door/window/container candidates intersected by a short 3D
   perspective ray from the real eye height and pitch. Door/window volumes use
@@ -203,19 +217,25 @@ bin/pzfps game status-isolated
 
 Targeted installed-class inspection used `javap -c -p` on `IsoPlayer`,
 `IsoWorld`, `UIManager`, `IsoWorldInventoryObject`, `InventoryItem`,
-`ItemModelRenderer`, `WorldItemModelDrawer`, `IModelCamera`, `Shader`,
+`ItemModelRenderer`, `WorldItemModelDrawer`, `IModelCamera`, `ModelCamera`,
+`CharacterModelCamera`, `ModelCameraRenderData`, `ModelSlotRenderData`,
+`TextureDraw.drawModel`, `SpriteRenderer.drawModel`, `Model`, `Shader`,
 `CharacterInputComponent`, `IsoPlayer.doContext()` and related input/context-
-action/model classes. The installed `basicEffect` shaders were also searched to
-verify that `targetDepth` changes clip-space Z. Socket/log diagnostics used
-`lsof`, `nc`, `xxd` and `rg`; these did not modify the installation.
+action/model classes. This confirmed that B42 snapshots evaluated model data on
+the producer side, reference-counts it until `postRender()`, and delegates the
+actual character camera through `ModelCamera.instance`. The installed
+`basicEffect` shaders were also searched to verify that `targetDepth` changes
+clip-space Z. Socket/log diagnostics used `lsof`, `nc`, `xxd` and `rg`; these
+did not modify the installation.
 
 Most recent test results:
 
 - Python/pytest: 45 passed, 0 failed (49 deprecation warnings).
-- Java/Gradle: 30 passed, 0 failed across `ChunkLifecycleTest`,
+- Java/Gradle: 34 passed, 0 failed across `ChunkLifecycleTest`,
   `CursorCaptureStateTest`, `DirectPatchInstallerTest`, `FirstPersonInputTest`,
-  `FirstPersonModelCameraTest`, `InputStateTest`, `InteractionTargetTest`,
-  `MovementDiagnosticsTest`, `NativeWorldItemPassTest`, `WireProtocolTest` and
+  `FirstPersonCharacterCameraTest`, `FirstPersonModelCameraTest`,
+  `InputStateTest`, `InteractionTargetTest`, `MovementDiagnosticsTest`,
+  `NativeActorPassTest`, `NativeWorldItemPassTest`, `WireProtocolTest` and
   `WorldMeshBuilderTest`.
 
 ## Evidence and identities
@@ -231,7 +251,7 @@ Most recent test results:
 - Live-tested staged bridge JAR SHA-256:
   `c0904da6d2f775c6dcd8bfac90ccc1096093640fff7fc05d61149cc8bd8946d2`.
 - Newest built but not live-tested bridge JAR SHA-256:
-  `42da77cde61254fe2b0c93def48088b0eb144e04250b85e0ea48f070bde3b2dd`.
+  `39df22fe9db8e9be1457fd20419995a550202d9e99d2687ffd557ff7a00b3f96`.
 - Offline canonical report:
   `.local/canonical-bed-v64/store/objects/5107aa94b47977535039da77ac4018329c238388ad51c94829dc5a69d01d1a0a/report.json`.
 - Geometry source SHA-256:
@@ -279,12 +299,18 @@ update rates have not been reported as achieved performance.
    the installed geometry also confirmed that PZ supplies distinct open/closed
    door sprite geometry, so the renderer continues to consume the live sprite
    rather than fabricating a second hinge transform.
-5. The native neural overlay is blocked by the host/toolchain/model prerequisites
+5. Nonlocal native characters are now wired to B42's evaluated model render
+   data rather than reanimated or approximated in the renderer. This has not
+   been loaded into the live process. It still needs a disposable-session check
+   of standing, walking, crawling, held equipment, occlusion and at least one
+   seated actor; an exception disables only this pass and restores diagnostic
+   boxes on the next frame. The local body remains intentionally absent.
+6. The native neural overlay is blocked by the host/toolchain/model prerequisites
    above. No other renderer/model rewrite has been substituted for it.
-6. Visible holes and unsupported backs/ceilings are now honestly exposed. Their
+7. Visible holes and unsupported backs/ceilings are now honestly exposed. Their
    constrained completion is intentionally deferred until the live controls and
    authoritative interaction seam are coherent enough to judge moving views.
-7. A Java validation attempt using a project-relative `ZOMBIE_BUDDY_JAR` failed
+8. A Java validation attempt using a project-relative `ZOMBIE_BUDDY_JAR` failed
    because Gradle resolves file dependencies relative to `bridge/`. The
    corrected absolute project-local path above produced a clean build with all
    24 tests passing; this was an invocation error, not a source or dependency
@@ -312,6 +338,11 @@ Without restarting the current accepted visual session merely to inspect it:
    holes. The offline model index remains independent reproducibility evidence;
    the live path intentionally uses PZ's state-aware renderer rather than
    duplicating its asset-selection rules.
+5. Approach one nonlocal actor and verify that B42's native evaluated model
+   replaces only that actor's debug box with correct position, scale, facing,
+   animation, clothing/held equipment and world-depth occlusion. Check standing,
+   walking and crawling before accepting it; actor callback counts are not
+   gameplay FPS.
 
 The later appearance experiment is one identity-stable real asset carried
 through constrained completion and inspected from multiple moving views. It is

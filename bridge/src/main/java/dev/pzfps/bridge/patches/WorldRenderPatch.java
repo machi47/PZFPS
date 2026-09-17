@@ -9,8 +9,14 @@ public final class WorldRenderPatch {
     @Advice.OnMethodEnter(skipOn = Advice.OnNonDefaultValue.class)
     public static boolean enter() {
         BridgeRuntime.onWorldRender();
-        boolean replaced = InProcessWorldRenderer.replaceWorldDraw();
-        if (replaced) BridgeRuntime.queueNativeWorldItems();
+        NativeActorPass.PreparedFrame actors = BridgeRuntime.prepareNativeActors();
+        boolean replaced = InProcessWorldRenderer.replaceWorldDraw(actors.entityIds());
+        if (replaced) {
+            actors.queueAfterWorld();
+            BridgeRuntime.queueNativeWorldItems();
+        } else {
+            actors.discard();
+        }
         return replaced;
     }
 }
