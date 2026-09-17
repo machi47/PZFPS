@@ -191,6 +191,36 @@ int main(int argc, char** argv) {
         const GLfloat perspective[] = {1,0,0,0, 0,1,0,0,
             0,0,-(far+near)/(far-near),-1, 0,0,-2*far*near/(far-near),0};
         glUniformMatrix4fv(uniform("uMvp"), 1, GL_FALSE, perspective);
+        // Opaque wire coverage in front of an opaque wall, in BOTH draw orders.
+        // Edge alpha must never blend with the clear colour and then block the wall.
+        int fenceFailures = 0;
+        for (int alpha : {0, 25, 100, 155, 230, 255}) {
+            for (bool reverse : {false, true}) {
+                glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+                auto surface = [&](bool fence) {
+                    float d = fence ? 2.f : 3.f;
+                    const float vertices[] = {-d,-d,-d, 3*d,-d,-d, -d,3*d,-d};
+                    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STREAM_DRAW);
+                    const unsigned char texel[] = {255,255,255,static_cast<unsigned char>(fence ? alpha : 255)};
+                    glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA8,1,1,0,GL_RGBA,GL_UNSIGNED_BYTE,texel);
+                    glUniform1i(uniform("uSurfaceKind"),fence ? 4 : 0);
+                    glVertexAttrib1f(4,0);
+                    glVertexAttrib3f(2,fence ? 1 : 0,fence ? 0 : 1,0);
+                    glDisable(GL_BLEND);
+                    glDrawArrays(GL_TRIANGLES,0,3);
+                };
+                if (reverse) { surface(false); surface(true); }
+                else { surface(true); surface(false); }
+                std::array<unsigned char,4> pixel{};
+                glReadPixels(64,64,1,1,GL_RGBA,GL_UNSIGNED_BYTE,pixel.data());
+                bool wire = alpha >= 128;
+                if (pixel[wire ? 0 : 1] < 240 || pixel[wire ? 1 : 0] > 10) fenceFailures++;
+            }
+        }
+        std::cout << "fenceCoverage cases=12 failures=" << fenceFailures << '\n';
+        if (fenceFailures) throw std::runtime_error("Fence coverage/depth ordering failed");
+        glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA8,1,1,0,GL_RGBA,GL_UNSIGNED_BYTE,whitePixel);
+        glUniform1i(uniform("uSurfaceKind"),0);
         int failures = 0, cases = 0, distantWrong = 0, nearWrong = 0;
         for (float distance : {.5f, 2.f, 8.f, 32.f}) {
             for (float slope : {-.85f, -.4f, 0.f, .4f, .85f}) {

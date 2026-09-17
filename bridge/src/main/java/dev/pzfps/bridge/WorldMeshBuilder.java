@@ -18,6 +18,8 @@ public final class WorldMeshBuilder {
     private static final int CYLINDER_SEGMENTS = 10;
     private static final int MAX_VERTICES_PER_CHUNK = 500_000;
 
+    /** Vertex X/Z are chunk-local from construction onward; culling bounds are world-space.
+     * Rebasing after float world-space construction cannot recover lost submillimetre detail. */
     public record MeshData(
             long key,
             long fingerprint,
@@ -126,14 +128,11 @@ public final class WorldMeshBuilder {
         Map<String, Integer> unsupportedSprites = new HashMap<>();
         Map<String, Integer> unsupportedCollisionSprites = new HashMap<>();
         boolean truncated = false;
-        int blockSize = zombie.iso.IsoChunkMap.CHUNK_SIZE_IN_SQUARES;
-        float chunkX = chunk.worldX() * blockSize;
-        float chunkZ = chunk.worldY() * blockSize;
         Map<Long, WorldState.Square> squaresByPosition = squareIndex(chunk.squares());
         for (WorldState.Square square : chunk.squares()) {
-            float baseX = chunkX + square.localX();
+            float baseX = square.localX();
             float baseY = square.z() * LEVEL_HEIGHT;
-            float baseZ = chunkZ + square.localY();
+            float baseZ = square.localY();
             // Appearance and topology are persistent; live light is a separate GPU grid.
             float[] light = {1, 1, 1};
             int lightingIndex = ChunkLighting.index(square.localX(), square.localY(), square.z());
@@ -576,10 +575,10 @@ public final class WorldMeshBuilder {
             }
         }
         int chunkSize = zombie.iso.IsoChunkMap.CHUNK_SIZE_IN_SQUARES;
-        minX = Math.min(minX, chunk.worldX() * chunkSize);
-        minZ = Math.min(minZ, chunk.worldY() * chunkSize);
-        maxX = Math.max(maxX, (chunk.worldX() + 1) * chunkSize);
-        maxZ = Math.max(maxZ, (chunk.worldY() + 1) * chunkSize);
+        minX = outwardBound(Math.min(minX, 0), chunk.worldX(), chunkSize, false);
+        minZ = outwardBound(Math.min(minZ, 0), chunk.worldY(), chunkSize, false);
+        maxX = outwardBound(Math.max(maxX, chunkSize), chunk.worldX(), chunkSize, true);
+        maxZ = outwardBound(Math.max(maxZ, chunkSize), chunk.worldY(), chunkSize, true);
         for (WorldState.Square square : chunk.squares()) {
             minY = Math.min(minY, square.z() * LEVEL_HEIGHT);
             maxY = Math.max(maxY, (square.z() + 1) * LEVEL_HEIGHT);
@@ -589,6 +588,14 @@ public final class WorldMeshBuilder {
             maxY = LEVEL_HEIGHT;
         }
         return new float[] {minX, minY, minZ, maxX, maxY, maxZ};
+    }
+
+    private static float outwardBound(float local, int chunk, int size, boolean maximum) {
+        double exact = (double) chunk * size + local;
+        float rounded = (float) exact;
+        if (maximum && rounded < exact) return Math.nextUp(rounded);
+        if (!maximum && rounded > exact) return Math.nextDown(rounded);
+        return rounded;
     }
 
     private void addTexturedPrimitive(

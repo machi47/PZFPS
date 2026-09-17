@@ -5,6 +5,10 @@ import static org.junit.jupiter.api.Assertions.*;
 import org.joml.Matrix4f;
 import org.joml.Vector4f;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import java.nio.file.Path;
+import java.nio.file.Files;
+import java.util.List;
 
 final class CameraRelativeMeshTest {
     private static WorldState.Player player(float x, float z, float yaw) {
@@ -32,13 +36,32 @@ final class CameraRelativeMeshTest {
     }
 
     @Test
-    void rebaseChangesOnlyPositionAndNeverMutatesSnapshot() {
-        float[] source = {8193, 2, 8195, 0, 1, 0, .7f, .8f, .9f, 64, 224, 3};
-        float[] result = InProcessWorldRenderer.relativeVertices(source, 12, 8192, 8192);
-        assertEquals(1, result[0]);
-        assertEquals(2, result[1]);
-        assertEquals(3, result[2]);
-        assertEquals(8193, source[0]);
-        for (int i = 3; i < source.length; i++) assertEquals(source[i], result[i]);
+    void geometryDoesNotLoseSmallOffsetsAtLargeMapCoordinates(@TempDir Path temporary) throws Exception {
+        Path path = temporary.resolve("precision.json");
+        Files.writeString(path, """
+                {"schema_version":1,"tiles":{"test_precision":{"geometry":[
+                {"kind":"polygon","points":[[0.00013,0],[0.00027,0],[0.00027,1],[0.00013,1]]},
+                {"kind":"polygon","points":[[-1.00013,0],[-0.33327,0.37513],[0.77117,1.00013]]}
+                ]}}}
+                """);
+        var object = new WorldState.TileObject(0,"IsoObject","normal","test_precision",
+                false,false,false,false,false,false,false);
+        var square = new WorldState.Square(0,0,0,-1,0,255,255,255,
+                false,true,false,false,false,false,List.of(object));
+        var builder = new WorldMeshBuilder(TileGeometryRegistry.load(path));
+        var near = builder.build(new WorldState.Chunk(0,0,1,1,List.of(square)));
+        assertTrue(near.vertexCount() > 0);
+        for (int chunk : new int[] {1024, 1364, -1364, 4096}) {
+            var distant = builder.build(new WorldState.Chunk(chunk,chunk,1,1,List.of(square)));
+            assertArrayEquals(near.vertices(), distant.vertices());
+            assertArrayEquals(near.texturedBatches().getFirst().vertices(),
+                    distant.texturedBatches().getFirst().vertices(),
+                    "Position, normals, UV and layers must not depend on map origin");
+            double origin = chunk * (double) zombie.iso.IsoChunkMap.CHUNK_SIZE_IN_SQUARES;
+            assertTrue(distant.minX() <= origin + near.minX());
+            assertTrue(distant.maxX() >= origin + near.maxX());
+            assertEquals(near.minY(), distant.minY());
+            assertEquals(near.maxY(), distant.maxY());
+        }
     }
 }

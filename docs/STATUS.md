@@ -21,14 +21,72 @@ PZ render thread     -> PZFPS perspective world -> PZ text/UI
 
 One isolated PZ process is currently running from the project-local
 disposable profile with staged bridge JAR
-`974f032932c0cc7507b58316e872923a6ffeb66888165320cc3489ddfe5e0d10`
-(source commit `66cff0a`, PID 31018, launched 23:08:23 UTC).
-The newer fragment-depth and concave-polygon repairs are built but **not loaded**
-in that process.
+`534f967121136cfb830992fc993bafa7fa621017ce159e2dfb3624596b0c9fe3`
+(precision/fence repair batch, PID 32654, launched 23:45:38 UTC).
+This includes the fragment-depth, concave-polygon, chunk-local construction and
+fence-coverage repairs described below. PID 31018 was replaced by 32194 at
+23:34:18 UTC for depth/polygon testing; 32194 was stopped before 32654 launched.
 No normal save, installed game binary or
 unrelated mod was changed.
 
-### Concave source polygons: general topology repair (built, not loaded)
+### Chunk-local construction and fence coverage (loaded; live acceptance pending)
+
+The owner authorized unattended testing/reloads without preserving an old test
+process. Only the isolated disposable client is targeted. The first reload
+confirmed the production fragment shader on an actual 24-bit depth buffer.
+Startup Continue and loading-screen continuation completed without a user click.
+The loaded room differed from the owner's previous screenshots, so it is not a
+controlled same-scene before/after. Stopping via SIGTERM can lose disposable-save
+progress since the last save; do not use this on an ordinary user save.
+
+`WorldMeshBuilder` previously constructed float vertices at large map coordinates,
+then `GpuState.upload` subtracted the origin. This already lost small geometric
+offsets before rebasing. Construction is now chunk-local from the start for all
+three batch types, with the existing camera-relative matrix used directly.
+World-space culling bounds are converted separately with conservative outward
+rounding. A thin-polygon regression checks identical positions, normals, UVs and
+layers at positive/negative/distant chunk origins. This repairs coordinate
+precision, not intersecting source primitives or missing door geometry.
+
+Fence/gate source families `fencing_*` and `fixtures_doors_fences_*` now use
+alpha-tested coverage (threshold 0.5), opaque surviving samples, depth writes,
+and no blending. They do not receive solid-wall edge expansion. Previously
+partly transparent edges blended while writing depth without sorted rendering,
+making background contribution dependent on submission order. Window glass and
+blood overlays are deliberately NOT classified as opaque wire coverage. Proper
+glass composition, including native actors behind it, remains outstanding.
+
+106 Java tests pass, zero failures/errors (including installed polygon audit).
+The actual production GLSL probe on Apple M4 Max passes 12 fence/background
+coverage cases in both draw orders; the prior shader fails four of those cases.
+Raw reports: `.local/reports/fence-coverage-before.txt` and
+`.local/reports/fence-coverage-after.txt`. Existing physical-occlusion cases pass;
+the previously reported depth residual beyond 16m is unchanged, not fixed.
+
+Live PID 32654 logs `depth bits=24 ordering=fragment`. At completed frame 5400,
+completed callback cadence was 60.01Hz, state age 13ms, 182 meshes, 66 visible,
+425 cumulative builds, zero dropped requests. These are callback/CPU diagnostics,
+not concurrent GPU timing. Native actor/item/vehicle callbacks continue.
+`.local/captures/precision-fence-live.png` shows the actual scene; the accompanying
+`precision-fence-live-motion.mov` is 351 captured frames, 5.85s at 3200x2056.
+Capture rate is not gameplay FPS. The owner was still moving during collection;
+this is not an automated controlled-input pass or visual acceptance of all seams.
+`.local/reports/precision-fence-first-player-trace.json` records 182 authoritative
+samples with real run/climbfence states and changing position/orientation.
+
+New bounded helpers: `tools/observe_live_player.py --seconds 10 --output PATH`
+only reads protocol snapshots; `tools/test_isolated_input.swift PID key CODE MS`
+or `PID look DX DY FRAMES` validates the exact project-owned bundle and foreground
+PID before native input, limits duration, releases held keys, and stops on focus
+loss. Successful posting is not proof that PZ accepted the action. CUA native
+pipe startup failed during this pass; native capture/input fallback is explicit.
+
+Door-edge cracks, incorrectly placed props intersecting exterior walls, partial
+roofs, source-painted glass and incomplete box-family faces remain rejected.
+The newly requested time/weather-driven sky, longer streaming distance and
+semantic physical light sources are not implemented by this repair batch.
+
+### Concave source polygons: general topology repair (now loaded)
 
 The preceding pass was progress: production-shader failure was reproduced and
 the fragment-depth repair was committed/pushed as `e0a1b28`. This continuation
@@ -1246,16 +1304,16 @@ update rates have not been reported as achieved performance.
 
 ## Next smallest experiment
 
-The current single PID 31018 still has the crate batch, not the new depth shader.
-At the next coordinated reload, stage the built fragment-depth repair and verify
-the logged actual depth bits, completed frame cadence and fresh state age.
+The current single PID 32654 has the combined depth, concave-polygon,
+chunk-local precision and fence-coverage repairs. Actual depth bits, completed
+callback cadence and fresh state age are recorded above.
 At a window/sill, shelf bracket and multi-tile bench, hold player position fixed
 and sweep the camera slowly through the formerly unstable angles. Preserve
 moving evidence and distinguish depth-layer flicker from alpha-edge aliasing,
 real geometry intersections and source-projection errors. Inspect a tool chest's
 new opposite side and verify the drawer front was not copied onto its back.
-The reload has one specific purpose: test the changed fragment-depth shader.
-Do not attribute new improvements to it before the built JAR is actually loaded.
+The owner permits further batched diagnostic reloads without waiting for input;
+each must still identify a changed artifact and a failure being tested.
 Also exercise a real light switch and compare light-grid uploads against the
 mesh-build counter; establish which native RGB/vertex-light values are physical
 illumination versus perception before removing the diagnostic exposure floor.

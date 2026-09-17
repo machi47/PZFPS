@@ -188,13 +188,10 @@ public final class InProcessWorldRenderer {
         return new Matrix4f(camera.projection()).mul(view);
     }
 
-    static float[] relativeVertices(float[] source, int stride, float originX, float originZ) {
-        float[] result = source.clone();
-        for (int i = 0; i < result.length; i += stride) {
-            result[i] -= originX;
-            result[i + 2] -= originZ;
-        }
-        return result;
+    static boolean cutoutFence(String sprite) {
+        // These installed families are opaque fence/gate surfaces with alpha holes.
+        // Do not extend this to window glass or other partially transmissive materials.
+        return sprite.startsWith("fencing_") || sprite.startsWith("fixtures_doors_fences_");
     }
 
     private static void meshWorker(Path registryPath) {
@@ -625,7 +622,8 @@ public final class InProcessWorldRenderer {
             GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, batch.vbo);
             configureAttributes(TEXTURED_STRIDE_BYTES, true);
             GL20.glUniform1i(materialUniform, 0);
-            GL20.glUniform1i(surfaceKindUniform, batch.solidFloor ? 1 : batch.wallEdges ? 2
+            boolean cutout = cutoutFence(batch.sprite);
+            GL20.glUniform1i(surfaceKindUniform, cutout ? 4 : batch.solidFloor ? 1 : batch.wallEdges ? 2
                     : BoxSideCompletion.closedCrate(batch.sprite) ? 3 : 0);
             GL20.glUniform4f(projectedBoundsUniform, batch.projectedBounds[0], batch.projectedBounds[1],
                     batch.projectedBounds[2], batch.projectedBounds[3]);
@@ -637,7 +635,7 @@ public final class InProcessWorldRenderer {
                 }
             } else {
                 GL11.glEnable(GL11.GL_TEXTURE_2D);
-                GL11.glEnable(GL11.GL_BLEND);
+                setEnabled(GL11.GL_BLEND, !cutout);
                 GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
                 GL11.glBindTexture(GL11.GL_TEXTURE_2D, texture.getID());
                 GL20.glUniform1i(texturedUniform, 1);
@@ -737,8 +735,7 @@ public final class InProcessWorldRenderer {
                 vbo = GL15.glGenBuffers();
                 GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, vbo);
                 FloatBuffer vertices = BufferUtils.createFloatBuffer(source.vertices().length);
-                vertices.put(relativeVertices(source.vertices(), WorldMeshBuilder.FLOATS_PER_VERTEX,
-                        originX, originZ)).flip();
+                vertices.put(source.vertices()).flip();
                 GL15.glBufferData(GL15.GL_ARRAY_BUFFER, vertices, GL15.GL_STATIC_DRAW);
             }
             ArrayList<GpuTexturedBatch> textured = new ArrayList<>();
@@ -746,8 +743,7 @@ public final class InProcessWorldRenderer {
                 int texturedVbo = GL15.glGenBuffers();
                 GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, texturedVbo);
                 FloatBuffer vertices = BufferUtils.createFloatBuffer(sourceBatch.vertices().length);
-                vertices.put(relativeVertices(sourceBatch.vertices(), WorldMeshBuilder.TEXTURED_FLOATS_PER_VERTEX,
-                        originX, originZ)).flip();
+                vertices.put(sourceBatch.vertices()).flip();
                 GL15.glBufferData(GL15.GL_ARRAY_BUFFER, vertices, GL15.GL_STATIC_DRAW);
                 textured.add(new GpuTexturedBatch(
                         sourceBatch.sprite(), texturedVbo, sourceBatch.vertexCount(),
@@ -760,8 +756,7 @@ public final class InProcessWorldRenderer {
                 int materialVbo = GL15.glGenBuffers();
                 GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, materialVbo);
                 FloatBuffer vertices = BufferUtils.createFloatBuffer(sourceBatch.vertices().length);
-                vertices.put(relativeVertices(sourceBatch.vertices(), WorldMeshBuilder.FLOATS_PER_VERTEX,
-                        originX, originZ)).flip();
+                vertices.put(sourceBatch.vertices()).flip();
                 GL15.glBufferData(GL15.GL_ARRAY_BUFFER, vertices, GL15.GL_STATIC_DRAW);
                 materials.add(new GpuMaterialBatch(
                         sourceBatch.material(), materialVbo, sourceBatch.vertexCount()));
@@ -977,6 +972,13 @@ public final class InProcessWorldRenderer {
                                     if (a.a > source.a) source = a;
                                     if (b.a > source.a) source = b;
                                 }
+                            }
+                            // Fence alpha describes coverage of opaque wire/wood, not glass.
+                            // Blending those edges while writing depth made the background
+                            // depend on submission order. Rejected coverage writes no depth.
+                            if (uSurfaceKind == 4) {
+                                if (source.a < 0.5) discard;
+                                source.a = 1.0;
                             }
                             if (source.a < 0.02) discard;
                             gl_FragColor = vec4(source.rgb * vertexColor * liveLight, source.a);
