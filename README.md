@@ -1,61 +1,33 @@
-# PZ Neural View
+# PZFPS / PZ Neural View
 
-Prepared 17 September 2026. **Status: ACTIVE DIAGNOSTIC. A one-process PZ integration, authoritative snapshot bridge, B42 asset index and guarded in-process perspective world replacement are implemented. Accepted live first-person gameplay and neural enhancement are not yet demonstrated.**
+Keep the actual Project Zomboid client authoritative while replacing its visual representation with a persistent, coherent first-person presentation. This is not a second simulation, a desktop screenshot overlay, or a commitment to a particular rendering engine.
 
-## Purpose
+## Implemented source
 
-Keep Project Zomboid authoritative for the game, while replacing its visual presentation with a persistent, photorealistic, first-person interpretation. Use generative methods to supply missing appearance—not to invent gameplay state. Start with a playable visual experiment rather than a new engine.
+- `bridge/`: the local session's Java client hooks, live state/pose capture, input bridge, geometry registry, and in-process rendering implementation, published in `009c258` and preserved here.
+- `renderer/`: the existing experimental external frontend, also preserved rather than discarded or declared the winning backend.
+- `src/pzfps/`: the existing local tooling and source asset indexers. Historical overlay tooling remains optional; it is not a prerequisite for the renderer or compiler.
+- `canonical/`: the directly implemented geometry/material completion pipeline, immutable asset store, normalized live scene contract, and evaluated-pose skinning reference. See [executable instructions](canonical/README.md).
 
-The intended machine is the owner's Apple Silicon MacBook. The project workspace is independent of the Steam installation. The discovered facts and current blockers are recorded in `docs/STATUS.md`.
+The canonical compiler uses known geometry, calibrated source images/sprite manifests and optional depth, rejects unsupported backface/occluded evidence, and writes one persistent GLB with shared surface appearance. Optional local neural inpainting completes novel views only into still-unknown texels; source observations are locked. No Godot dependency or screen capture is needed by the compiler.
 
-## Read in this order
+`pzcanonical from-pz` directly reads the actual B42 geometry registry and sprite extraction manifest formats, including primitive rotations, tapered cylinders and concave polygons. It fits the source image anchor by silhouette overlap and refuses bad matches rather than warping known geometry. This connects the new compiler to the published asset indexers without a manual schema rewrite.
 
-1. `AGENTS.md` — repository operating rules and scope boundaries.
-2. `docs/PREMISE.md` — the full concept, architectural decisions and longer-term path.
-3. `docs/FIRST_EXPERIMENT.md` — the first implementation objective and acceptance gates.
-4. `docs/SOURCES.md` — sources, what they establish, and what they do not.
-5. `docs/STATUS.md` — current evidence, blockers and next experiment.
-6. `docs/RUNBOOK.md` — executable first-experiment procedure.
+**Validation:** the canonical CPU suite has 25 passing tests and a complete offline orbit. See [the measured result](evidence/canonical-validation.json). Its original calibration fixture is not a PZ asset. Learned inference has not been executed with model weights in the Chat environment. The existing game's runtime diagnostics are in `docs/STATUS.md`; no CPU fixture establishes accepted gameplay, multiplayer correctness, photorealistic quality or Mac GPU performance.
 
-## Current implementation decision
-
-The released first-person Workshop candidate was inspected and rejected: it is
-a Lua/UI raycaster with documented visual and performance limits. The live path
-therefore replaces only PZ's world draw inside the existing PZ frame, then lets
-PZ draw its normal text and UI. There is no second visible Godot window or
-second world renderer. PZ remains authoritative for gameplay.
-
-The concrete neural overlay candidate remains pinned for research comparison,
-but its macOS/toolchain and model prerequisites are currently unavailable. It
-is not the foundation of the live renderer. Treat it and MLX-DLSS as
-experimental third-party software, not official NVIDIA support. See S1–S5.
-
-This is a reversible feasibility probe. A positive result justifies deeper state integration. A poor result is useful evidence, not a reason to conceal latency or replace the deliverable with a rendered still.
-
-## What is included here
-
-The tracked `bin/pzfps` harness provides read-only inspection, pinned upstream setup and source verification, model identity/provenance handling, overlay build/launch/stop, an explicit Steam launch, evidence capture organization, measurement recording, checkpoint validation and conflict-safe deployment bookkeeping. The native overlay itself stays pinned under `.local/upstream/`; it is not reimplemented here.
-
-No model weights, NVIDIA DLL, game assets, first-person mod files, built overlay app, capture, live benchmark or accepted gameplay result is included.
-
-## Local entrypoint
+## Run the new compiler
 
 ```sh
-bin/pzfps doctor --write
-bin/pzfps upstream fetch
-bin/pzfps upstream verify
+python3 -m venv .local/canonical-venv
+.local/canonical-venv/bin/python -m pip install './canonical[test]'
+.local/canonical-venv/bin/python -m pytest canonical/tests -q
+.local/canonical-venv/bin/pzcanonical fixture --output .local/canonical-proof
 ```
 
-See `docs/RUNBOOK.md` before supplying a model, subscribing to the Workshop item, launching the game, or making any external deployment.
+Source, build tools, weights, caches, extracted assets and captures stay inside this workspace; bulk belongs under `.local/`. Game assets, weights and proprietary/decompiled sources are not included in Git. Existing saves and unrelated mods remain untouched.
 
-## Workspace contract
+## Active direction
 
-All project-controlled source, configurations, dependencies, models, builds, captures and reports belong inside the chosen project directory. Large/local material belongs under `.local/` and is excluded from Git. Existing Steam game data is read in place, not copied into the repository. OS-managed settings, Steam/Workshop files, game saves and explicitly approved mod-deployment locations are documented exceptions; this contract does not pretend those applications can never write elsewhere.
+The objective is playable PZ with the real actors, evaluated animations, actions, UI and multiplayer state. Missing geometry/material information belongs in persistent scene assets, not independent image generations every frame. In-process hooks and an external renderer are integration choices, not different gameplay authorities. Neither backend is assumed fastest. Preserve useful implementations and change backend only for a demonstrated requirement.
 
-## Scope boundary
-
-The active slice is the smallest section of the intended renderer: one PZ
-window, authoritative live chunks and actors, perspective structural geometry,
-and the normal PZ UI. It is not permission for mass asset conversion, a second
-simulation, model training, or an unmeasured engine rewrite. See
-`docs/STATUS.md` for the exact acceptance state.
+The old `docs/FIRST_EXPERIMENT.md` overlay-first gate and original brief-only scope are superseded by `AGENTS.md` and this implementation. A missing Workshop mod, overlay model, operating-system update or completed screenshot comparison must not block work on the actual state-to-scene-to-play path.

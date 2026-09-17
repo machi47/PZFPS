@@ -1,0 +1,31 @@
+{
+  "execution": "Chat Linux CPU environment",
+  "python": "3.13.5",
+  "package_version": "0.1.1",
+  "test_command": "cd canonical && PYTHONPATH=. python -m pytest -q",
+  "passed": 25,
+  "failed": 0,
+  "fixture": "original procedurally authored cupboard; not a PZ asset",
+  "asset_report": {
+    "atlas_size": 192,
+    "completion": "harmonic",
+    "constraints": {"bounds": [[-0.5, 0.0, -0.3], [0.5, 1.5, 0.3]], "observations_unchanged": true},
+    "generated_texels": 0,
+    "key": "e6558b21b969f0f4d319d23aa8c1262725fc9e2e6fe8ed55343af2d8271b5ff3",
+    "max_source_disagreement_linear": 0.026145197955070393,
+    "observed_fraction": 0.6513918629550322,
+    "observed_texels": 12168,
+    "prior_only_texels": 6512,
+    "prototype": "fixture:cupboard-NOT-PZ",
+    "reflectance_recovered": false,
+    "runtime_game_tested": false,
+    "schema_version": 1,
+    "source_is_unlit": true,
+    "source_revision": "original-procedural-regression-1",
+    "surface_texels": 18680,
+    "triangles": 12
+  },
+  "orbit": {"frames": 24, "repeat_camera_identical": true, "kind": "offline-canonical-orbit-not-gameplay"},
+  "source_adapter": "src/pzfps/assets.py and WorldMeshBuilder.transform, inspected at 009c258",
+  "not_validated": ["live PZ hookup", "Mac GPU rendering/performance", "multiplayer gameplay", "local-weight neural inference", "photorealistic quality"]
+}
