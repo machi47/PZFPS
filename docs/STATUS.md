@@ -67,7 +67,7 @@ gameplay:
    player is stationary. The former 169 -> 117/104 -> 169 oscillation is gone.
 5. The perspective room uses source PZ textures on known geometry and retains
    the normal PZ text/UI pass. The owner reported no further whole-world flash.
-6. The current source build passes 41 Java tests and 45 Python tests.
+6. The current source build passes 42 Java tests and 45 Python tests.
 
 No source/enhanced video pair or matched gameplay performance capture has yet
 been accepted.
@@ -194,9 +194,11 @@ been accepted.
   perspective ray from the real eye height and pitch. Door/window volumes use
   their actual north/west square edge; conservative container volumes occupy
   their tile. The result is re-resolved by square, index, Java type, object
-  type, sprite and item ID against the live object on PZ's game thread. The
-  `Interact` observation path logs this resolution but leaves PZ's normal
-  `doContext()` fully authoritative.
+  type, sprite and item ID against the live object on PZ's game thread. Before
+  the handoff, B42's own `LosUtil.lineClear` rejects ordinary wall occlusion; a
+  closed door or window admits only itself and cannot expose a container behind
+  it. The `Interact` observation path logs this resolution but leaves PZ's
+  normal `doContext()` fully authoritative.
 - `bridge/src/main/java/dev/pzfps/bridge/PerspectiveContextMenu.java` — hands an
   identity-checked live target to the PZ Lua context system on the game thread.
   It releases mouse capture only after PZ reports a non-empty menu; every menu
@@ -286,7 +288,7 @@ native binary was changed. Socket/log diagnostics used `lsof`, `nc`, `xxd` and
 Most recent test results:
 
 - Python/pytest: 45 passed, 0 failed (49 deprecation warnings).
-- Java/Gradle: 41 passed, 0 failed across `ChunkLifecycleTest`,
+- Java/Gradle: 42 passed, 0 failed across `ChunkLifecycleTest`,
   `CursorCaptureStateTest`, `DirectPatchInstallerTest`, `FirstPersonInputTest`,
   `FirstPersonCharacterCameraTest`, `FirstPersonModelCameraTest`,
   `InputStateTest`, `InteractionTargetTest`, `MovementDiagnosticsTest`,
@@ -309,7 +311,7 @@ Most recent test results:
 - Live-tested staged bridge JAR SHA-256:
   `c0904da6d2f775c6dcd8bfac90ccc1096093640fff7fc05d61149cc8bd8946d2`.
 - Newest built but not live-tested bridge JAR SHA-256:
-  `62a878ceb55189ab3193e5e2e971fafb31925f6078915e004491251103bedcb9`.
+  `b160b8b8bfa88908cbce9dce6092a5780c4d2d9a214126d96af187b40070f3b1`.
 - Offline canonical report:
   `.local/canonical-bed-v64/store/objects/5107aa94b47977535039da77ac4018329c238388ad51c94829dc5a69d01d1a0a/report.json`.
 - Geometry source SHA-256:
@@ -371,8 +373,11 @@ update rates have not been reported as achieved performance.
 8. A Java validation attempt using a project-relative `ZOMBIE_BUDDY_JAR` failed
    because Gradle resolves file dependencies relative to `bridge/`. The
    corrected absolute project-local path above produced a clean build with all
-   24 tests passing; this was an invocation error, not a source or dependency
+   then-current tests passing; this was an invocation error, not a source or dependency
    failure.
+9. The first interaction-sightline test compilation omitted the static
+   `assertFalse` import. The import was added and the complete 42-test Java
+   build then passed; no failed artifact was staged or loaded.
 
 ## Next smallest experiment
 

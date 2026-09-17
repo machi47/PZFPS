@@ -70,6 +70,10 @@ Live FPS controls currently reserve two editable entries under the `[PZFPS]`
 key-binding section: F8 releases/recaptures mouse look, and F7 asks PZ to open
 its own world context menu for the identity-checked three-dimensional reticle
 target. The cursor is released only when PZ actually creates a non-empty menu.
+Immediately before that handoff, B42's own square sightline traversal rejects a
+target hidden by a wall; a closed door or window admits only itself, not a
+container behind it. PZ still owns the menu options, reach/action checks and
+resulting action.
 PZ context menus already request cursor ownership; the bridge also marks an
 inventory/loot pair opened with PZ's normal `Toggle Inventory` action as cursor-
 owning until it is hidden. Merely hovering a collapsed UI strip no longer

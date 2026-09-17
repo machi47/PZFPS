@@ -1,12 +1,30 @@
 package dev.pzfps.bridge;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import zombie.iso.LosUtil;
 
 final class InteractionTargetTest {
+    @Test
+    void admitsOnlyTheOccluderForClosedDoorAndWindowSightlines() {
+        assertTrue(InteractionTarget.allowsSightline(
+                LosUtil.TestResults.ClearThroughClosedDoor, true, false));
+        assertFalse(InteractionTarget.allowsSightline(
+                LosUtil.TestResults.ClearThroughClosedDoor, false, false));
+        assertTrue(InteractionTarget.allowsSightline(
+                LosUtil.TestResults.ClearThroughWindow, false, true));
+        assertFalse(InteractionTarget.allowsSightline(
+                LosUtil.TestResults.ClearThroughWindow, false, false));
+        assertFalse(InteractionTarget.allowsSightline(
+                LosUtil.TestResults.Blocked, true, true));
+        assertTrue(InteractionTarget.allowsSightline(
+                LosUtil.TestResults.ClearThroughOpenDoor, false, false));
+    }
+
     @Test
     void selectsNearestInteractiveObjectInsidePerspectiveReticle() {
         WorldState.TileObject behind = object(0, true, false, false);

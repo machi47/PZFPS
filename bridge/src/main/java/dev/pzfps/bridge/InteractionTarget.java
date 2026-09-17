@@ -5,6 +5,10 @@ import java.util.Optional;
 import zombie.characters.IsoPlayer;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoObject;
+import zombie.iso.LosUtil;
+import zombie.iso.objects.IsoDoor;
+import zombie.iso.objects.IsoThumpable;
+import zombie.iso.objects.IsoWindow;
 import zombie.util.list.PZArrayList;
 
 /** Perspective selection plus identity-checked re-resolution of a live PZ object. */
@@ -80,17 +84,67 @@ final class InteractionTarget {
         PZArrayList<IsoObject> objects = square.getObjects();
         if (reference.objectIndex() >= 0 && reference.objectIndex() < objects.size()) {
             IsoObject indexed = objects.get(reference.objectIndex());
-            if (matches(indexed, reference)) return indexed;
+            if (matches(indexed, reference)
+                    && hasAuthoritativeSightline(player, indexed, reference)) {
+                return indexed;
+            }
         }
 
         IsoObject unique = null;
         for (int index = 0; index < objects.size(); index++) {
             IsoObject candidate = objects.get(index);
             if (!matches(candidate, reference)) continue;
+            if (!hasAuthoritativeSightline(player, candidate, reference)) continue;
             if (unique != null) return null;
             unique = candidate;
         }
         return unique;
+    }
+
+    /**
+     * Uses B42's own square-visibility traversal on the game thread. A closed door or window is
+     * reachable only when it is itself the selected object; it must not expose a container behind
+     * it. Open doors remain traversable, while an ordinary blocking wall rejects the target.
+     */
+    private static boolean hasAuthoritativeSightline(
+            IsoPlayer player, IsoObject object, Reference reference) {
+        int startX = (int) Math.floor(player.getX());
+        int startY = (int) Math.floor(player.getY());
+        int startZ = (int) Math.floor(player.getZ());
+        if (startX == reference.squareX()
+                && startY == reference.squareY()
+                && startZ == reference.z()) {
+            return true;
+        }
+        LosUtil.TestResults result = LosUtil.lineClear(
+                player.getCell(),
+                startX,
+                startY,
+                startZ,
+                reference.squareX(),
+                reference.squareY(),
+                reference.z(),
+                false);
+        return allowsSightline(result, isDoor(object), isWindow(object));
+    }
+
+    static boolean allowsSightline(
+            LosUtil.TestResults result, boolean targetIsDoor, boolean targetIsWindow) {
+        if (result == null || result == LosUtil.TestResults.Blocked) return false;
+        if (result == LosUtil.TestResults.ClearThroughClosedDoor) return targetIsDoor;
+        if (result == LosUtil.TestResults.ClearThroughWindow) return targetIsWindow;
+        return true;
+    }
+
+    private static boolean isDoor(IsoObject object) {
+        return object instanceof IsoDoor
+                || (object instanceof IsoThumpable thumpable && thumpable.isDoor());
+    }
+
+    private static boolean isWindow(IsoObject object) {
+        return object instanceof IsoWindow
+                || (object instanceof IsoThumpable thumpable
+                        && (thumpable.isWindowN() || thumpable.isWindowW()));
     }
 
     private static boolean isInteractive(WorldState.TileObject object) {
