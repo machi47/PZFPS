@@ -56,6 +56,8 @@ public final class InProcessWorldRenderer {
     private static final boolean ENABLED = Boolean.getBoolean("pzfps.renderer.enabled");
 
     private static volatile GpuState gpuState;
+    private static volatile long lastReportNanos;
+    private static volatile long lastReportCompleted;
 
     private InProcessWorldRenderer() {}
 
@@ -139,13 +141,31 @@ public final class InProcessWorldRenderer {
             state.render(snapshot);
             long completed = COMPLETED_FRAMES.incrementAndGet();
             if (completed % 300 == 0) {
+                long reportNanos = System.nanoTime();
+                long previousNanos = lastReportNanos;
+                long previousCompleted = lastReportCompleted;
+                lastReportNanos = reportNanos;
+                lastReportCompleted = completed;
+                double completedHz = previousNanos == 0L
+                        ? Double.NaN
+                        : (completed - previousCompleted)
+                                * 1_000_000_000.0
+                                / Math.max(1L, reportNanos - previousNanos);
                 long stateAge = Math.max(
                         0L, System.currentTimeMillis() - snapshot.player.captureEpochMillis());
+                CullingCounts culling = state.lastCulling;
                 System.out.printf(
-                        "[PZFPS renderer] completedFrames=%d enqueuedFrames=%d meshes=%d built=%d dropped=%d stateAgeMs=%d%n",
+                        "[PZFPS renderer] completedFrames=%d enqueuedFrames=%d completedCallbackHz=%s meshes=%d visible=%d empty=%d distanceCulled=%d frustumCulled=%d built=%d dropped=%d stateAgeMs=%d%n",
                         completed,
                         ENQUEUED_FRAMES.get(),
+                        Double.isFinite(completedHz)
+                                ? String.format(java.util.Locale.ROOT, "%.2f", completedHz)
+                                : "unavailable",
                         snapshot.meshes.size(),
+                        culling.visible(),
+                        culling.empty(),
+                        culling.distance(),
+                        culling.frustum(),
                         BUILT_CHUNKS.get(),
                         DROPPED_CHUNKS.get(),
                         stateAge);
@@ -164,6 +184,12 @@ public final class InProcessWorldRenderer {
             WorldState.Player player,
             WorldState.Entities entities,
             List<WorldMeshBuilder.MeshData> meshes) {}
+
+    private record CullingCounts(int visible, int empty, int distance, int frustum) {
+        private static CullingCounts none() {
+            return new CullingCounts(0, 0, 0, 0);
+        }
+    }
 
     private static final class WorldDrawer extends TextureDraw.GenericDrawer {
         private final RenderSnapshot snapshot;
@@ -191,9 +217,7 @@ public final class InProcessWorldRenderer {
         private final Set<String> reportedMissingTextures = ConcurrentHashMap.newKeySet();
         private boolean entityBufferCreated;
         private int entityVbo;
-        private long visibleChunkSamples;
-        private long distanceCulledSamples;
-        private long frustumCulledSamples;
+        private volatile CullingCounts lastCulling = CullingCounts.none();
         private float renderedEyeHeight = Float.NaN;
         private long lastEyeHeightNanos;
 
@@ -249,7 +273,9 @@ public final class InProcessWorldRenderer {
                 GL20.glUniformMatrix4fv(mvpUniform, false, matrixBuffer);
                 FrustumIntersection frustum = new FrustumIntersection(matrix);
                 synchronizeMeshes(snapshot.meshes);
-                List<WorldMeshBuilder.MeshData> visible = visibleMeshes(snapshot, frustum);
+                VisibleMeshes culled = visibleMeshes(snapshot, frustum);
+                lastCulling = culled.counts();
+                List<WorldMeshBuilder.MeshData> visible = culled.meshes();
                 visible.sort(java.util.Comparator.comparingDouble(
                         source -> distanceSquared(source, snapshot.player)));
                 for (WorldMeshBuilder.MeshData source : visible) {
@@ -334,27 +360,37 @@ public final class InProcessWorldRenderer {
             GL11.glDrawArrays(GL11.GL_TRIANGLES, 0, batch.vertexCount);
         }
 
-        private List<WorldMeshBuilder.MeshData> visibleMeshes(
+        private VisibleMeshes visibleMeshes(
                 RenderSnapshot snapshot, FrustumIntersection frustum) {
             ArrayList<WorldMeshBuilder.MeshData> visible = new ArrayList<>();
+            int empty = 0;
+            int distanceCulled = 0;
+            int frustumCulled = 0;
             float maximumDistanceSquared = RENDER_DISTANCE * RENDER_DISTANCE;
             for (WorldMeshBuilder.MeshData source : snapshot.meshes) {
-                if (source.vertexCount() == 0) continue;
+                if (source.vertexCount() == 0) {
+                    empty++;
+                    continue;
+                }
                 if (distanceSquared(source, snapshot.player) > maximumDistanceSquared) {
-                    distanceCulledSamples++;
+                    distanceCulled++;
                     continue;
                 }
                 if (!frustum.testAab(
                         source.minX(), source.minY(), source.minZ(),
                         source.maxX(), source.maxY(), source.maxZ())) {
-                    frustumCulledSamples++;
+                    frustumCulled++;
                     continue;
                 }
-                visibleChunkSamples++;
                 visible.add(source);
             }
-            return visible;
+            return new VisibleMeshes(
+                    visible,
+                    new CullingCounts(visible.size(), empty, distanceCulled, frustumCulled));
         }
+
+        private record VisibleMeshes(
+                List<WorldMeshBuilder.MeshData> meshes, CullingCounts counts) {}
 
         private static double distanceSquared(
                 WorldMeshBuilder.MeshData source, WorldState.Player player) {

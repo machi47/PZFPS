@@ -85,7 +85,9 @@ been accepted.
 - `bridge/src/main/java/dev/pzfps/bridge/InProcessWorldRenderer.java` — queues a
   renderer-owned `TextureDraw.GenericDrawer`, owns GL resources, draws a
   perspective source-textured world with back-face culling/alpha handling, and
-  restores state for PZ's later UI pass.
+  restores state for PZ's later UI pass. Its periodic evidence now separates
+  measured completed-callback rate from gameplay FPS and reports visible,
+  empty, distance-culled and frustum-culled chunk counts for the completed frame.
 - `bridge/src/main/java/dev/pzfps/bridge/WorldMeshBuilder.java` — converts
   immutable chunk snapshots into source-textured indexed geometry, puts
   structural north/west faces on square boundaries instead of centered slabs,
@@ -189,7 +191,7 @@ Most recent test results:
 - Live-tested staged bridge JAR SHA-256:
   `c0904da6d2f775c6dcd8bfac90ccc1096093640fff7fc05d61149cc8bd8946d2`.
 - Newest built but not live-tested bridge JAR SHA-256:
-  `c10caa4f5c1b22069f437322481beadf2814a007b17c570ee299df19af961fa7`.
+  `83cbcd2a286d29cfd4b674abf906deeec466b25d117af5f7cb0679ebddd64a99`.
 - Offline canonical report:
   `.local/canonical-bed-v64/store/objects/5107aa94b47977535039da77ac4018329c238388ad51c94829dc5a69d01d1a0a/report.json`.
 - Geometry source SHA-256:
