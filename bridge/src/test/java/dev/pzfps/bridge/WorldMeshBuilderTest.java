@@ -116,6 +116,44 @@ final class WorldMeshBuilderTest {
     }
 
     @Test
+    void usesAuthoritativeFloorPropertyWithoutRequiringANamePrefix() throws Exception {
+        Path registryPath = temporary.resolve("semantic-floor.json");
+        Files.writeString(
+                registryPath,
+                "{\"schema_version\":1,\"source_sha256\":\"x\",\"tiles\":{}}");
+        WorldState.TileObject floor = new WorldState.TileObject(
+                0,
+                "zombie.iso.IsoObject",
+                "normal",
+                "modded_marble_surface_0",
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                true,
+                WorldState.WorldItem.none());
+        WorldState.Square square = new WorldState.Square(
+                0, 0, 0, -1, 0, 255, 255, 255,
+                true, true, false, false, false, false, List.of(floor));
+
+        WorldMeshBuilder.MeshData mesh = new WorldMeshBuilder(
+                        TileGeometryRegistry.load(registryPath))
+                .build(new WorldState.Chunk(0, 0, 1, 1, List.of(square)));
+
+        assertEquals(1, mesh.coverage().sourceTexturedFloors());
+        assertEquals(0, mesh.coverage().unsupportedObjects());
+        assertEquals(6, mesh.vertexCount());
+        assertEquals("modded_marble_surface_0", mesh.texturedBatches().getFirst().sprite());
+    }
+
+    @Test
     void retainsLoadedVerticalWorldInsteadOfApplyingIsometricSeenGating() throws Exception {
         Path registryPath = temporary.resolve("empty.json");
         Files.writeString(

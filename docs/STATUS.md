@@ -67,7 +67,7 @@ gameplay:
    player is stationary. The former 169 -> 117/104 -> 169 oscillation is gone.
 5. The perspective room uses source PZ textures on known geometry and retains
    the normal PZ text/UI pass. The owner reported no further whole-world flash.
-6. The current source build passes 58 Java tests and 45 Python tests.
+6. The current source build passes 59 Java tests and 45 Python tests.
 
 No source/enhanced video pair or matched gameplay performance capture has yet
 been accepted.
@@ -120,6 +120,10 @@ been accepted.
   object also records B42's real `solidfloor` property so first-person context
   selection can intersect a thin floor plane instead of an entire three-metre
   tile volume.
+  `WorldMeshBuilder` uses that property as the primary floor-texture identity
+  and duplicate-suppression rule, with the historical `floors_` prefix only as
+  compatibility for older snapshots. This preserves real nonstandard/modded
+  floor identities instead of classifying them as unsupported 3D objects.
 - `bridge/src/main/java/dev/pzfps/bridge/FirstPersonInput.java` — uses GLFW
   relative mouse deltas without macOS cursor warping, reads PZ's actual physical
   key bindings simultaneously, and returns the inverse of B42's isometric input
@@ -381,7 +385,7 @@ object on its square. No installed script was modified.
 Most recent test results:
 
 - Python/pytest: 45 passed, 0 failed (49 deprecation warnings).
-- Java/Gradle: 58 passed, 0 failed across `ChunkLifecycleTest`,
+- Java/Gradle: 59 passed, 0 failed across `ChunkLifecycleTest`,
   `CursorCaptureStateTest`, `DirectPatchInstallerTest`, `FirstPersonInputTest`,
   `FirstPersonCharacterCameraTest`, `FirstPersonModelCameraTest`,
   `InputStateTest`, `InteractionTargetTest`, `MovementDiagnosticsTest`,
@@ -407,7 +411,7 @@ Most recent test results:
 - Live-tested staged bridge JAR SHA-256:
   `c0904da6d2f775c6dcd8bfac90ccc1096093640fff7fc05d61149cc8bd8946d2`.
 - Newest built but not live-tested bridge JAR SHA-256:
-  `b47d7b35e7c127a350119281993d271b88b03f579bce28ae3b8405f0ae24a6b0`.
+  `5b2f9353b5c4ad15f9d080250230212fb0e6e1c5b82d16cd78483bf8de952ee6`.
 - Offline canonical report:
   `.local/canonical-bed-v64/store/objects/5107aa94b47977535039da77ac4018329c238388ad51c94829dc5a69d01d1a0a/report.json`.
 - Geometry source SHA-256:
@@ -526,8 +530,10 @@ update rates have not been reported as achieved performance.
     object expansion. The bridge now ray-orders broad geometric candidates and
     lets that game-owned test reject non-actionable hits. Floor and dropped-item
     bounds prevent the former full-tile proxy from stealing a horizontal ray.
-    The 58-test build, game-native Lua parse and Godot parser pass succeeded;
-    this source checkpoint has not been staged or live-accepted.
+    The 59-test build, game-native Lua parse and Godot parser pass succeeded;
+    the renderer also consumes the new floor identity instead of relying on a
+    sprite-name convention. This source checkpoint has not been staged or
+    live-accepted.
 
 ## Next smallest experiment
 

@@ -160,7 +160,11 @@ public final class WorldMeshBuilder {
                 stairFloorOpenings++;
             }
             for (WorldState.TileObject object : square.objects()) {
-                if (object.sprite().startsWith("floors_")) continue;
+                // The installed game exposes solidfloor as the semantic source of truth. Keep
+                // the name fallback only for protocol fixtures/older snapshots; relying on the
+                // conventional floors_ prefix misclassified mod and B42 floor identities as
+                // full 3D objects and could draw them twice.
+                if (object.floor() || object.sprite().startsWith("floors_")) continue;
                 // PZ chooses a dedicated InventoryItem static/world model here. Treating its
                 // generated IsoSprite name as a map-tile identity produced repeated unrelated
                 // geometry (the observed "brown pots"). Preserve the authoritative item/model
@@ -264,6 +268,11 @@ public final class WorldMeshBuilder {
     }
 
     private static String floorSprite(WorldState.Square square) {
+        for (WorldState.TileObject object : square.objects()) {
+            if (object.worldItem().present()) continue;
+            if (object.floor() && !object.sprite().isBlank()) return object.sprite();
+        }
+        // Compatibility with pre-floor-flag captures and intentionally minimal fixtures.
         for (WorldState.TileObject object : square.objects()) {
             if (object.worldItem().present()) continue;
             String sprite = object.sprite();
