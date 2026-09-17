@@ -163,6 +163,7 @@ public final class BridgeServer implements AutoCloseable {
             if (clientRunning.get()) logFailure("input", error);
         } finally {
             clientRunning.set(false);
+            InputState.deactivate();
         }
     }
 

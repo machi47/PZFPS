@@ -54,6 +54,14 @@ final class FirstPersonInputTest {
         assertFalse(FirstPersonInput.uiWantsCursor(false, false, false, false));
     }
 
+    @Test
+    void advancesOnlyTheRequestedIsolatedSaveLoadingGate() {
+        assertTrue(FirstPersonInput.shouldAdvanceDisposableLoadingScreen(true, true, false));
+        assertFalse(FirstPersonInput.shouldAdvanceDisposableLoadingScreen(false, true, false));
+        assertFalse(FirstPersonInput.shouldAdvanceDisposableLoadingScreen(true, false, false));
+        assertFalse(FirstPersonInput.shouldAdvanceDisposableLoadingScreen(true, true, true));
+    }
+
     private static Vector2 pzWorldMovement(Vector2 input) {
         return new Vector2(input.y + input.x, input.y - input.x);
     }

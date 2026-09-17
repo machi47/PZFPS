@@ -16,6 +16,10 @@ public final class MouseInputPatch {
         public static void exit(
                 @Advice.Argument(0) int button,
                 @Advice.Return(readOnly = false) boolean result) {
+            if (button == RAW_LEFT && FirstPersonInput.shouldAdvanceDisposableLoadingScreen()) {
+                result = true;
+                return;
+            }
             if (!InputState.current().active()) return;
             if (button == RAW_LEFT && InputState.isButtonDown(InputState.PRIMARY)) result = true;
             if (button == RAW_RIGHT && InputState.isButtonDown(InputState.AIM)) result = true;

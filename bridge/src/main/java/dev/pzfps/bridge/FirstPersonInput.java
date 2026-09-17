@@ -143,6 +143,22 @@ public final class FirstPersonInput {
         return initialized && CURSOR.captured();
     }
 
+    /**
+     * The isolated auto-continue path reaches B42's frame-polled "Click to Start" gate after
+     * requesting the known disposable save. GUI automation emits a shorter click than that poll
+     * reliably observes, so hold only the loading-screen left-button state until the first real
+     * player update initializes FPS input. This cannot activate on an ordinary/non-isolated run.
+     */
+    static boolean shouldAdvanceDisposableLoadingScreen() {
+        return shouldAdvanceDisposableLoadingScreen(
+                Boolean.getBoolean("pzfps.autoContinue"), menuContinueRequested, initialized);
+    }
+
+    static boolean shouldAdvanceDisposableLoadingScreen(
+            boolean autoContinue, boolean continueRequested, boolean playerInitialized) {
+        return autoContinue && continueRequested && !playerInitialized;
+    }
+
     /** Called immediately before opening a PZ-owned context/menu surface. */
     public static void releaseForUi() {
         if (!initialized) return;
