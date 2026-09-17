@@ -17,6 +17,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.joml.FrustumIntersection;
 import org.joml.Matrix4f;
+import org.joml.Matrix4fc;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL13;
@@ -56,6 +57,7 @@ public final class InProcessWorldRenderer {
     private static final boolean ENABLED = Boolean.getBoolean("pzfps.renderer.enabled");
 
     private static volatile GpuState gpuState;
+    private static volatile CameraMatrices cameraMatrices;
     private static volatile long lastReportNanos;
     private static volatile long lastReportCompleted;
 
@@ -108,6 +110,29 @@ public final class InProcessWorldRenderer {
 
     public static boolean isReady() {
         return ENABLED && ASSETS_READY.get() && !RENDER_FAILED.get() && !MESHES.isEmpty();
+    }
+
+    static CameraMatrices currentCameraMatrices() {
+        return cameraMatrices;
+    }
+
+    record CameraMatrices(Matrix4f projection, Matrix4f view) {
+        CameraMatrices {
+            projection = new Matrix4f(projection);
+            view = new Matrix4f(view);
+        }
+
+        Matrix4f combined() {
+            return new Matrix4f(projection).mul(view);
+        }
+
+        Matrix4fc projectionView() {
+            return projection;
+        }
+
+        Matrix4fc worldView() {
+            return view;
+        }
     }
 
     private static void meshWorker(Path registryPath) {
@@ -267,7 +292,10 @@ public final class InProcessWorldRenderer {
                 GL20.glUseProgram(program);
                 GL20.glUniform1i(textureUniform, 0);
 
-                Matrix4f matrix = viewProjection(snapshot.player, smoothEyeHeight(snapshot.player));
+                CameraMatrices camera = cameraMatrices(
+                        snapshot.player, smoothEyeHeight(snapshot.player));
+                cameraMatrices = camera;
+                Matrix4f matrix = camera.combined();
                 FloatBuffer matrixBuffer = BufferUtils.createFloatBuffer(16);
                 matrix.get(matrixBuffer);
                 GL20.glUniformMatrix4fv(mvpUniform, false, matrixBuffer);
@@ -493,7 +521,7 @@ public final class InProcessWorldRenderer {
             return renderedEyeHeight;
         }
 
-        private static Matrix4f viewProjection(WorldState.Player player, float eyeHeight) {
+        private static CameraMatrices cameraMatrices(WorldState.Player player, float eyeHeight) {
             IntBuffer viewport = BufferUtils.createIntBuffer(4);
             GL11.glGetIntegerv(GL11.GL_VIEWPORT, viewport);
             int width = Math.max(1, viewport.get(2));
@@ -507,9 +535,9 @@ public final class InProcessWorldRenderer {
             float directionY = (float) Math.sin(pitch);
             float directionZ = player.forwardY() * horizontal;
             if (Math.abs(directionX) + Math.abs(directionZ) < 0.001f) directionZ = 1.0f;
-            return new Matrix4f()
-                    .perspective((float) Math.toRadians(82.0), (float) width / height, 0.035f, 400.0f)
-                    .lookAt(
+            Matrix4f projection = new Matrix4f().perspective(
+                    (float) Math.toRadians(82.0), (float) width / height, 0.035f, 400.0f);
+            Matrix4f view = new Matrix4f().lookAt(
                             eyeX,
                             eyeY,
                             eyeZ,
@@ -519,6 +547,7 @@ public final class InProcessWorldRenderer {
                             0,
                             1,
                             0);
+            return new CameraMatrices(projection, view);
         }
 
         private static int createProgram() {

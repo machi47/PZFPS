@@ -67,7 +67,7 @@ gameplay:
    player is stationary. The former 169 -> 117/104 -> 169 oscillation is gone.
 5. The perspective room uses source PZ textures on known geometry and retains
    the normal PZ text/UI pass. The owner reported no further whole-world flash.
-6. The current source build passes 24 Java tests and 45 Python tests.
+6. The current source build passes 27 Java tests and 45 Python tests.
 
 No source/enhanced video pair or matched gameplay performance capture has yet
 been accepted.
@@ -116,6 +116,17 @@ been accepted.
   item's real ID/type, static/world model identities, world texture, absolute
   placement, rotations, scale and extended-placement state. The mesh builder
   now refuses to treat its generated item sprite as map-tile geometry.
+- `bridge/src/main/java/dev/pzfps/bridge/NativeWorldItemPass.java` and
+  `FirstPersonModelCamera.java` — cull captured dropped items in the perspective
+  view, re-resolve each by square/index/item ID on PZ's game thread, and queue
+  PZ's own `ItemModelRenderer` after the replacement world. This delegates
+  state-specific static/world model choice, installed mesh/texture loading,
+  attachments, tint and scale to the game instead of re-parsing FBX/X or
+  drawing a sprite proxy. The camera adapter maps model space into the same
+  perspective view and scopes `PerformanceSettings.fboRenderChunk=false` to
+  each synchronous item draw so PZ's isometric `targetDepth` offset cannot
+  corrupt perspective depth. The prior value is restored in `finally`. This is
+  source-built and unit-tested, not yet live-accepted.
 - `bridge/src/main/java/dev/pzfps/bridge/InteractionTarget.java` — chooses only
   authoritative door/window/container candidates inside a short perspective
   reticle, uses their actual square-edge placement, and re-resolves square,
@@ -180,17 +191,20 @@ bin/pzfps game status-isolated
 ```
 
 Targeted installed-class inspection used `javap -c -p` on `IsoPlayer`,
-`IsoWorld`, `UIManager`, `IsoWorldInventoryObject`, `InventoryItem` and related
-input/context-action classes. Socket/log diagnostics used `lsof`, `nc`, `xxd`
-and `rg`; these did not modify the installation.
+`IsoWorld`, `UIManager`, `IsoWorldInventoryObject`, `InventoryItem`,
+`ItemModelRenderer`, `WorldItemModelDrawer`, `IModelCamera`, `Shader` and related
+input/context-action/model classes. The installed `basicEffect` shaders were
+also searched to verify that `targetDepth` changes clip-space Z. Socket/log
+diagnostics used `lsof`, `nc`, `xxd` and `rg`; these did not modify the
+installation.
 
 Most recent test results:
 
 - Python/pytest: 45 passed, 0 failed (49 deprecation warnings).
-- Java/Gradle: 24 passed, 0 failed across `ChunkLifecycleTest`,
+- Java/Gradle: 27 passed, 0 failed across `ChunkLifecycleTest`,
   `CursorCaptureStateTest`, `DirectPatchInstallerTest`, `FirstPersonInputTest`,
-  `InputStateTest`, `InteractionTargetTest`, `WireProtocolTest` and
-  `WorldMeshBuilderTest`.
+  `FirstPersonModelCameraTest`, `InputStateTest`, `InteractionTargetTest`,
+  `NativeWorldItemPassTest`, `WireProtocolTest` and `WorldMeshBuilderTest`.
 
 ## Evidence and identities
 
@@ -205,7 +219,7 @@ Most recent test results:
 - Live-tested staged bridge JAR SHA-256:
   `c0904da6d2f775c6dcd8bfac90ccc1096093640fff7fc05d61149cc8bd8946d2`.
 - Newest built but not live-tested bridge JAR SHA-256:
-  `61a9dce618e2ccf537dc0379ae682aace341c8a8dce906b0df4cbc08cacf1060`.
+  `31b91f2a25325947b77a550e97ccc2e9855f5f4f246eff72e33b6e5a57003dfd`.
 - Offline canonical report:
   `.local/canonical-bed-v64/store/objects/5107aa94b47977535039da77ac4018329c238388ad51c94829dc5a69d01d1a0a/report.json`.
 - Geometry source SHA-256:
@@ -237,8 +251,10 @@ update rates have not been reported as achieved performance.
    Escape, inventory/modal and context-menu acceptance pass.
 3. Dropped-item capture now carries `InventoryItem` model identity, position,
    rotations and world scale. The renderer deliberately omits the old wrong
-   tile-geometry substitution; consuming PZ's real static model remains the
-   exact prerequisite for drawing the item rather than leaving an honest hole.
+   tile-geometry substitution. A source-built native item pass now calls PZ's
+   own `ItemModelRenderer` through a perspective camera adapter; its remaining
+   prerequisite is a live check that a real dropped item has the right model,
+   texture, placement and occlusion from several viewpoints.
 4. Center-view doors/containers/context menus and combat must resolve a stable
    snapshot reference back to the exact live PZ object on the game thread. That
    reference/re-resolution seam is now implemented and unit-tested; opening a
@@ -268,10 +284,12 @@ Without restarting the current accepted visual session merely to inspect it:
    non-empty menu, releases the cursor, executes one normal option, and
    recaptures only after the menu clears. The implementation is built but not
    live-tested; acceptance requires PZ's real action/context code to run.
-4. Consume `.local/assets/pz-42.20/model-index.json` for one captured
-   `worldStaticModel`, load its exact installed mesh/texture and apply its
-   declared scale/world attachment, retaining omission rather than reverting to
-   a false tile proxy when an identity cannot be resolved.
+4. Inspect one real dropped item from several angles and verify the new native
+   item pass selects PZ's installed model/texture, placement and scale, shares
+   the perspective depth buffer, and leaves unresolved identities as honest
+   holes. The offline model index remains independent reproducibility evidence;
+   the live path intentionally uses PZ's state-aware renderer rather than
+   duplicating its asset-selection rules.
 
 The later appearance experiment is one identity-stable real asset carried
 through constrained completion and inspected from multiple moving views. It is

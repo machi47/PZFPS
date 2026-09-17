@@ -91,6 +91,11 @@ public final class BridgeRuntime {
         }
     }
 
+    /** Queue native item models after the replacement world so they share its depth buffer. */
+    public static void queueNativeWorldItems() {
+        NativeWorldItemPass.queueVisible(IsoPlayer.getInstance());
+    }
+
     private static void capture(IsoPlayer player) {
         if (!STARTED.get() || server == null || player == null) return;
         long now = System.nanoTime();
@@ -226,6 +231,7 @@ public final class BridgeRuntime {
             ACCEPTED_CHUNKS.remove(removedKey);
             server.removeChunk(removedKey);
             InProcessWorldRenderer.removeChunk(removedKey);
+            NativeWorldItemPass.removeChunk(removedKey);
         }
 
         int acceptedChanges = 0;
@@ -238,6 +244,7 @@ public final class BridgeRuntime {
                 ACCEPTED_CHUNKS.put(key, snapshot);
                 server.publishChunk(snapshot);
                 InProcessWorldRenderer.submitChunk(snapshot);
+                NativeWorldItemPass.acceptChunk(snapshot);
                 acceptedChanges++;
             }
         }

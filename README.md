@@ -35,8 +35,12 @@ bin/pzfps assets index-models
 
 The generated `.local/assets/pz-<version>/model-index.json` resolves script
 model identities to exact installed mesh/texture paths and preserves the
-declared scale and `attachment world` transform. This is input to a future live
-model consumer; generating the index does not claim those meshes are rendered.
+declared scale and `attachment world` transform. The bridge now also contains a
+live consumer for dropped items: it identity-checks each captured item against
+the authoritative square, then asks PZ's own `ItemModelRenderer` to select and
+draw the installed mesh, texture, attachments, tint and item-state variants in
+the replacement perspective depth. That path is built and unit-tested but has
+not yet been accepted in a live session.
 
 Live FPS controls currently reserve two editable entries under the `[PZFPS]`
 key-binding section: F8 releases/recaptures mouse look, and F7 asks PZ to open

@@ -9,6 +9,8 @@ public final class WorldRenderPatch {
     @Advice.OnMethodEnter(skipOn = Advice.OnNonDefaultValue.class)
     public static boolean enter() {
         BridgeRuntime.onWorldRender();
-        return InProcessWorldRenderer.replaceWorldDraw();
+        boolean replaced = InProcessWorldRenderer.replaceWorldDraw();
+        if (replaced) BridgeRuntime.queueNativeWorldItems();
+        return replaced;
     }
 }
