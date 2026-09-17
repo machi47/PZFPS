@@ -32,6 +32,7 @@ public final class DirectPatchInstaller {
         PlayerUpdatePatch.class,
         InputMovePatch.class,
         AimVectorPatch.class,
+        AimStatePatch.class,
         StrafingPatch.class,
         KeyboardInputPatch.Down.class,
         KeyboardInputPatch.Pressed.class,
@@ -86,6 +87,8 @@ public final class DirectPatchInstaller {
                         named("update").and(takesArguments(0));
                 ElementMatcher.Junction<MethodDescription> movement = inputMoveMatcher();
                 ElementMatcher.Junction<MethodDescription> aim = aimMatcher();
+                ElementMatcher.Junction<MethodDescription> calculateAim = calculateAimMatcher();
+                ElementMatcher.Junction<MethodDescription> setAngleFromAim = setAngleFromAimMatcher();
                 requireOneTarget(type, update, "update()V");
                 requireOneTarget(
                         type,
@@ -95,10 +98,16 @@ public final class DirectPatchInstaller {
                         type,
                         aim,
                         "getAimVector(Lzombie/iso/Vector2;)Lzombie/iso/Vector2;");
+                requireOneTarget(
+                        type,
+                        calculateAim,
+                        "calculateAimVector(Lzombie/iso/Vector2;)Lzombie/iso/Vector2;");
+                requireOneTarget(type, setAngleFromAim, "setAngleFromAim()V");
                 yield builder
                         .visit(advice(PlayerUpdatePatch.class).on(update))
                         .visit(advice(InputMovePatch.class).on(movement))
-                        .visit(advice(AimVectorPatch.class).on(aim));
+                        .visit(advice(AimVectorPatch.class).on(aim.or(calculateAim)))
+                        .visit(advice(AimStatePatch.class).on(setAngleFromAim));
             }
             case "zombie.characters.IsoGameCharacter" -> {
                 ElementMatcher.Junction<MethodDescription> strafing =
@@ -150,6 +159,16 @@ public final class DirectPatchInstaller {
         return named("getAimVector")
                 .and(takesArguments(1))
                 .and(takesArgument(0, named("zombie.iso.Vector2")));
+    }
+
+    static ElementMatcher.Junction<MethodDescription> calculateAimMatcher() {
+        return named("calculateAimVector")
+                .and(takesArguments(1))
+                .and(takesArgument(0, named("zombie.iso.Vector2")));
+    }
+
+    static ElementMatcher.Junction<MethodDescription> setAngleFromAimMatcher() {
+        return named("setAngleFromAim").and(takesArguments(0));
     }
 
     static void requireOneTarget(

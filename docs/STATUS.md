@@ -116,6 +116,15 @@ been accepted.
 - `bridge/src/main/java/dev/pzfps/bridge/patches/StrafingPatch.java` — preserves
   FPS view/actor facing while the authoritative PZ movement path handles left,
   right and backward movement.
+- `bridge/src/main/java/dev/pzfps/bridge/patches/AimVectorPatch.java` and
+  `AimStatePatch.java` — cover both B42 aim-vector routes: the public
+  `getAimVector(Vector2)` used during movement and the private
+  `calculateAimVector(Vector2)` called directly by `setAngleFromAim()` during
+  combat. After that method invokes B42's isometric ballistics calculation, the
+  patch restores the local actor's horizontal facing and vertical presentation
+  to the FPS camera. PZ still decides whether an attack is authorized and
+  executes `AttemptAttack`; native ranged target acquisition is not yet
+  perspective-correct and is not claimed as accepted combat.
 - `bridge/mod/42/media/lua/client/PZFPS_KeyBinding.lua` — registers the F8 mouse
   capture action and F7 perspective context-menu action through PZ's editable
   key-binding system. Its context wrapper feeds the exact target's isometric
@@ -220,13 +229,18 @@ Targeted installed-class inspection used `javap -c -p` on `IsoPlayer`,
 `ItemModelRenderer`, `WorldItemModelDrawer`, `IModelCamera`, `ModelCamera`,
 `CharacterModelCamera`, `ModelCameraRenderData`, `ModelSlotRenderData`,
 `TextureDraw.drawModel`, `SpriteRenderer.drawModel`, `Model`, `Shader`,
-`CharacterInputComponent`, `IsoPlayer.doContext()` and related input/context-
-action/model classes. This confirmed that B42 snapshots evaluated model data on
+`CharacterInputComponent`, `IsoPlayer.doContext()`, `BallisticsController`,
+`AimingReticle`, `Bullet` and related input/context-action/model classes. This
+confirmed that B42 snapshots evaluated model data on
 the producer side, reference-counts it until `postRender()`, and delegates the
 actual character camera through `ModelCamera.instance`. The installed
 `basicEffect` shaders were also searched to verify that `targetDepth` changes
-clip-space Z. Socket/log diagnostics used `lsof`, `nc`, `xxd` and `rg`; these
-did not modify the installation.
+clip-space Z. Aim-path inspection established that B42's attack path calls the
+private `calculateAimVector(Vector2)` directly and that ranged target selection
+uses a native Bullet camera configured with a hard-coded isometric quaternion;
+the latter remains an explicit prerequisite for accepted first-person ranged
+combat. Socket/log diagnostics used `lsof`, `nc`, `xxd` and `rg`; these did not
+modify the installation.
 
 Most recent test results:
 
@@ -251,7 +265,7 @@ Most recent test results:
 - Live-tested staged bridge JAR SHA-256:
   `c0904da6d2f775c6dcd8bfac90ccc1096093640fff7fc05d61149cc8bd8946d2`.
 - Newest built but not live-tested bridge JAR SHA-256:
-  `39df22fe9db8e9be1457fd20419995a550202d9e99d2687ffd557ff7a00b3f96`.
+  `724ec87ae3e1ff80fc8cfb19c9e70d77d69eaced18921d9f71bdf27f2f818c57`.
 - Offline canonical report:
   `.local/canonical-bed-v64/store/objects/5107aa94b47977535039da77ac4018329c238388ad51c94829dc5a69d01d1a0a/report.json`.
 - Geometry source SHA-256:

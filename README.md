@@ -60,6 +60,13 @@ inventory/loot pair opened with PZ's normal `Toggle Inventory` action as cursor-
 owning until it is hidden. Merely hovering a collapsed UI strip no longer
 releases mouse look.
 
+The installed B42 combat path bypasses its public aim getter and calls a private
+isometric aim calculation directly. The bridge now hooks both routes and
+reasserts FPS yaw/pitch after `setAngleFromAim()`, while leaving PZ's normal
+attack authorization and `AttemptAttack` execution intact. This fixes actor
+facing at the Java action boundary; it does not yet make B42's native Bullet
+camera ray perspective-correct, so ranged targeting is explicitly not accepted.
+
 ## Active direction
 
 The objective is playable PZ with the real actors, evaluated animations, actions, UI and multiplayer state. Missing geometry/material information belongs in persistent scene assets, not independent image generations every frame. In-process hooks and an external renderer are integration choices, not different gameplay authorities. Neither backend is assumed fastest. Preserve useful implementations and change backend only for a demonstrated requirement.

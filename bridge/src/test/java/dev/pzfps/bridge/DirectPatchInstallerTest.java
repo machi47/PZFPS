@@ -16,5 +16,13 @@ final class DirectPatchInstallerTest {
                 player,
                 DirectPatchInstaller.aimMatcher(),
                 "getAimVector(Lzombie/iso/Vector2;)Lzombie/iso/Vector2;");
+        DirectPatchInstaller.requireOneTarget(
+                player,
+                DirectPatchInstaller.calculateAimMatcher(),
+                "calculateAimVector(Lzombie/iso/Vector2;)Lzombie/iso/Vector2;");
+        DirectPatchInstaller.requireOneTarget(
+                player,
+                DirectPatchInstaller.setAngleFromAimMatcher(),
+                "setAngleFromAim()V");
     }
 }

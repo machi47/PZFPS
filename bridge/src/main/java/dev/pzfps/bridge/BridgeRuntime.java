@@ -135,13 +135,25 @@ public final class BridgeRuntime {
 
     private static void updateAndApplyLookInput(IsoPlayer player) {
         InputState.Sample input = InputState.current();
+        if (!input.active()) {
+            FirstPersonInput.update(player);
+        }
+        applyPerspectiveAim(player, input);
+    }
+
+    /** Reasserts the view after setAngleFromAim's isometric reticle/ballistics calculation. */
+    public static void restorePerspectiveAim(IsoPlayer player) {
+        if (!STARTED.get() || !isAuthoritativeLocalPlayer(player)) return;
+        applyPerspectiveAim(player, InputState.current());
+    }
+
+    private static void applyPerspectiveAim(IsoPlayer player, InputState.Sample input) {
         float yaw;
         float pitch;
         if (input.active()) {
             yaw = input.yaw();
             pitch = input.pitch();
         } else {
-            FirstPersonInput.update(player);
             if (!FirstPersonInput.isCaptured()) return;
             yaw = FirstPersonInput.yaw();
             pitch = FirstPersonInput.pitch();
