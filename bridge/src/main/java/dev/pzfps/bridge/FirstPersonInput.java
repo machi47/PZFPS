@@ -23,6 +23,9 @@ public final class FirstPersonInput {
     private static float yaw;
     private static float pitch;
     private static MovementRequest lastMovementRequest = MovementRequest.inactive();
+    private static float lastLoggedForward = Float.NaN;
+    private static float lastLoggedStrafe = Float.NaN;
+    private static boolean lastLoggedCaptured;
     private static boolean menuContinueRequested;
     private static int menuProbeTicks;
 
@@ -144,12 +147,21 @@ public final class FirstPersonInput {
     }
 
     /**
+     * The FPS coordinate system remains authoritative while its cursor is released for PZ UI.
+     * Capture controls only relative mouse deltas; it must never switch WASD, character facing or
+     * aiming back to PZ's isometric interpretation.
+     */
+    public static boolean isPerspectiveActive() {
+        return initialized;
+    }
+
+    /**
      * The isolated auto-continue path reaches B42's frame-polled "Click to Start" gate after
      * requesting the known disposable save. GUI automation emits a shorter click than that poll
      * reliably observes, so hold only the loading-screen left-button state until the first real
      * player update initializes FPS input. This cannot activate on an ordinary/non-isolated run.
      */
-    static boolean shouldAdvanceDisposableLoadingScreen() {
+    public static boolean shouldAdvanceDisposableLoadingScreen() {
         return shouldAdvanceDisposableLoadingScreen(
                 Boolean.getBoolean("pzfps.autoContinue"), menuContinueRequested, initialized);
     }
@@ -179,12 +191,13 @@ public final class FirstPersonInput {
     }
 
     public static Vector2 movementVector(Vector2 value) {
-        if (!isCaptured()) {
+        if (!isPerspectiveActive()) {
             lastMovementRequest = MovementRequest.inactive();
             return value;
         }
         float forward = boundKeyAxis("Forward", "Backward");
         float strafe = boundKeyAxis("Right", "Left");
+        logMovementChange(forward, strafe);
         if (forward != 0.0f || strafe != 0.0f) {
             return rotateDigitalMovement(value, yaw, forward, strafe);
         }
@@ -193,12 +206,14 @@ public final class FirstPersonInput {
     }
 
     public static Vector2 aimVector(Vector2 value) {
-        if (!isCaptured()) return value;
+        if (!isPerspectiveActive()) return value;
         return value.set((float) Math.cos(yaw), (float) Math.sin(yaw));
     }
 
     public static boolean requiresStrafePresentation() {
-        return isCaptured()
+        InputState.Sample external = InputState.current();
+        if (external.active()) return external.strafe() != 0.0f || external.forward() < 0.0f;
+        return isPerspectiveActive()
                 && (isBoundKeyDown("Left")
                         || isBoundKeyDown("Right")
                         || isBoundKeyDown("Backward"));
@@ -208,6 +223,21 @@ public final class FirstPersonInput {
             Vector2 value, float cameraYaw, float forward, float strafe) {
         float sourceSpeed = value.getLength();
         if (sourceSpeed <= 0.0001f) sourceSpeed = 1.0f;
+        lastMovementRequest = movementFor(cameraYaw, forward, strafe, sourceSpeed);
+        float worldX = lastMovementRequest.worldX();
+        float worldY = lastMovementRequest.worldY();
+
+        // IsoPlayer.UpdateMovementFromInput applies its isometric keyboard transform
+        // after getInputMoveVector returns:
+        //   playerMoveDir.x = input.y + input.x
+        //   playerMoveDir.y = input.y - input.x
+        // Return the exact inverse so that the resulting world-space motion follows
+        // the FPS camera rather than being rotated through the isometric axes twice.
+        return value.set((worldX - worldY) * 0.5f, (worldX + worldY) * 0.5f);
+    }
+
+    static MovementRequest movementFor(
+            float cameraYaw, float forward, float strafe, float sourceSpeed) {
         float axisLength = (float) Math.sqrt(forward * forward + strafe * strafe);
         if (axisLength > 1.0f) {
             forward /= axisLength;
@@ -217,16 +247,13 @@ public final class FirstPersonInput {
         float cos = (float) Math.cos(cameraYaw);
         float worldX = (forward * cos - strafe * sin) * sourceSpeed;
         float worldY = (forward * sin + strafe * cos) * sourceSpeed;
-        lastMovementRequest = new MovementRequest(
-                true, forward, strafe, worldX, worldY, sourceSpeed);
-
-        // IsoPlayer.UpdateMovementFromInput applies its isometric keyboard transform
-        // after getInputMoveVector returns:
-        //   playerMoveDir.x = input.y + input.x
-        //   playerMoveDir.y = input.y - input.x
-        // Return the exact inverse so that the resulting world-space motion follows
-        // the FPS camera rather than being rotated through the isometric axes twice.
-        return value.set((worldX - worldY) * 0.5f, (worldX + worldY) * 0.5f);
+        return new MovementRequest(
+                forward != 0.0f || strafe != 0.0f,
+                forward,
+                strafe,
+                worldX,
+                worldY,
+                sourceSpeed);
     }
 
     static MovementRequest lastMovementRequest() {
@@ -259,6 +286,27 @@ public final class FirstPersonInput {
     private static boolean isBoundKeyDown(String action) {
         int key = Core.getInstance().getKey(action);
         return key != Keyboard.KEY_NONE && Keyboard.isKeyDown(key);
+    }
+
+    private static void logMovementChange(float forward, float strafe) {
+        boolean captured = isCaptured();
+        if (forward == lastLoggedForward
+                && strafe == lastLoggedStrafe
+                && captured == lastLoggedCaptured) {
+            return;
+        }
+        lastLoggedForward = forward;
+        lastLoggedStrafe = strafe;
+        lastLoggedCaptured = captured;
+        MovementRequest request = movementFor(yaw, forward, strafe, 1.0f);
+        System.out.printf(
+                "[PZFPS input] axes forward=%.0f strafe=%.0f yaw=%.3f world=(%.3f,%.3f) cursorCaptured=%s%n",
+                forward,
+                strafe,
+                yaw,
+                request.worldX(),
+                request.worldY(),
+                captured);
     }
 
     private static void applyCaptureState() {

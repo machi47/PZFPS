@@ -51,7 +51,7 @@ final class PerspectiveBallistics {
         InputState.Sample input = InputState.current();
         if (input.active()) {
             pzDirection(input.yaw(), input.pitch(), direction);
-        } else if (FirstPersonInput.isCaptured()) {
+        } else if (FirstPersonInput.isPerspectiveActive()) {
             pzDirection(FirstPersonInput.yaw(), FirstPersonInput.pitch(), direction);
         }
     }
@@ -62,7 +62,7 @@ final class PerspectiveBallistics {
         if (!isLocalPlayer(owner) || controller == null || GameServer.server) return;
         InputState.Sample input = InputState.current();
         boolean external = input.active();
-        if (!external && !FirstPersonInput.isCaptured()) return;
+        if (!external && !FirstPersonInput.isPerspectiveActive()) return;
         float yaw = external ? input.yaw() : FirstPersonInput.yaw();
         float pitch = external ? input.pitch() : FirstPersonInput.pitch();
 

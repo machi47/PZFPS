@@ -199,7 +199,7 @@ public final class BridgeRuntime {
             yaw = input.yaw();
             pitch = input.pitch();
         } else {
-            if (!FirstPersonInput.isCaptured()) return;
+            if (!FirstPersonInput.isPerspectiveActive()) return;
             yaw = FirstPersonInput.yaw();
             pitch = FirstPersonInput.pitch();
         }

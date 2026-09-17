@@ -74,7 +74,7 @@ public final class WorldCapture {
     private static float cameraPitchRadians(IsoPlayer player) {
         InputState.Sample input = InputState.current();
         if (input.active()) return input.pitch();
-        if (FirstPersonInput.isCaptured()) return FirstPersonInput.pitch();
+        if (FirstPersonInput.isPerspectiveActive()) return FirstPersonInput.pitch();
         return (float) Math.toRadians(player.getCurrentVerticalAimAngle());
     }
 

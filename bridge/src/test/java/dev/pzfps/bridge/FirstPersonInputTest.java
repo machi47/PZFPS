@@ -46,6 +46,22 @@ final class FirstPersonInputTest {
     }
 
     @Test
+    void mapsOppositeDiagonalKeysToOppositeSidesOfForward() {
+        float yaw = 0.73f;
+        FirstPersonInput.MovementRequest forward = FirstPersonInput.movementFor(yaw, 1, 0, 1);
+        FirstPersonInput.MovementRequest forwardLeft =
+                FirstPersonInput.movementFor(yaw, 1, -1, 1);
+        FirstPersonInput.MovementRequest forwardRight =
+                FirstPersonInput.movementFor(yaw, 1, 1, 1);
+        float leftSide = signedSide(forward, forwardLeft);
+        float rightSide = signedSide(forward, forwardRight);
+
+        assertTrue(leftSide < 0.0f);
+        assertTrue(rightSide > 0.0f);
+        assertEquals(-leftSide, rightSide, 0.0001f);
+    }
+
+    @Test
     void releasesImmediatelyForInventoryAndOtherCursorOwningUi() {
         assertTrue(FirstPersonInput.uiWantsCursor(false, true, false, false));
         assertTrue(FirstPersonInput.uiWantsCursor(true, false, false, false));
@@ -64,5 +80,12 @@ final class FirstPersonInputTest {
 
     private static Vector2 pzWorldMovement(Vector2 input) {
         return new Vector2(input.y + input.x, input.y - input.x);
+    }
+
+    private static float signedSide(
+            FirstPersonInput.MovementRequest forward,
+            FirstPersonInput.MovementRequest diagonal) {
+        return forward.worldX() * diagonal.worldY()
+                - forward.worldY() * diagonal.worldX();
     }
 }
