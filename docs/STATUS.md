@@ -108,7 +108,10 @@ been accepted.
   FPS view/actor facing while the authoritative PZ movement path handles left,
   right and backward movement.
 - `bridge/mod/42/media/lua/client/PZFPS_KeyBinding.lua` — registers the F8 mouse
-  capture action through PZ's key-binding system.
+  capture action and F7 perspective context-menu action through PZ's editable
+  key-binding system. Its context wrapper feeds the exact target's isometric
+  location to B42's normal menu builder, then positions the resulting PZ UI at
+  the centre of the first-person viewport.
 - `WorldState.WorldItem` and `WorldCapture.worldItem(...)` — preserve a dropped
   item's real ID/type, static/world model identities, world texture, absolute
   placement, rotations, scale and extended-placement state. The mesh builder
@@ -119,6 +122,10 @@ been accepted.
   index, Java type, object type, sprite and item ID against the live object on
   PZ's game thread. The `Interact` observation path logs this resolution but
   leaves PZ's normal `doContext()` fully authoritative.
+- `bridge/src/main/java/dev/pzfps/bridge/PerspectiveContextMenu.java` — hands an
+  identity-checked live target to the PZ Lua context system on the game thread.
+  It releases mouse capture only after PZ reports a non-empty menu; every menu
+  option and resulting action remains owned by the game's existing code.
 - `bridge/src/main/java/dev/pzfps/bridge/WireProtocol.java`,
   `renderer/scripts/bridge_client.gd`, and `src/pzfps/runtime.py` — protocol
   version 4, including eye height/actor pose, stair-state flags and world-item
@@ -198,7 +205,7 @@ Most recent test results:
 - Live-tested staged bridge JAR SHA-256:
   `c0904da6d2f775c6dcd8bfac90ccc1096093640fff7fc05d61149cc8bd8946d2`.
 - Newest built but not live-tested bridge JAR SHA-256:
-  `83cbcd2a286d29cfd4b674abf906deeec466b25d117af5f7cb0679ebddd64a99`.
+  `61a9dce618e2ccf537dc0379ae682aace341c8a8dce906b0df4cbc08cacf1060`.
 - Offline canonical report:
   `.local/canonical-bed-v64/store/objects/5107aa94b47977535039da77ac4018329c238388ad51c94829dc5a69d01d1a0a/report.json`.
 - Geometry source SHA-256:
@@ -257,10 +264,10 @@ Without restarting the current accepted visual session merely to inspect it:
 2. Verify that PZ's normal `Interact` action follows the mouse-controlled actor
    direction for a door and preserves the new candidate/resolution evidence;
    PZ's own `doContext()` already owns validation/action.
-3. Then implement one center-view container/context-menu interaction by re-resolving
-   and validating the live object on PZ's game thread. Acceptance requires PZ's
-   real action/context code to run; a visual or locally simulated interaction
-   does not count.
+3. Press F7 on a centre-view container and verify the new path opens B42's own
+   non-empty menu, releases the cursor, executes one normal option, and
+   recaptures only after the menu clears. The implementation is built but not
+   live-tested; acceptance requires PZ's real action/context code to run.
 4. Consume `.local/assets/pz-42.20/model-index.json` for one captured
    `worldStaticModel`, load its exact installed mesh/texture and apply its
    declared scale/world attachment, retaining omission rather than reverting to

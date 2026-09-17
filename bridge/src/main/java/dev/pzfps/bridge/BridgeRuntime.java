@@ -23,6 +23,7 @@ public final class BridgeRuntime {
     private static final int CHUNK_MISSING_GRACE_CAPTURES = 8;
     private static final int CHUNK_CHANGE_CONFIRMATION_CAPTURES = 2;
     private static final float INTERACTION_REACH = 2.3f;
+    private static final String CONTEXT_MENU_ACTION = "PZFPS Context Menu";
     private static final ChunkLifecycle CHUNK_LIFECYCLE = new ChunkLifecycle(
             CHUNK_MISSING_GRACE_CAPTURES, CHUNK_CHANGE_CONFIRMATION_CAPTURES);
     private static final Map<Long, WorldState.Chunk> ACCEPTED_CHUNKS = new HashMap<>();
@@ -74,6 +75,7 @@ public final class BridgeRuntime {
         if (!STARTED.get() || !isAuthoritativeLocalPlayer(player)) return;
         updateAndApplyLookInput(player);
         observeInteractionRequest(player);
+        openPerspectiveContextMenu(player);
     }
 
     /**
@@ -174,6 +176,41 @@ public final class BridgeRuntime {
                         },
                         () -> System.out.println(
                                 "[PZFPS interaction] Interact has no perspective candidate; PZ doContext remains authoritative"));
+    }
+
+    /**
+     * F7 opens PZ's normal world context menu for the identity-checked reticle target. The menu
+     * owns all option construction and action validation; this layer only replaces isometric
+     * screen picking and gives the cursor to the resulting PZ UI.
+     */
+    private static void openPerspectiveContextMenu(IsoPlayer player) {
+        if (!FirstPersonInput.isCaptured()
+                || !GameKeyboard.isKeyPressed(CONTEXT_MENU_ACTION)) {
+            return;
+        }
+        long now = System.nanoTime();
+        WorldState.Player viewpoint = WorldCapture.player(
+                player, FRAME_SEQUENCE.get(), now, System.currentTimeMillis());
+        InteractionTarget.nearestInteractive(
+                        viewpoint, ACCEPTED_CHUNKS.values(), INTERACTION_REACH)
+                .ifPresentOrElse(
+                        reference -> {
+                            IsoObject live = InteractionTarget.resolveLive(
+                                    player, reference, INTERACTION_REACH);
+                            boolean opened = live != null
+                                    && PerspectiveContextMenu.open(player, live);
+                            if (opened) FirstPersonInput.releaseForUi();
+                            System.out.printf(
+                                    "[PZFPS interaction] context candidate square=(%d,%d,%d) index=%d liveResolved=%s menuOpened=%s%n",
+                                    reference.squareX(),
+                                    reference.squareY(),
+                                    reference.z(),
+                                    reference.objectIndex(),
+                                    live != null,
+                                    opened);
+                        },
+                        () -> System.out.println(
+                                "[PZFPS interaction] context request has no perspective candidate"));
     }
 
     private static void captureWorld(IsoPlayer player, long sequence, boolean fullResnapshot) {

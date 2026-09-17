@@ -38,6 +38,11 @@ model identities to exact installed mesh/texture paths and preserves the
 declared scale and `attachment world` transform. This is input to a future live
 model consumer; generating the index does not claim those meshes are rendered.
 
+Live FPS controls currently reserve two editable entries under the `[PZFPS]`
+key-binding section: F8 releases/recaptures mouse look, and F7 asks PZ to open
+its own world context menu for the identity-checked centre-view target. The
+cursor is released only when PZ actually creates a non-empty menu.
+
 ## Active direction
 
 The objective is playable PZ with the real actors, evaluated animations, actions, UI and multiplayer state. Missing geometry/material information belongs in persistent scene assets, not independent image generations every frame. In-process hooks and an external renderer are integration choices, not different gameplay authorities. Neither backend is assumed fastest. Preserve useful implementations and change backend only for a demonstrated requirement.
