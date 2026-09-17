@@ -22,7 +22,7 @@ A job JSON contains `schema_version: 1`, a stable `prototype`, an exact `source_
 
 Each view contains `name`, exactly one `image` or `sprite_manifest`, and a 3x4 affine `matrix`. Matrix output is pixel-center X, pixel-center Y, and depth (smaller is nearer). Optional `depth` refers to an NPY array in those same depth units. `sprite_manifest` accepts the existing local compiler's `schema_version=1`, `page_path`, `page_sha256`, and crop/original-size `region` format. The image is isolated in its original canvas before sampling, so adjacent packed sprites cannot leak into the asset. A source sprite's original canvas size does not by itself determine its projection anchor.
 
-Paths are relative to the job or sprite manifest, except explicitly absolute source paths. Input pixels/depth/mesh and algorithm/material settings determine the artifact key, not their filesystem locations or the current player camera. The module does not silently parse the unpublished `tile-geometry.json` format; normalize that existing compiler's verified output into the job schema or supply a complete mesh.
+Paths are relative to the job or sprite manifest, except explicitly absolute source paths. Input pixels/depth/mesh and algorithm/material settings determine the artifact key, not their filesystem locations or the current player camera. The `from-pz` adapter directly consumes the now-published schema-1 `tile-geometry.json` and existing sprite extraction manifests; see below. A custom mesh/job remains supported.
 
 `atlas_size`, `padding`, `depth_tolerance`, `roughness`, `metallic`, and one integer `material_groups` entry per face are optional. Use groups to prevent unrelated materials from borrowing each other's completion colors. Source RGB may contain baked lighting: this pipeline does **not** claim to recover physical reflectance from painted sprites. Scalar PBR settings are explicit appearance choices, not inferred facts.
 
@@ -58,3 +58,19 @@ Neural completion is an implemented optional path, **not model-tested here**. CP
 - trimesh: https://trimesh.org/ — existing mesh import/export and PBR GLB support.
 
 The first GPU/gameplay integration has not run in this repository. The output contract is deliberately engine-independent; no performance conclusion about Godot or a native Metal frontend follows from these CPU tests.
+
+## Direct integration with the published PZ asset index
+
+The `from-pz` command reads the actual schema emitted by `src/pzfps/assets.py` at commit `009c258`, including boxes, tapered cylinders, planar polygons, translation, and XYZ source rotations. It fits the image anchor by FFT silhouette correlation, keeping the source geometry and explicit projection scales fixed. It rejects low-overlap mismatched source/geometry pairs rather than stretching geometry to hide the error. Concave polygons use constrained triangulation; their visual thickness must be supplied explicitly because source planar metadata does not define a hidden surface.
+
+```sh
+.local/canonical-venv/bin/pzcanonical from-pz \
+  --registry .local/assets/pz-42.20/tile-geometry.json \
+  --sprite-manifest .local/assets/pz-42.20/first-asset/furniture_bedding_01_0.json \
+  --horizontal 64 --vertical 192 \
+  --output .local/canonical-bed
+```
+
+Those paths/scales match the supplied local-session convention; they are inputs, not a claim that the example sprite has already passed calibration on the owner's installation. The output contains a runnable source job and its compiled GLB, with calibration overlap recorded. For a planar primitive, supply `--polygon-thickness` as an explicit visual completion choice. Multiple tiles belonging to one object still require verified grouping; a single tile fragment must not be called a complete multi-tile object.
+
+The registry transform and image-fit tests use authored data in the real schema. They do not publish or reconstruct the owner's proprietary source art in Git. Version 0.1.1 also uses premultiplied-alpha linear-color sampling to prevent transparent sprite borders from darkening accepted surface colors, and closes each SQLite transaction's connection deterministically.

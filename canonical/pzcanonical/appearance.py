@@ -161,12 +161,15 @@ def project_samples(atlas: Atlas, view: View, depth_tolerance: float) -> tuple[N
         visible &= np.isfinite(evidence_depth) & (np.abs(projected[:, 2] - evidence_depth) <= depth_tolerance + slope)
     # Sample only inside this isolated sprite. Never filter across neighboring
     # sprites in the game's packed image page.
-    alpha = view.rgba[rounded[:, 1], rounded[:, 0], 3] / 255.0
-    visible &= alpha >= .98
+    source_alpha = view.rgba[..., 3].astype(float) / 255.0
+    alpha = map_coordinates(source_alpha, [projected[:, 1], projected[:, 0]], order=1, mode="constant", cval=0.0)
+    visible &= (view.rgba[rounded[:, 1], rounded[:, 0], 3] >= 250) & (alpha >= .25)
     ids, projected, cosine, alpha = ids[visible], projected[visible], cosine[visible], alpha[visible]
     coords = [projected[:, 1], projected[:, 0]]
-    rgb = np.column_stack([map_coordinates(view.rgba[..., c].astype(float) / 255.0, coords, order=1, mode="nearest") for c in range(3)])
-    return ids, srgb_to_linear(rgb), cosine ** 4 * alpha * view.weight
+    source_linear = srgb_to_linear(view.rgba[..., :3].astype(float) / 255.0)
+    rgb = np.column_stack([map_coordinates(source_linear[..., c] * source_alpha, coords, order=1, mode="constant", cval=0.0) for c in range(3)])
+    rgb /= np.maximum(alpha[:, None], 1e-12)
+    return ids, rgb, cosine ** 4 * alpha * view.weight
 
 
 def bake_views(atlas: Atlas, views: list[View], depth_tolerance: float = .002) -> Bake:

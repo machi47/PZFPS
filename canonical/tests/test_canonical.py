@@ -211,3 +211,11 @@ def test_full_compile_cached_glb_and_changed_source(tmp_path):
     assert proof["repeat_camera_identical"] and (tmp_path / "orbit/orbit.gif").is_file()
     document = json.loads(job.read_text()); document["roughness"] = .5; job.write_text(json.dumps(document))
     assert compiler.compile(job).key != results[0].key
+
+
+def test_transparent_source_border_cannot_darken_observed_texels(box):
+    from pzcanonical.appearance import srgb_to_linear
+    color = (220, 140, 40)
+    bake = bake_views(unwrap(box, 96), [solid_view(box, [2, 1, 3], color)])
+    expected = srgb_to_linear(np.array(color) / 255.)
+    np.testing.assert_allclose(bake.linear[bake.observed], np.broadcast_to(expected, bake.linear[bake.observed].shape), atol=1e-12)

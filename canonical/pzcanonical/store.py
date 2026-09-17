@@ -9,7 +9,8 @@ import re
 import shutil
 import sqlite3
 import tempfile
-from typing import Callable
+from typing import Callable, Iterator
+from contextlib import contextmanager
 
 from filelock import FileLock
 
@@ -34,8 +35,14 @@ class Store:
             connection.execute("PRAGMA journal_mode=WAL")
             connection.execute("CREATE TABLE IF NOT EXISTS assignments (world TEXT NOT NULL, instance TEXT NOT NULL, prototype TEXT NOT NULL, asset TEXT NOT NULL, PRIMARY KEY(world, instance))")
 
-    def _connect(self) -> sqlite3.Connection:
-        return sqlite3.connect(self.database, timeout=30)
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
+        connection = sqlite3.connect(self.database, timeout=30)
+        try:
+            with connection:
+                yield connection
+        finally:
+            connection.close()
 
     def path(self, key: str) -> Path:
         if re.fullmatch(r"[a-f0-9]{64}", key) is None:

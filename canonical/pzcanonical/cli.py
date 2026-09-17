@@ -85,6 +85,15 @@ def main(argv: list[str] | None = None) -> int:
     compile_parser.add_argument("--store", type=Path, default=Path(".local/canonical"))
     compile_parser.add_argument("--model", type=Path)
     compile_parser.add_argument("--concurrency", type=int, default=2)
+    source_parser = commands.add_parser("from-pz")
+    source_parser.add_argument("--registry", type=Path, required=True)
+    source_parser.add_argument("--sprite-manifest", type=Path, required=True)
+    source_parser.add_argument("--output", type=Path, required=True)
+    source_parser.add_argument("--horizontal", type=float, required=True)
+    source_parser.add_argument("--vertical", type=float, required=True)
+    source_parser.add_argument("--minimum-iou", type=float, default=.55)
+    source_parser.add_argument("--polygon-thickness", type=float)
+    source_parser.add_argument("--atlas-size", type=int, default=256)
     fixture_parser = commands.add_parser("fixture")
     fixture_parser.add_argument("--output", type=Path, default=Path(".local/canonical-fixture"))
     orbit_parser = commands.add_parser("orbit")
@@ -99,6 +108,15 @@ def main(argv: list[str] | None = None) -> int:
             result = Compiler(Store(arguments.output / "store")).compile(manifest)
             proof = orbit(result.path, arguments.output / "orbit")
             print(json.dumps({"manifest": str(manifest), "asset": str(result.path), "report": result.report, "orbit": proof}, indent=2))
+        elif arguments.command == "from-pz":
+            from .pzregistry import prepare_job
+            path = prepare_job(arguments.registry, arguments.sprite_manifest, arguments.output,
+                               horizontal=arguments.horizontal, vertical=arguments.vertical,
+                               minimum_iou=arguments.minimum_iou,
+                               polygon_thickness=arguments.polygon_thickness,
+                               atlas_size=arguments.atlas_size)
+            result = Compiler(Store(arguments.output / "store")).compile(path)
+            print(json.dumps({"manifest": str(path), "key": result.key, "asset": str(result.path), "report": result.report}, indent=2))
         elif arguments.command == "compile":
             provider = DiffusersInpainter(arguments.model) if arguments.model else None
             results = asyncio.run(Compiler(Store(arguments.store), provider).compile_many(arguments.manifest, arguments.concurrency))
