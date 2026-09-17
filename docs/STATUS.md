@@ -67,7 +67,7 @@ gameplay:
    player is stationary. The former 169 -> 117/104 -> 169 oscillation is gone.
 5. The perspective room uses source PZ textures on known geometry and retains
    the normal PZ text/UI pass. The owner reported no further whole-world flash.
-6. The current source build passes 27 Java tests and 45 Python tests.
+6. The current source build passes 28 Java tests and 45 Python tests.
 
 No source/enhanced video pair or matched gameplay performance capture has yet
 been accepted.
@@ -102,8 +102,17 @@ been accepted.
   transform so camera-space WASD remains in world space.
 - `bridge/src/main/java/dev/pzfps/bridge/CursorCaptureState.java` — distinguishes
   gameplay capture, deliberate F8 release and temporary UI ownership. Modal or
-  forced-cursor UI releases mouse-look and requires two consecutive clear input
-  updates before automatic recapture; manual release never auto-recaptures.
+  explicitly force-cursor UI releases mouse-look and requires two consecutive
+  clear input updates before automatic recapture; manual release never
+  auto-recaptures. `FirstPersonInput` deliberately inspects the force-cursor
+  property itself because B42's aggregate helper also treats incidental UI
+  hover as force-cursor state.
+- `bridge/src/main/java/dev/pzfps/bridge/MovementDiagnostics.java` — compares
+  requested FPS world direction with authoritative post-`IsoPlayer.update()`
+  displacement over bounded 180-input-update windows. It reports directional
+  alignment, opposed displacement and stationary updates separately; the last
+  category explicitly includes collision/action constraints and is not called
+  renderer or gameplay FPS.
 - `bridge/src/main/java/dev/pzfps/bridge/patches/StrafingPatch.java` — preserves
   FPS view/actor facing while the authoritative PZ movement path handles left,
   right and backward movement.
@@ -192,19 +201,20 @@ bin/pzfps game status-isolated
 
 Targeted installed-class inspection used `javap -c -p` on `IsoPlayer`,
 `IsoWorld`, `UIManager`, `IsoWorldInventoryObject`, `InventoryItem`,
-`ItemModelRenderer`, `WorldItemModelDrawer`, `IModelCamera`, `Shader` and related
-input/context-action/model classes. The installed `basicEffect` shaders were
-also searched to verify that `targetDepth` changes clip-space Z. Socket/log
-diagnostics used `lsof`, `nc`, `xxd` and `rg`; these did not modify the
-installation.
+`ItemModelRenderer`, `WorldItemModelDrawer`, `IModelCamera`, `Shader`,
+`CharacterInputComponent`, `IsoPlayer.doContext()` and related input/context-
+action/model classes. The installed `basicEffect` shaders were also searched to
+verify that `targetDepth` changes clip-space Z. Socket/log diagnostics used
+`lsof`, `nc`, `xxd` and `rg`; these did not modify the installation.
 
 Most recent test results:
 
 - Python/pytest: 45 passed, 0 failed (49 deprecation warnings).
-- Java/Gradle: 27 passed, 0 failed across `ChunkLifecycleTest`,
+- Java/Gradle: 28 passed, 0 failed across `ChunkLifecycleTest`,
   `CursorCaptureStateTest`, `DirectPatchInstallerTest`, `FirstPersonInputTest`,
   `FirstPersonModelCameraTest`, `InputStateTest`, `InteractionTargetTest`,
-  `NativeWorldItemPassTest`, `WireProtocolTest` and `WorldMeshBuilderTest`.
+  `MovementDiagnosticsTest`, `NativeWorldItemPassTest`, `WireProtocolTest` and
+  `WorldMeshBuilderTest`.
 
 ## Evidence and identities
 
@@ -219,7 +229,7 @@ Most recent test results:
 - Live-tested staged bridge JAR SHA-256:
   `c0904da6d2f775c6dcd8bfac90ccc1096093640fff7fc05d61149cc8bd8946d2`.
 - Newest built but not live-tested bridge JAR SHA-256:
-  `31b91f2a25325947b77a550e97ccc2e9855f5f4f246eff72e33b6e5a57003dfd`.
+  `49ed7b16a55ffef418ba94f8f2d6674b12ea23f8c12f85f6516aa190dda4e5da`.
 - Offline canonical report:
   `.local/canonical-bed-v64/store/objects/5107aa94b47977535039da77ac4018329c238388ad51c94829dc5a69d01d1a0a/report.json`.
 - Geometry source SHA-256:
@@ -247,8 +257,12 @@ update rates have not been reported as achieved performance.
    whole-world flicker.
 2. The earlier mouse path used PZ/offscreen coordinates and could throw the
    native macOS cursor outside the window. It now uses GLFW grabbed relative
-   motion. The cursor state machine is unit-tested but still needs a live F8,
-   Escape, inventory/modal and context-menu acceptance pass.
+   motion. B42's aggregate force-cursor query was also found to include ordinary
+   mouse-over; the bridge now ignores that hover component and recognizes only
+   modal or explicitly force-cursor UI. The inventory/loot pair is marked only
+   when PZ's own toggle exposes it. The cursor state machine is unit-tested but
+   still needs a live F8, Escape, inventory/modal and context-menu acceptance
+   pass.
 3. Dropped-item capture now carries `InventoryItem` model identity, position,
    rotations and world scale. The renderer deliberately omits the old wrong
    tile-geometry substitution. A source-built native item pass now calls PZ's
@@ -277,6 +291,9 @@ Without restarting the current accepted visual session merely to inspect it:
 
 1. Stage one batched build and live-test simultaneous W+A/W+D, backward/strafe
    movement, F8, Escape/UI release, and stable rendering in the disposable save.
+   Use the new post-update movement-alignment report to distinguish a coordinate
+   transform failure from valid collision/action blocking; do not infer either
+   from camera motion alone.
 2. Verify that PZ's normal `Interact` action follows the mouse-controlled actor
    direction for a door and preserves the new candidate/resolution evidence;
    PZ's own `doContext()` already owns validation/action.

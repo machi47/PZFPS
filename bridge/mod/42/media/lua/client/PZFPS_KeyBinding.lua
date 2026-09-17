@@ -56,3 +56,21 @@ function PZFPS_OpenWorldContext(playerNum, object)
     context:setVisible(true)
     return true
 end
+
+-- B42's mouse inventory pages are normally visible as collapsed title strips.
+-- A generic "mouse is over UI" test therefore cannot decide who owns the
+-- cursor. Mark the inventory/loot pair as force-cursor only after the normal
+-- Toggle Inventory handler has made it visible. Closing or hiding the pages
+-- removes ownership; PZFPS then returns to relative mouse look.
+local function PZFPS_SyncInventoryCursor(key)
+    if not getCore():isKey("Toggle Inventory", key) then return end
+    local inventory = getPlayerInventory(0)
+    local loot = getPlayerLoot(0)
+    if not inventory or not loot then return end
+
+    local visible = inventory:getIsVisible()
+    inventory:setForceCursorVisible(visible)
+    loot:setForceCursorVisible(visible)
+end
+
+Events.OnKeyPressed.Add(PZFPS_SyncInventoryCursor)

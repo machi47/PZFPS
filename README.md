@@ -45,7 +45,10 @@ not yet been accepted in a live session.
 Live FPS controls currently reserve two editable entries under the `[PZFPS]`
 key-binding section: F8 releases/recaptures mouse look, and F7 asks PZ to open
 its own world context menu for the identity-checked centre-view target. The
-cursor is released only when PZ actually creates a non-empty menu.
+cursor is released only when PZ actually creates a non-empty menu. PZ context
+menus already request cursor ownership; the bridge also marks an inventory/loot
+pair opened with PZ's normal `Toggle Inventory` action as cursor-owning until it
+is hidden. Merely hovering a collapsed UI strip no longer releases mouse look.
 
 ## Active direction
 

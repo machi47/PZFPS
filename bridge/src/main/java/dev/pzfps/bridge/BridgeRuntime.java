@@ -67,6 +67,7 @@ public final class BridgeRuntime {
     /** Capture the collision-authoritative local player after PZ has completed its update. */
     public static void onPlayerUpdate(IsoPlayer player) {
         if (!isAuthoritativeLocalPlayer(player)) return;
+        MovementDiagnostics.end(player);
         capture(player);
     }
 
@@ -74,6 +75,7 @@ public final class BridgeRuntime {
     public static void onPlayerUpdateStart(IsoPlayer player) {
         if (!STARTED.get() || !isAuthoritativeLocalPlayer(player)) return;
         updateAndApplyLookInput(player);
+        MovementDiagnostics.begin(player);
         observeInteractionRequest(player);
         openPerspectiveContextMenu(player);
     }

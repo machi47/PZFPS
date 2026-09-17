@@ -8,6 +8,7 @@ import zombie.core.Core;
 import zombie.input.GameKeyboard;
 import zombie.input.Mouse;
 import zombie.iso.Vector2;
+import zombie.ui.UIElementInterface;
 import zombie.ui.UIManager;
 
 /** Native single-window mouse look and camera-relative movement for the local PZ client. */
@@ -21,6 +22,7 @@ public final class FirstPersonInput {
     private static boolean hardwareCaptured;
     private static float yaw;
     private static float pitch;
+    private static MovementRequest lastMovementRequest = MovementRequest.inactive();
     private static boolean menuContinueRequested;
     private static int menuProbeTicks;
 
@@ -54,7 +56,7 @@ public final class FirstPersonInput {
         boolean togglePressed = GameKeyboard.isKeyPressed(captureKey());
         boolean uiWantsCursor = GameKeyboard.isKeyPressed(Keyboard.KEY_ESCAPE)
                 || UIManager.isModalVisible()
-                || UIManager.isForceCursorVisible();
+                || hasVisibleForceCursorUi();
         CursorCaptureState.Mode previousMode = CURSOR.mode();
         if (CURSOR.update(togglePressed, uiWantsCursor)) {
             applyCaptureState();
@@ -74,6 +76,22 @@ public final class FirstPersonInput {
             pitch = clamp(pitch + deltaY * MOUSE_RADIANS_PER_PIXEL, -MAX_PITCH, MAX_PITCH);
         }
         Mouse.setCursorVisible(false);
+    }
+
+    /**
+     * Do not use {@link UIManager#isForceCursorVisible()} here: B42 folds ordinary
+     * mouse-over into that answer, so a remembered pointer position over a collapsed UI strip can
+     * spuriously release relative mouse look. Only explicit force-cursor elements own the cursor.
+     */
+    private static boolean hasVisibleForceCursorUi() {
+        for (UIElementInterface element : UIManager.getUI()) {
+            if (element != null
+                    && Boolean.TRUE.equals(element.isVisible())
+                    && element.isForceCursorVisible()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Uses PZ's own menu function, only in the explicitly isolated project profile. */
@@ -133,12 +151,16 @@ public final class FirstPersonInput {
     }
 
     public static Vector2 movementVector(Vector2 value) {
-        if (!isCaptured()) return value;
+        if (!isCaptured()) {
+            lastMovementRequest = MovementRequest.inactive();
+            return value;
+        }
         float forward = boundKeyAxis("Forward", "Backward");
         float strafe = boundKeyAxis("Right", "Left");
         if (forward != 0.0f || strafe != 0.0f) {
             return rotateDigitalMovement(value, yaw, forward, strafe);
         }
+        lastMovementRequest = MovementRequest.inactive();
         return value;
     }
 
@@ -167,6 +189,8 @@ public final class FirstPersonInput {
         float cos = (float) Math.cos(cameraYaw);
         float worldX = (forward * cos - strafe * sin) * sourceSpeed;
         float worldY = (forward * sin + strafe * cos) * sourceSpeed;
+        lastMovementRequest = new MovementRequest(
+                true, forward, strafe, worldX, worldY, sourceSpeed);
 
         // IsoPlayer.UpdateMovementFromInput applies its isometric keyboard transform
         // after getInputMoveVector returns:
@@ -175,6 +199,26 @@ public final class FirstPersonInput {
         // Return the exact inverse so that the resulting world-space motion follows
         // the FPS camera rather than being rotated through the isometric axes twice.
         return value.set((worldX - worldY) * 0.5f, (worldX + worldY) * 0.5f);
+    }
+
+    static MovementRequest lastMovementRequest() {
+        return lastMovementRequest;
+    }
+
+    static void beginMovementSample() {
+        lastMovementRequest = MovementRequest.inactive();
+    }
+
+    record MovementRequest(
+            boolean active,
+            float forward,
+            float strafe,
+            float worldX,
+            float worldY,
+            float sourceSpeed) {
+        static MovementRequest inactive() {
+            return new MovementRequest(false, 0, 0, 0, 0, 0);
+        }
     }
 
     private static float boundKeyAxis(String positive, String negative) {
