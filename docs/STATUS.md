@@ -21,8 +21,8 @@ PZ render thread     -> PZFPS perspective world -> PZ text/UI
 
 One isolated PZ process is currently running from the project-local
 disposable profile with staged bridge JAR
-`c359265922b1c22ba2b60108741882cd1aeecb2c88677c383725775ba891554d`
-(source commit `d816d609`, PID 29349, launched 22:26:32 UTC).
+`08b955fa808c660195ba510f310a68ad864b09ac4cf06c2f56c0e176759af066`
+(source commit `8e404ae`, PID 30326, launched 22:49:45 UTC).
 No normal save, installed game binary or
 unrelated mod was changed.
 
@@ -325,7 +325,7 @@ No fullbright workaround or gameplay visibility mutation was applied.
 
 ## Truthful acceptance state
 
-### Independent lighting transport (new source/GPU-tested batch)
+### Independent lighting transport (loaded; source/GPU and live execution tested)
 
 `ChunkLighting`, `WorldCapture.lighting`, `BridgeRuntime.captureLighting` and
 the world shader now refresh illumination separately from geometry. On the
@@ -369,6 +369,33 @@ yet establish physically correct lighting, eliminate all view-arc effects,
 smooth square boundaries or add a sky. Live upload counts and visible maximum
 light age are logged independently; actual light changes in gameplay still need
 acceptance. No new live acceptance is inferred from these tests.
+
+**Live execution:** source commit `8e404aede5381792ca5f2cf0bd1574b2f9285ba8`
+was pushed and remote-verified. The tracked isolated PID 29349 was stopped at
+22:49:42 UTC; `stage-isolated` and `launch-app-isolated` loaded JAR `08b955fa`
+in PID 30326 at 22:49:45. No second game instance or installed game modification.
+The 120 ms native click at logical `(1425,905)` **successfully dismissed** the
+Survival Guide, confirmed by the before/after captures and active simulation.
+This supersedes the unverified click result from the previous batch.
+
+Console `.local/reports/live-08b955f-dynamic-lighting.txt` records 6,000 completed
+render callbacks, sampled callback rate around 60 Hz and player snapshot age
+5–6 ms. Meshes built stayed at 169 while lighting reached 61 GPU grids / 122
+uploads. Subsequent unchanged grids caused no further uploads. Visible maximum
+light age ranged about 0.45–0.70 seconds in these stationary samples; this delay
+is a limitation, **not accepted torch/fast-light response**. No PZFPS renderer
+exception or shader compile/link failure was found in this run.
+
+Evidence: `.local/captures/dynamic-lighting-start.png` (guide),
+`dynamic-lighting-after-guide.png` (actual world), and
+`dynamic-lighting-live.mov` (stationary raw game window). The latter was captured
+with `screencapture -v -V 6 -R 100,62,1600,1028`; `ffprobe -count_frames` decoded
+352 frames at 3200x2056 over 5.866667 seconds. This is **recording throughput,
+not game FPS**. `dynamic-lighting-clip-middle.png` is an inspected frame extracted
+with ffmpeg. No enhanced/neural clip is implied. These images still expose
+incomplete crate faces, shelf/source-projection defects and ceiling/material
+limitations. This pass verifies live lighting transport, not correct physical
+lighting, moving-view flicker acceptance or completed gameplay.
 
 - **Offline appearance:** implemented and diagnostic only. The actual installed
   B42 geometry registry and `Tiles2x.pack` feed the persistent `canonical/`
@@ -1062,13 +1089,16 @@ update rates have not been reported as achieved performance.
 
 ## Next smallest experiment
 
-Keep the currently running single PID 29349 for the next acceptance pass.
+Keep the currently running single PID 30326 for the next acceptance pass.
 At a window/sill, shelf bracket and multi-tile bench, hold player position fixed
 and sweep the camera slowly through the formerly unstable angles. Preserve
 moving evidence and distinguish depth-layer flicker from alpha-edge aliasing,
 real geometry intersections and source-projection errors. Inspect a tool chest's
 new opposite side and verify the drawer front was not copied onto its back.
 Do not reload merely to inspect these source changes: this batch is loaded.
+Also exercise a real light switch and compare light-grid uploads against the
+mesh-build counter; establish which native RGB/vertex-light values are physical
+illumination versus perception before removing the diagnostic exposure floor.
 The older gameplay and coverage checks below remain outstanding regression
 work, not instructions to restart an already running instance.
 
