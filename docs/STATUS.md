@@ -67,7 +67,7 @@ gameplay:
    player is stationary. The former 169 -> 117/104 -> 169 oscillation is gone.
 5. The perspective room uses source PZ textures on known geometry and retains
    the normal PZ text/UI pass. The owner reported no further whole-world flash.
-6. The current source build passes 53 Java tests and 45 Python tests.
+6. The current source build passes 55 Java tests and 45 Python tests.
 
 No source/enhanced video pair or matched gameplay performance capture has yet
 been accepted.
@@ -93,7 +93,10 @@ been accepted.
   Every report deterministically ranks the eight most repeated unsupported
   sprite identities. Chunks containing only honest holes use their
   authoritative chunk volume for distance/frustum classification and remain in
-  coverage without submitting a draw call.
+  coverage without submitting a draw call. It now separately counts and ranks
+  `topCollisionHoles` using B42's captured `solid`/`solidtrans` facts, so an
+  invisible movement blocker can be prioritized without drawing fabricated
+  collision geometry or changing PZ's authoritative collision.
 - `bridge/src/main/java/dev/pzfps/bridge/WorldMeshBuilder.java` — converts
   immutable chunk snapshots into source-textured indexed geometry, puts
   structural north/west faces on square boundaries instead of centered slabs,
@@ -111,6 +114,9 @@ been accepted.
   below and stair-top flags. These flags preserve portal facts and now prevent
   a false floor across the opening; they do not fabricate missing ceiling or
   stairwell surface geometry.
+  Tile-object snapshots now also retain B42's `solid`, `solidtrans` and
+  `blocksight` properties. The first two classify collision-critical visible
+  holes; they do not grant the renderer authority to alter collision.
 - `bridge/src/main/java/dev/pzfps/bridge/FirstPersonInput.java` — uses GLFW
   relative mouse deltas without macOS cursor warping, reads PZ's actual physical
   key bindings simultaneously, and returns the inverse of B42's isometric input
@@ -247,8 +253,13 @@ been accepted.
   option and resulting action remains owned by the game's existing code.
 - `bridge/src/main/java/dev/pzfps/bridge/WireProtocol.java`,
   `renderer/scripts/bridge_client.gd`, and `src/pzfps/runtime.py` — protocol
-  version 4, including eye height/actor pose, stair-state flags and world-item
-  identity/placement; Godot is retained only as an offline/protocol consumer.
+  version 5, including eye height/actor pose, stair-state flags, world-item
+  identity/placement and collision/vision facts; Godot is retained only as an
+  offline/protocol consumer. Its updated parser completed a Godot 4.7.2
+  headless editor parse with no reported script errors. A protocol-5 synthetic
+  end-to-end run then decoded player/entity/chunk data and built the installed-
+  registry fixture with 114 vertices, two surfaces and three primitives before
+  reporting `PZFPS_SYNTHETIC_TEST_OK`.
 - `canonical/` — persistent, identity-keyed geometry/material compilation with
   hard bounds, protected source observations, shared-atlas completion evidence
   and immutable reuse. A learned provider interface exists but no actual neural
@@ -308,6 +319,16 @@ otool -arch arm64 -tvV "$PZ_BULLET"
 jshell --execution local --class-path "$PZ_JAR"
 # In JShell: LuaCompiler.loadis(Files.newBufferedReader(script),
 #     script.toString(), J2SEPlatform.getInstance().newTable())
+
+.local/toolchains/Godot-4.7.2.app/Contents/MacOS/Godot \
+  --headless --editor --path renderer --quit \
+  --log-file ../.local/godot-parse.log
+
+python3 tools/synthetic_bridge.py --port 24873
+PZFPS_BRIDGE_PORT=24873 PZFPS_TEST_EXIT_ON_CHUNK=1 \
+  .local/toolchains/Godot-4.7.2.app/Contents/MacOS/Godot \
+  --headless --path renderer \
+  --log-file ../.local/godot-protocol-v5.log
 ```
 
 Targeted installed-class inspection used `javap -c -p` on `IsoPlayer`,
@@ -336,7 +357,7 @@ native binary was changed. Socket/log diagnostics used `lsof`, `nc`, `xxd` and
 Most recent test results:
 
 - Python/pytest: 45 passed, 0 failed (49 deprecation warnings).
-- Java/Gradle: 53 passed, 0 failed across `ChunkLifecycleTest`,
+- Java/Gradle: 55 passed, 0 failed across `ChunkLifecycleTest`,
   `CursorCaptureStateTest`, `DirectPatchInstallerTest`, `FirstPersonInputTest`,
   `FirstPersonCharacterCameraTest`, `FirstPersonModelCameraTest`,
   `InputStateTest`, `InteractionTargetTest`, `MovementDiagnosticsTest`,
@@ -362,7 +383,7 @@ Most recent test results:
 - Live-tested staged bridge JAR SHA-256:
   `c0904da6d2f775c6dcd8bfac90ccc1096093640fff7fc05d61149cc8bd8946d2`.
 - Newest built but not live-tested bridge JAR SHA-256:
-  `f24829ee2e7e933ad9e5c1f7ff14c24fd1a318859959920ac69b07a7339a5ff7`.
+  `e2886cdd89d4b83342a48a2d179c5ec5f688836a483f0a5db44fbae14ad1e2f1`.
 - Offline canonical report:
   `.local/canonical-bed-v64/store/objects/5107aa94b47977535039da77ac4018329c238388ad51c94829dc5a69d01d1a0a/report.json`.
 - Geometry source SHA-256:
@@ -465,6 +486,14 @@ update rates have not been reported as achieved performance.
     steep downward view retains ground-level content and rejects a same-height
     object behind the camera. This is a 53-test source checkpoint, not a live
     visual acceptance result.
+16. Unsupported appearance holes did not distinguish harmless missing decor
+    from objects whose real PZ properties block movement. Protocol version 5
+    now preserves `solid`, `solidtrans` and `blocksight`; completed visible
+    frames count and rank collision-critical unsupported identities separately
+    as `topCollisionHoles`. No collision was changed and no fake collider was
+    drawn. The 55-test Java build, Godot 4.7.2 headless parser and protocol-5
+    synthetic renderer integration completed; the ranking still requires a live
+    collision/visual correlation check.
 
 ## Next smallest experiment
 
@@ -514,9 +543,10 @@ Without restarting the current accepted visual session merely to inspect it:
    is now an actual opening, that upward stairs retain their supporting floor,
    and that the indexed stair geometry remains traversable and depth-occluded.
 9. Capture one completed-frame coverage report and preserve its
-   `topUnsupported` ranking. Confirm visually that at least the first repeated
-   sprite corresponds to a real visible hole before selecting it for the later
-   persistent completion experiment.
+   `topUnsupported` and `topCollisionHoles` rankings. Confirm visually that at
+   least the first repeated sprite corresponds to a real visible hole, and
+   reproduce one collision-critical hole by walking against it, before
+   selecting it for the later persistent completion experiment.
 
 The later appearance experiment is one identity-stable real asset carried
 through constrained completion and inspected from multiple moving views. It is

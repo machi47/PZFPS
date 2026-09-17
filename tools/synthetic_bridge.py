@@ -10,7 +10,7 @@ import time
 
 
 MAGIC = 0x505A4650
-VERSION = 4
+VERSION = 5
 HELLO = 1
 PLAYER = 2
 ENTITIES = 3
@@ -77,7 +77,7 @@ def chunk(session: int, sequence: int) -> bytes:
     body += struct.pack(">BBBqBHHHBH", 4, 1, 0, 1, 0b111, 220, 210, 200, 0b011, 1)
     body += struct.pack(">H", 0)
     body += string("zombie.iso.IsoObject") + string("Normal") + string("furniture_bedding_01_0")
-    body += struct.pack(">B?", 0, False)
+    body += struct.pack(">H?", 0, False)
     return packet(CHUNK_UPSERT, sequence, session, body)
 
 

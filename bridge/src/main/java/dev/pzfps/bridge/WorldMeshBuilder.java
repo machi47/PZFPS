@@ -22,6 +22,7 @@ public final class WorldMeshBuilder {
             int primitiveCount,
             Coverage coverage,
             Map<String, Integer> unsupportedSprites,
+            Map<String, Integer> unsupportedCollisionSprites,
             float minX,
             float minY,
             float minZ,
@@ -31,6 +32,7 @@ public final class WorldMeshBuilder {
         public MeshData {
             texturedBatches = List.copyOf(texturedBatches);
             unsupportedSprites = Map.copyOf(unsupportedSprites);
+            unsupportedCollisionSprites = Map.copyOf(unsupportedCollisionSprites);
         }
 
         public int vertexCount() {
@@ -49,9 +51,10 @@ public final class WorldMeshBuilder {
             int structuralFallbackObjects,
             int nativeWorldItems,
             int unsupportedObjects,
+            int collisionCriticalUnsupportedObjects,
             int truncatedChunks) {
         public static Coverage none() {
-            return new Coverage(0, 0, 0, 0, 0, 0, 0, 0);
+            return new Coverage(0, 0, 0, 0, 0, 0, 0, 0, 0);
         }
 
         public Coverage plus(Coverage other) {
@@ -63,6 +66,8 @@ public final class WorldMeshBuilder {
                     structuralFallbackObjects + other.structuralFallbackObjects,
                     nativeWorldItems + other.nativeWorldItems,
                     unsupportedObjects + other.unsupportedObjects,
+                    collisionCriticalUnsupportedObjects
+                            + other.collisionCriticalUnsupportedObjects,
                     truncatedChunks + other.truncatedChunks);
         }
     }
@@ -91,7 +96,9 @@ public final class WorldMeshBuilder {
         int structuralFallbackObjects = 0;
         int nativeWorldItems = 0;
         int unsupportedObjects = 0;
+        int collisionCriticalUnsupportedObjects = 0;
         Map<String, Integer> unsupportedSprites = new HashMap<>();
+        Map<String, Integer> unsupportedCollisionSprites = new HashMap<>();
         boolean truncated = false;
         int blockSize = zombie.iso.IsoChunkMap.CHUNK_SIZE_IN_SQUARES;
         float chunkX = chunk.worldX() * blockSize;
@@ -205,7 +212,12 @@ public final class WorldMeshBuilder {
                     }
                 } else {
                     unsupportedObjects++;
-                    unsupportedSprites.merge(unsupportedIdentity(object), 1, Integer::sum);
+                    String identity = unsupportedIdentity(object);
+                    unsupportedSprites.merge(identity, 1, Integer::sum);
+                    if (object.solid() || object.solidTrans()) {
+                        collisionCriticalUnsupportedObjects++;
+                        unsupportedCollisionSprites.merge(identity, 1, Integer::sum);
+                    }
                 }
                 if (totalVertexCount(output, textured) >= MAX_VERTICES_PER_CHUNK) {
                     truncated = true;
@@ -239,8 +251,10 @@ public final class WorldMeshBuilder {
                         structuralFallbackObjects,
                         nativeWorldItems,
                         unsupportedObjects,
+                        collisionCriticalUnsupportedObjects,
                         truncated ? 1 : 0),
                 unsupportedSprites,
+                unsupportedCollisionSprites,
                 bounds[0],
                 bounds[1],
                 bounds[2],

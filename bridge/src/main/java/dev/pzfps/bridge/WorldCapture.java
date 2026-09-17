@@ -363,6 +363,9 @@ public final class WorldCapture {
                 open,
                 object.isHoppable(),
                 object.getContainerCount() > 0 || object.getContainer() != null,
+                object.hasProperty(IsoFlagType.solid),
+                object.hasProperty(IsoFlagType.solidtrans),
+                object.hasProperty(IsoFlagType.blocksight),
                 worldItem(object));
     }
 
@@ -384,6 +387,9 @@ public final class WorldCapture {
         if (value.edgeNorth()) flags |= 1 << 5;
         if (value.edgeWest()) flags |= 1 << 6;
         if (value.container()) flags |= 1 << 7;
+        if (value.solid()) flags |= 1 << 8;
+        if (value.solidTrans()) flags |= 1 << 9;
+        if (value.blocksSight()) flags |= 1 << 10;
         return flags;
     }
 

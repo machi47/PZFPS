@@ -2,7 +2,7 @@ class_name PZFPSBridgeClient
 extends RefCounted
 
 const MAGIC := 0x505A4650
-const VERSION := 4
+const VERSION := 5
 const MAX_PACKET_BYTES := 64 * 1024 * 1024
 
 const HELLO := 1
@@ -283,7 +283,7 @@ func _read_chunk(packet: StreamPeerBuffer) -> Dictionary:
 				"object_type": _read_string(packet),
 				"sprite": _read_string(packet),
 			}
-			var object_flags := packet.get_u8()
+			var object_flags := packet.get_u16()
 			object["door"] = (object_flags & 1) != 0
 			object["window"] = (object_flags & 2) != 0
 			object["north"] = (object_flags & 4) != 0
@@ -292,6 +292,9 @@ func _read_chunk(packet: StreamPeerBuffer) -> Dictionary:
 			object["edge_north"] = (object_flags & 32) != 0
 			object["edge_west"] = (object_flags & 64) != 0
 			object["container"] = (object_flags & 128) != 0
+			object["solid"] = (object_flags & 256) != 0
+			object["solid_trans"] = (object_flags & 512) != 0
+			object["blocks_sight"] = (object_flags & 1024) != 0
 			object["world_item"] = _read_world_item(packet)
 			objects[object_index] = object
 		square["objects"] = objects

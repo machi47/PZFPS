@@ -10,7 +10,7 @@ import java.nio.charset.StandardCharsets;
 
 public final class WireProtocol {
     public static final int MAGIC = 0x505a4650; // PZFP
-    public static final short VERSION = 4;
+    public static final short VERSION = 5;
 
     public static final short HELLO = 1;
     public static final short PLAYER = 2;
@@ -143,8 +143,11 @@ public final class WireProtocol {
                             | (object.hoppable() ? 1 << 4 : 0)
                             | (object.edgeNorth() ? 1 << 5 : 0)
                             | (object.edgeWest() ? 1 << 6 : 0)
-                            | (object.container() ? 1 << 7 : 0);
-                    out.writeByte(objectFlags);
+                            | (object.container() ? 1 << 7 : 0)
+                            | (object.solid() ? 1 << 8 : 0)
+                            | (object.solidTrans() ? 1 << 9 : 0)
+                            | (object.blocksSight() ? 1 << 10 : 0);
+                    out.writeShort(objectFlags);
                     writeWorldItem(out, object.worldItem());
                 }
             }

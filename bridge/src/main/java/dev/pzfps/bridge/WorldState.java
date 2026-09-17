@@ -102,6 +102,9 @@ public final class WorldState {
             boolean open,
             boolean hoppable,
             boolean container,
+            boolean solid,
+            boolean solidTrans,
+            boolean blocksSight,
             WorldItem worldItem) {
         public TileObject {
             worldItem = worldItem == null ? WorldItem.none() : worldItem;
@@ -132,7 +135,44 @@ public final class WorldState {
                     open,
                     hoppable,
                     false,
+                    false,
+                    false,
+                    false,
                     WorldItem.none());
+        }
+
+        /** Compatibility constructor for fixtures created before collision facts were captured. */
+        public TileObject(
+                int index,
+                String javaType,
+                String objectType,
+                String sprite,
+                boolean door,
+                boolean window,
+                boolean north,
+                boolean edgeNorth,
+                boolean edgeWest,
+                boolean open,
+                boolean hoppable,
+                boolean container,
+                WorldItem worldItem) {
+            this(
+                    index,
+                    javaType,
+                    objectType,
+                    sprite,
+                    door,
+                    window,
+                    north,
+                    edgeNorth,
+                    edgeWest,
+                    open,
+                    hoppable,
+                    container,
+                    false,
+                    false,
+                    false,
+                    worldItem);
         }
     }
 

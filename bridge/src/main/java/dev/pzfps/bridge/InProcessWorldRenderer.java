@@ -226,7 +226,7 @@ public final class InProcessWorldRenderer {
                 CullingCounts culling = state.lastCulling;
                 WorldMeshBuilder.Coverage coverage = state.lastCoverage;
                 System.out.printf(
-                        "[PZFPS renderer] completedFrames=%d enqueuedFrames=%d completedCallbackHz=%s meshes=%d visible=%d empty=%d distanceCulled=%d frustumCulled=%d built=%d dropped=%d stateAgeMs=%d sourceFloors=%d flatFloors=%d stairOpenings=%d indexedObjects=%d structuralFallbacks=%d nativeItems=%d unsupportedObjects=%d truncatedChunks=%d%n",
+                        "[PZFPS renderer] completedFrames=%d enqueuedFrames=%d completedCallbackHz=%s meshes=%d visible=%d empty=%d distanceCulled=%d frustumCulled=%d built=%d dropped=%d stateAgeMs=%d sourceFloors=%d flatFloors=%d stairOpenings=%d indexedObjects=%d structuralFallbacks=%d nativeItems=%d unsupportedObjects=%d collisionHoles=%d truncatedChunks=%d%n",
                         completed,
                         ENQUEUED_FRAMES.get(),
                         Double.isFinite(completedHz)
@@ -247,6 +247,7 @@ public final class InProcessWorldRenderer {
                         coverage.structuralFallbackObjects(),
                         coverage.nativeWorldItems(),
                         coverage.unsupportedObjects(),
+                        coverage.collisionCriticalUnsupportedObjects(),
                         coverage.truncatedChunks());
                 List<SpriteCount> unsupported =
                         topUnsupportedSprites(state.lastVisibleMeshes, 8);
@@ -254,6 +255,15 @@ public final class InProcessWorldRenderer {
                     System.out.printf(
                             "[PZFPS coverage] topUnsupported=%s%n",
                             unsupported.stream()
+                                    .map(value -> value.sprite() + ":" + value.count())
+                                    .collect(java.util.stream.Collectors.joining(",")));
+                }
+                List<SpriteCount> collisionHoles =
+                        topUnsupportedCollisionSprites(state.lastVisibleMeshes, 8);
+                if (!collisionHoles.isEmpty()) {
+                    System.out.printf(
+                            "[PZFPS coverage] topCollisionHoles=%s%n",
+                            collisionHoles.stream()
                                     .map(value -> value.sprite() + ":" + value.count())
                                     .collect(java.util.stream.Collectors.joining(",")));
                 }
@@ -284,10 +294,25 @@ public final class InProcessWorldRenderer {
 
     static List<SpriteCount> topUnsupportedSprites(
             List<WorldMeshBuilder.MeshData> visibleMeshes, int limit) {
+        return topSpriteCounts(visibleMeshes, limit, false);
+    }
+
+    static List<SpriteCount> topUnsupportedCollisionSprites(
+            List<WorldMeshBuilder.MeshData> visibleMeshes, int limit) {
+        return topSpriteCounts(visibleMeshes, limit, true);
+    }
+
+    private static List<SpriteCount> topSpriteCounts(
+            List<WorldMeshBuilder.MeshData> visibleMeshes,
+            int limit,
+            boolean collisionOnly) {
         if (limit < 1) throw new IllegalArgumentException("limit must be positive");
         Map<String, Integer> counts = new HashMap<>();
         for (WorldMeshBuilder.MeshData mesh : visibleMeshes) {
-            for (Map.Entry<String, Integer> entry : mesh.unsupportedSprites().entrySet()) {
+            Map<String, Integer> source = collisionOnly
+                    ? mesh.unsupportedCollisionSprites()
+                    : mesh.unsupportedSprites();
+            for (Map.Entry<String, Integer> entry : source.entrySet()) {
                 counts.merge(entry.getKey(), entry.getValue(), Integer::sum);
             }
         }

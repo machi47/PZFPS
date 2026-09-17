@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -252,5 +253,33 @@ final class WorldMeshBuilderTest {
         assertEquals(3.0f * chunkSize, mesh.maxX());
         assertEquals(3.0f * chunkSize, mesh.minZ());
         assertEquals(4.0f * chunkSize, mesh.maxZ());
+    }
+
+    @Test
+    void separatesUnsupportedCollisionBlockersFromAppearanceOnlyHoles() throws Exception {
+        Path registryPath = temporary.resolve("collision-holes.json");
+        Files.writeString(
+                registryPath,
+                "{\"schema_version\":1,\"source_sha256\":\"x\",\"tiles\":{}}");
+        WorldState.TileObject invisibleBlocker = new WorldState.TileObject(
+                0, "zombie.iso.IsoObject", "normal", "fixtures_blocker_01_2",
+                false, false, false, false, false, false, false, false,
+                true, false, true, WorldState.WorldItem.none());
+        WorldState.TileObject appearanceOnly = new WorldState.TileObject(
+                1, "zombie.iso.IsoObject", "normal", "fixtures_decor_01_4",
+                false, false, false, false, false, false, false, false,
+                false, false, false, WorldState.WorldItem.none());
+        WorldState.Square square = new WorldState.Square(
+                0, 0, 0, -1, 0, 255, 255, 255,
+                false, true, false, false, false, false,
+                List.of(invisibleBlocker, appearanceOnly));
+        WorldState.Chunk chunk = new WorldState.Chunk(0, 0, 1, 1, List.of(square));
+
+        WorldMeshBuilder.MeshData mesh =
+                new WorldMeshBuilder(TileGeometryRegistry.load(registryPath)).build(chunk);
+
+        assertEquals(2, mesh.coverage().unsupportedObjects());
+        assertEquals(1, mesh.coverage().collisionCriticalUnsupportedObjects());
+        assertEquals(Map.of("fixtures_blocker_01_2", 1), mesh.unsupportedCollisionSprites());
     }
 }

@@ -14,7 +14,8 @@ The canonical compiler uses known geometry, calibrated source images/sprite mani
 The live renderer now reports scene coverage from completed visible frames:
 source-textured floors, unavoidable flat floor fallbacks, authoritative stair
 openings, indexed object geometry, structural fallbacks, native world items,
-unsupported objects and any chunk truncated by the safety vertex cap. A square
+unsupported objects, collision-critical unsupported objects and any chunk
+truncated by the safety vertex cap. A square
 with B42's `HasStairsBelow` topology no longer receives a generic solid floor
 plane across the stairwell. These are counts of representation paths—not
 inferred visual quality or game FPS—and make the remaining holes a measurable
@@ -25,6 +26,9 @@ completed-frame report, the renderer aggregates only the chunks inside the
 current distance/frustum volume and logs the eight most repeated unsupported
 sprites. Coverage-only chunks with no drawable triangles remain in this
 backlog; they are not incorrectly discarded as off-screen empty geometry.
+The report separately ranks `topCollisionHoles` from B42's authoritative
+`solid`/`solidtrans` object flags. This identifies invisible blockers without
+drawing an invented box or changing the game's collision.
 
 `pzcanonical from-pz` directly reads the actual B42 geometry registry and sprite extraction manifest formats, including primitive rotations, tapered cylinders and concave polygons. It fits the source image anchor by silhouette overlap and refuses bad matches rather than warping known geometry. This connects the new compiler to the published asset indexers without a manual schema rewrite.
 
