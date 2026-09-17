@@ -74,10 +74,39 @@ final class InteractionTargetTest {
         assertEquals(1, result.squareY());
     }
 
+    @Test
+    void pitchCanRejectAContainerOutsideTheThreeDimensionalReticle() {
+        WorldState.TileObject container = object(2, false, false, true);
+        WorldState.Chunk chunk = new WorldState.Chunk(
+                0, 0, 1, 1, List.of(square(2, 0, container)));
+
+        assertTrue(InteractionTarget.nearestInteractive(
+                        player(0.5f, 0.5f, 1.0f, 0.0f, (float) Math.toRadians(80.0)),
+                        List.of(chunk),
+                        3.0f)
+                .isEmpty());
+    }
+
+    @Test
+    void rayBoxDistanceHonorsPerspectiveReach() {
+        float[] bounds = {2, 0, 0, 3, 3, 1};
+        assertEquals(
+                1.5f,
+                InteractionTarget.rayBoxDistance(0.5f, 1.6f, 0.5f, 1, 0, 0, bounds, 3),
+                0.0001f);
+        assertTrue(Float.isInfinite(
+                InteractionTarget.rayBoxDistance(0.5f, 1.6f, 0.5f, 1, 0, 0, bounds, 1)));
+    }
+
     private static WorldState.Player player(float x, float y, float forwardX, float forwardY) {
+        return player(x, y, forwardX, forwardY, 0.0f);
+    }
+
+    private static WorldState.Player player(
+            float x, float y, float forwardX, float forwardY, float pitch) {
         return new WorldState.Player(
                 1, 1, 1, 0, x, y, 0, forwardX, forwardY,
-                0, "Idle", false, false, false, 1.62f);
+                pitch, "Idle", false, false, false, 1.62f);
     }
 
     private static WorldState.Square square(int x, int y, WorldState.TileObject object) {

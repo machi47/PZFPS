@@ -67,7 +67,7 @@ gameplay:
    player is stationary. The former 169 -> 117/104 -> 169 oscillation is gone.
 5. The perspective room uses source PZ textures on known geometry and retains
    the normal PZ text/UI pass. The owner reported no further whole-world flash.
-6. The current source build passes 28 Java tests and 45 Python tests.
+6. The current source build passes 30 Java tests and 45 Python tests.
 
 No source/enhanced video pair or matched gameplay performance capture has yet
 been accepted.
@@ -137,11 +137,13 @@ been accepted.
   corrupt perspective depth. The prior value is restored in `finally`. This is
   source-built and unit-tested, not yet live-accepted.
 - `bridge/src/main/java/dev/pzfps/bridge/InteractionTarget.java` — chooses only
-  authoritative door/window/container candidates inside a short perspective
-  reticle, uses their actual square-edge placement, and re-resolves square,
-  index, Java type, object type, sprite and item ID against the live object on
-  PZ's game thread. The `Interact` observation path logs this resolution but
-  leaves PZ's normal `doContext()` fully authoritative.
+  authoritative door/window/container candidates intersected by a short 3D
+  perspective ray from the real eye height and pitch. Door/window volumes use
+  their actual north/west square edge; conservative container volumes occupy
+  their tile. The result is re-resolved by square, index, Java type, object
+  type, sprite and item ID against the live object on PZ's game thread. The
+  `Interact` observation path logs this resolution but leaves PZ's normal
+  `doContext()` fully authoritative.
 - `bridge/src/main/java/dev/pzfps/bridge/PerspectiveContextMenu.java` — hands an
   identity-checked live target to the PZ Lua context system on the game thread.
   It releases mouse capture only after PZ reports a non-empty menu; every menu
@@ -210,7 +212,7 @@ verify that `targetDepth` changes clip-space Z. Socket/log diagnostics used
 Most recent test results:
 
 - Python/pytest: 45 passed, 0 failed (49 deprecation warnings).
-- Java/Gradle: 28 passed, 0 failed across `ChunkLifecycleTest`,
+- Java/Gradle: 30 passed, 0 failed across `ChunkLifecycleTest`,
   `CursorCaptureStateTest`, `DirectPatchInstallerTest`, `FirstPersonInputTest`,
   `FirstPersonModelCameraTest`, `InputStateTest`, `InteractionTargetTest`,
   `MovementDiagnosticsTest`, `NativeWorldItemPassTest`, `WireProtocolTest` and
@@ -229,7 +231,7 @@ Most recent test results:
 - Live-tested staged bridge JAR SHA-256:
   `c0904da6d2f775c6dcd8bfac90ccc1096093640fff7fc05d61149cc8bd8946d2`.
 - Newest built but not live-tested bridge JAR SHA-256:
-  `49ed7b16a55ffef418ba94f8f2d6674b12ea23f8c12f85f6516aa190dda4e5da`.
+  `42da77cde61254fe2b0c93def48088b0eb144e04250b85e0ea48f070bde3b2dd`.
 - Offline canonical report:
   `.local/canonical-bed-v64/store/objects/5107aa94b47977535039da77ac4018329c238388ad51c94829dc5a69d01d1a0a/report.json`.
 - Geometry source SHA-256:
@@ -271,9 +273,12 @@ update rates have not been reported as achieved performance.
    texture, placement and occlusion from several viewpoints.
 4. Center-view doors/containers/context menus and combat must resolve a stable
    snapshot reference back to the exact live PZ object on the game thread. That
-   reference/re-resolution seam is now implemented and unit-tested; opening a
-   PZ context menu for it and live acceptance remain. Direct position or state
-   mutation is not an acceptable substitute.
+   reference/re-resolution seam now includes eye height and pitch and is unit-
+   tested; opening a PZ context menu for it and live acceptance remain. Direct
+   position or state mutation is not an acceptable substitute. Inspection of
+   the installed geometry also confirmed that PZ supplies distinct open/closed
+   door sprite geometry, so the renderer continues to consume the live sprite
+   rather than fabricating a second hinge transform.
 5. The native neural overlay is blocked by the host/toolchain/model prerequisites
    above. No other renderer/model rewrite has been substituted for it.
 6. Visible holes and unsupported backs/ceilings are now honestly exposed. Their

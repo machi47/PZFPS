@@ -9,7 +9,10 @@ import zombie.util.list.PZArrayList;
 
 /** Perspective selection plus identity-checked re-resolution of a live PZ object. */
 final class InteractionTarget {
-    private static final float TARGET_HALF_WIDTH = 0.72f;
+    private static final float LEVEL_HEIGHT = 3.0f;
+    private static final float EDGE_HALF_THICKNESS = 0.08f;
+    private static final float TARGET_PADDING = 0.06f;
+    private static final float MINIMUM_TARGET_DISTANCE = 0.05f;
 
     record Reference(
             int squareX,
@@ -28,9 +31,12 @@ final class InteractionTarget {
         if (maximumReach <= 0.0f) throw new IllegalArgumentException("maximumReach must be positive");
         float forwardLength = (float) Math.hypot(player.forwardX(), player.forwardY());
         if (forwardLength < 0.0001f) return Optional.empty();
-        float forwardX = player.forwardX() / forwardLength;
-        float forwardY = player.forwardY() / forwardLength;
-        float bestScore = Float.POSITIVE_INFINITY;
+        float horizontal = (float) Math.cos(player.verticalAim());
+        float directionX = player.forwardX() / forwardLength * horizontal;
+        float directionY = (float) Math.sin(player.verticalAim());
+        float directionZ = player.forwardY() / forwardLength * horizontal;
+        float originY = player.z() * LEVEL_HEIGHT + player.eyeHeight();
+        float bestDistance = Float.POSITIVE_INFINITY;
         Reference best = null;
         int chunkSize = zombie.iso.IsoChunkMap.CHUNK_SIZE_IN_SQUARES;
 
@@ -43,19 +49,18 @@ final class InteractionTarget {
                 int squareY = chunkY + square.localY();
                 for (WorldState.TileObject object : square.objects()) {
                     if (!isInteractive(object)) continue;
-                    float targetX = squareX + 0.5f;
-                    float targetY = squareY + 0.5f;
-                    if (object.edgeNorth() && !object.edgeWest()) targetY = squareY;
-                    if (object.edgeWest() && !object.edgeNorth()) targetX = squareX;
-                    float dx = targetX - player.x();
-                    float dy = targetY - player.y();
-                    float along = dx * forwardX + dy * forwardY;
-                    if (along < 0.05f || along > maximumReach) continue;
-                    float perpendicular = Math.abs(dx * forwardY - dy * forwardX);
-                    if (perpendicular > TARGET_HALF_WIDTH) continue;
-                    float score = along + perpendicular * 1.5f;
-                    if (score >= bestScore) continue;
-                    bestScore = score;
+                    float[] bounds = bounds(squareX, squareY, square.z(), object);
+                    float distance = rayBoxDistance(
+                            player.x(),
+                            originY,
+                            player.y(),
+                            directionX,
+                            directionY,
+                            directionZ,
+                            bounds,
+                            maximumReach);
+                    if (!Float.isFinite(distance) || distance >= bestDistance) continue;
+                    bestDistance = distance;
                     best = reference(squareX, squareY, square.z(), object);
                 }
             }
@@ -90,6 +95,63 @@ final class InteractionTarget {
 
     private static boolean isInteractive(WorldState.TileObject object) {
         return object.door() || object.window() || object.container();
+    }
+
+    private static float[] bounds(
+            int squareX, int squareY, int z, WorldState.TileObject object) {
+        float minimumX = squareX - TARGET_PADDING;
+        float maximumX = squareX + 1.0f + TARGET_PADDING;
+        float minimumZ = squareY - TARGET_PADDING;
+        float maximumZ = squareY + 1.0f + TARGET_PADDING;
+        if (object.edgeNorth() && !object.edgeWest()) {
+            minimumZ = squareY - EDGE_HALF_THICKNESS;
+            maximumZ = squareY + EDGE_HALF_THICKNESS;
+        } else if (object.edgeWest() && !object.edgeNorth()) {
+            minimumX = squareX - EDGE_HALF_THICKNESS;
+            maximumX = squareX + EDGE_HALF_THICKNESS;
+        }
+        float minimumY = z * LEVEL_HEIGHT;
+        float maximumY = minimumY + LEVEL_HEIGHT;
+        return new float[] {
+            minimumX, minimumY, minimumZ, maximumX, maximumY, maximumZ
+        };
+    }
+
+    static float rayBoxDistance(
+            float originX,
+            float originY,
+            float originZ,
+            float directionX,
+            float directionY,
+            float directionZ,
+            float[] bounds,
+            float maximumReach) {
+        float near = MINIMUM_TARGET_DISTANCE;
+        float far = maximumReach;
+        float[] origins = {originX, originY, originZ};
+        float[] directions = {directionX, directionY, directionZ};
+        for (int axis = 0; axis < 3; axis++) {
+            float direction = directions[axis];
+            float minimum = bounds[axis];
+            float maximum = bounds[axis + 3];
+            if (Math.abs(direction) < 0.00001f) {
+                if (origins[axis] < minimum || origins[axis] > maximum) {
+                    return Float.POSITIVE_INFINITY;
+                }
+                continue;
+            }
+            float first = (minimum - origins[axis]) / direction;
+            float second = (maximum - origins[axis]) / direction;
+            if (first > second) {
+                float swap = first;
+                first = second;
+                second = swap;
+            }
+            near = Math.max(near, first);
+            far = Math.min(far, second);
+            if (near > far) return Float.POSITIVE_INFINITY;
+        }
+        return near;
     }
 
     private static Reference reference(
