@@ -19,12 +19,11 @@ PZ simulation/update -> immutable authoritative snapshot
 PZ render thread     -> PZFPS perspective world -> PZ text/UI
 ```
 
-One isolated PZ process, PID 24960, is currently running from the project-local
+One isolated PZ process, PID 25368, is currently running from the project-local
 disposable profile with staged bridge JAR
-`9073b35640b7d86a01681b622783ea70958b30b2486de82827245b27c5a4fbed` (source
-checkpoint `0555930`). The newest source build is not staged or live-tested;
-the hashes below distinguish it from the current live artifact. No normal save,
-installed game binary or unrelated mod was changed.
+`d934677e67e9c4d84fd89181e0efeb5b323e05df0e80ff5e1111f95ed9fb6267`
+(source checkpoint `d9d4c69`). No normal save, installed game binary or
+unrelated mod was changed.
 
 ## Truthful acceptance state
 
@@ -59,11 +58,15 @@ installed game binary or unrelated mod was changed.
   then observed two additional live failures: the pointer could escape the
   window while the bridge's logical state still said captured, and the reused
   `crosshair00.png` appeared as a parenthesis rather than a complete reticle.
-  The newest source blocks a late low-level ungrab while focused, compares the
-  real GLFW cursor mode on every mouse poll, repairs drift, and draws a
-  symmetric four-tick reticle. These newest fixes are source-built but not
-  live-tested. Continuously tracked centre-view selection, aiming/combat and
-  ordinary inventory/container play also remain unaccepted.
+  The live `d9d4c69` build blocks a late low-level ungrab while focused,
+  compares the real GLFW cursor mode on every mouse poll, repairs drift, and
+  draws a symmetric four-tick reticle. The loaded process measured GLFW mode
+  `212994` (hidden, but not captured) while gameplay capture was expected and
+  repaired it; a screenshot confirms the complete four-way reticle at the
+  optical centre. Physical edge confinement, Space/shove and deliberate
+  F8/UI/focus release still require owner acceptance. Continuously tracked
+  centre-view selection, aiming/combat and ordinary inventory/container play
+  also remain unaccepted.
 - **Performance checkpoint:** unavailable. The log records completed render
   callbacks and queue behavior, not game FPS. At its last unpaused fresh-state
   sample it reported `completedFrames=300`, `enqueuedFrames=300`, `meshes=169`,
@@ -85,12 +88,12 @@ gameplay:
    player is stationary. The former 169 -> 117/104 -> 169 oscillation is gone.
 5. The perspective room uses source PZ textures on known geometry and retains
    the normal PZ text/UI pass. The owner reported no further whole-world flash.
-6. The live `0555930` artifact passes 79 Java tests and is loaded in PID 24960.
+6. The live `d9d4c69` artifact passes 82 Java tests and is loaded in PID 25368.
    Its safe wall reverse faces and structural ceilings are visibly active; its
    native actor pass failed safely during model snapshot preparation because
-   `modelSlot.model.playerData` was null. The newest cursor/reticle source build
-   passes 82 Java tests but has not yet been loaded. The last canonical suite
-   run passes 45 Python tests.
+   `modelSlot.model.playerData` was null. The pointer-capture hook transformed
+   the exact installed descriptor and repaired a measured native-mode drift at
+   frame 2. The last canonical suite run passes 45 Python tests.
 
 No source/enhanced video pair or matched gameplay performance capture has yet
 been accepted.
@@ -510,13 +513,11 @@ Most recent test results:
 - Disposable save:
   `.local/pz-runtime/user-cache/Zomboid/Saves/Top Of The World/46507890207760758489`.
 - Current live-loaded staged bridge JAR SHA-256:
-  `9073b35640b7d86a01681b622783ea70958b30b2486de82827245b27c5a4fbed`.
-- Newest built but not live-tested bridge JAR SHA-256:
   `d934677e67e9c4d84fd89181e0efeb5b323e05df0e80ff5e1111f95ed9fb6267`.
 - Last live screenshots:
-  `.local/captures/pz-0555930-live.png`,
-  `.local/captures/pz-0555930-ui-closed.png` and
-  `.local/captures/pz-0555930-ui-closed-2.png`.
+  `.local/captures/pz-d9d4c69-live.png` and
+  `.local/captures/pz-d9d4c69-reticle-live.png`. The latter visibly records the
+  four-way reticle while capture is active.
 - Offline canonical report:
   `.local/canonical-bed-v64/store/objects/5107aa94b47977535039da77ac4018329c238388ad51c94829dc5a69d01d1a0a/report.json`.
 - Geometry source SHA-256:
@@ -697,19 +698,22 @@ update rates have not been reported as achieved performance.
     intercepts the exact installed `org.lwjglx.input.Mouse.setGrabbed(boolean)`
     descriptor and independently polls `glfwGetInputMode(..., GLFW_CURSOR)`.
     Unit tests cover active-capture ungrab filtering, focus loss and actual-mode
-    mismatch detection. This repair still needs live acceptance.
+    mismatch detection. The loaded build then measured native mode `212994`
+    while capture was expected and logged a successful repair. Owner acceptance
+    of physical edge confinement remains outstanding.
 24. The live centre reference looked like `(` because `crosshair00.png` was
     drawn as though it were a complete static reticle. The source script now
     uses four independently positioned rectangles from installed `white.png`;
-    the installed Lua compiler parses the result. This is source validation,
-    not yet proof of live scale, centering or visibility behavior.
+    the installed Lua compiler parses the result. Live capture
+    `.local/captures/pz-d9d4c69-reticle-live.png` confirms four visible symmetric
+    ticks at the viewport centre. Target-state transitions and gameplay
+    agreement are not yet accepted.
 
 ## Next smallest experiment
 
-Stage the single 82-test artifact and restart the one isolated process once.
-This restart has a specific batched target: replace the parenthesis fragment
-with a symmetric reticle and keep logical gameplay capture synchronized with
-the actual GLFW cursor mode without breaking deliberate F8/UI/focus release.
+Keep the currently running single PID 25368; no additional restart is needed
+for the next acceptance pass. Exercise the live cursor/reticle build before
+changing its hooks again.
 
 1. Stage one batched build and live-test simultaneous W+A/W+D, A/D,
    Shift+W/A/D and backward movement while keeping mouse view fixed. Confirm
