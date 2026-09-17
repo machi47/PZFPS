@@ -33,6 +33,8 @@ public final class DirectPatchInstaller {
         InputMovePatch.class,
         AimVectorPatch.class,
         AimStatePatch.class,
+        BallisticsAimPatch.Muzzle.class,
+        BallisticsAimPatch.CameraTargets.class,
         StrafingPatch.class,
         KeyboardInputPatch.Down.class,
         KeyboardInputPatch.Pressed.class,
@@ -62,6 +64,7 @@ public final class DirectPatchInstaller {
                         "zombie.iso.IsoWorld",
                         "zombie.characters.IsoGameCharacter",
                         "zombie.characters.IsoPlayer",
+                        "zombie.core.physics.BallisticsController",
                         "zombie.input.GameKeyboard",
                         "zombie.input.Mouse"))
                 .transform(DirectPatchInstaller::transform)
@@ -114,6 +117,19 @@ public final class DirectPatchInstaller {
                         named("isStrafing").and(takesArguments(0));
                 requireOneTarget(type, strafing, "isStrafing()Z");
                 yield builder.visit(advice(StrafingPatch.class).on(strafing));
+            }
+            case "zombie.core.physics.BallisticsController" -> {
+                ElementMatcher.Junction<MethodDescription> muzzle = ballisticsMuzzleMatcher();
+                ElementMatcher.Junction<MethodDescription> cameraTargets =
+                        ballisticsCameraTargetsMatcher();
+                requireOneTarget(
+                        type,
+                        muzzle,
+                        "calculateMuzzlePosition(Lzombie/iso/Vector3;Lzombie/iso/Vector3;)F");
+                requireOneTarget(type, cameraTargets, "getCameraTargets(FZ)V");
+                yield builder
+                        .visit(advice(BallisticsAimPatch.Muzzle.class).on(muzzle))
+                        .visit(advice(BallisticsAimPatch.CameraTargets.class).on(cameraTargets));
             }
             case "zombie.input.GameKeyboard" -> {
                 ElementMatcher.Junction<MethodDescription> down =
@@ -169,6 +185,20 @@ public final class DirectPatchInstaller {
 
     static ElementMatcher.Junction<MethodDescription> setAngleFromAimMatcher() {
         return named("setAngleFromAim").and(takesArguments(0));
+    }
+
+    static ElementMatcher.Junction<MethodDescription> ballisticsMuzzleMatcher() {
+        return named("calculateMuzzlePosition")
+                .and(takesArguments(2))
+                .and(takesArgument(0, named("zombie.iso.Vector3")))
+                .and(takesArgument(1, named("zombie.iso.Vector3")));
+    }
+
+    static ElementMatcher.Junction<MethodDescription> ballisticsCameraTargetsMatcher() {
+        return named("getCameraTargets")
+                .and(takesArguments(2))
+                .and(takesArgument(0, float.class))
+                .and(takesArgument(1, boolean.class));
     }
 
     static void requireOneTarget(

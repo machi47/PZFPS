@@ -67,7 +67,7 @@ gameplay:
    player is stationary. The former 169 -> 117/104 -> 169 oscillation is gone.
 5. The perspective room uses source PZ textures on known geometry and retains
    the normal PZ text/UI pass. The owner reported no further whole-world flash.
-6. The current source build passes 34 Java tests and 45 Python tests.
+6. The current source build passes 38 Java tests and 45 Python tests.
 
 No source/enhanced video pair or matched gameplay performance capture has yet
 been accepted.
@@ -123,8 +123,21 @@ been accepted.
   combat. After that method invokes B42's isometric ballistics calculation, the
   patch restores the local actor's horizontal facing and vertical presentation
   to the FPS camera. PZ still decides whether an attack is authorized and
-  executes `AttemptAttack`; native ranged target acquisition is not yet
-  perspective-correct and is not claimed as accepted combat.
+  executes `AttemptAttack`. This path is source-built but not live-accepted.
+- `bridge/src/main/java/dev/pzfps/bridge/PerspectiveBallistics.java` and
+  `patches/BallisticsAimPatch.java` — adapt the FPS ray to B42's existing
+  ballistics system at two exact installed-build boundaries. Every
+  `calculateMuzzlePosition(Vector3, Vector3)` retains PZ's evaluated attachment
+  position but receives camera yaw/pitch as its direction. Immediately before
+  `getCameraTargets(float, boolean)`, the bridge supplies native Bullet with the
+  same normalized muzzle direction, a reticle point at the muzzle, and a
+  quaternion whose local negative-Z axis follows the perspective ray. The
+  stale Java isometric reticle point is moved to the muzzle so it cannot admit
+  an off-axis target before the native query. B42 still performs native
+  collision/body-part queries, range/LOS checks, hit chance, damage and network
+  actions. Installed native disassembly verified how the camera ray is formed;
+  pure coordinate/quaternion tests pass, but an aimed firearm hit/miss/occlusion
+  sequence has not been run live, so ranged combat remains unaccepted.
 - `bridge/mod/42/media/lua/client/PZFPS_KeyBinding.lua` — registers the F8 mouse
   capture action and F7 perspective context-menu action through PZ's editable
   key-binding system. Its context wrapper feeds the exact target's isometric
@@ -222,6 +235,14 @@ PYTHONPATH=src .local/canonical-venv/bin/python -m pytest -q
 bin/pzfps game stage-isolated
 bin/pzfps game launch-app-isolated
 bin/pzfps game status-isolated
+
+PZ_JAR='/Users/machi/Library/Application Support/Steam/steamapps/common/ProjectZomboid/Project Zomboid.app/Contents/Java/projectzomboid.jar'
+PZ_BULLET='/Users/machi/Library/Application Support/Steam/steamapps/common/ProjectZomboid/Project Zomboid.app/Contents/Java/libPZBullet.dylib'
+javap -classpath "$PZ_JAR" -c -p zombie.core.physics.BallisticsController
+java -jar .local/toolchains/downloads/cfr-0.152.jar "$PZ_JAR" \
+  --outputdir <temporary-directory> --jarfilter CombatManager
+nm -gU "$PZ_BULLET" | rg -i 'Ballistics|AimReticle'
+otool -arch arm64 -tvV "$PZ_BULLET"
 ```
 
 Targeted installed-class inspection used `javap -c -p` on `IsoPlayer`,
@@ -237,20 +258,22 @@ actual character camera through `ModelCamera.instance`. The installed
 `basicEffect` shaders were also searched to verify that `targetDepth` changes
 clip-space Z. Aim-path inspection established that B42's attack path calls the
 private `calculateAimVector(Vector2)` directly and that ranged target selection
-uses a native Bullet camera configured with a hard-coded isometric quaternion;
-the latter remains an explicit prerequisite for accepted first-person ranged
-combat. Socket/log diagnostics used `lsof`, `nc`, `xxd` and `rg`; these did not
-modify the installation.
+uses a native Bullet camera configured with a hard-coded isometric quaternion.
+Read-only `nm` and arm64 `otool -tvV` inspection of the installed
+`libPZBullet.dylib` then verified that `getCameraTargets` casts along the
+negative-Z column of that quaternion through the supplied world point. No
+native binary was changed. Socket/log diagnostics used `lsof`, `nc`, `xxd` and
+`rg`; these did not modify the installation.
 
 Most recent test results:
 
 - Python/pytest: 45 passed, 0 failed (49 deprecation warnings).
-- Java/Gradle: 34 passed, 0 failed across `ChunkLifecycleTest`,
+- Java/Gradle: 38 passed, 0 failed across `ChunkLifecycleTest`,
   `CursorCaptureStateTest`, `DirectPatchInstallerTest`, `FirstPersonInputTest`,
   `FirstPersonCharacterCameraTest`, `FirstPersonModelCameraTest`,
   `InputStateTest`, `InteractionTargetTest`, `MovementDiagnosticsTest`,
-  `NativeActorPassTest`, `NativeWorldItemPassTest`, `WireProtocolTest` and
-  `WorldMeshBuilderTest`.
+  `NativeActorPassTest`, `NativeWorldItemPassTest`, `PerspectiveBallisticsTest`,
+  `WireProtocolTest` and `WorldMeshBuilderTest`.
 
 ## Evidence and identities
 
@@ -258,6 +281,8 @@ Most recent test results:
   `/Users/machi/Library/Application Support/Steam/steamapps/common/ProjectZomboid`
 - PZ version/build: 42.20.4, Steam build `24909800`; game JAR SHA-256
   `80e405a4bfc42f6072e75b3735f458a6514143da011d3226007ded305a442f44`.
+- Inspected installed `libPZBullet.dylib` SHA-256:
+  `ebba9eeaad47f5d9e17cc8106a43ace21b6b7d874fbaa7c8c0743450fd5a5be5`.
 - Staging manifest: `.local/pz-runtime/staging-manifest.json`.
 - Live console: `.local/pz-runtime/user-cache/Zomboid/console.txt`.
 - Disposable save:
@@ -265,7 +290,7 @@ Most recent test results:
 - Live-tested staged bridge JAR SHA-256:
   `c0904da6d2f775c6dcd8bfac90ccc1096093640fff7fc05d61149cc8bd8946d2`.
 - Newest built but not live-tested bridge JAR SHA-256:
-  `724ec87ae3e1ff80fc8cfb19c9e70d77d69eaced18921d9f71bdf27f2f818c57`.
+  `67bbac586d3bd82433994354239c23c7843061f5d5fe5b7b20bf312bb330c5dd`.
 - Offline canonical report:
   `.local/canonical-bed-v64/store/objects/5107aa94b47977535039da77ac4018329c238388ad51c94829dc5a69d01d1a0a/report.json`.
 - Geometry source SHA-256:

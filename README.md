@@ -64,8 +64,13 @@ The installed B42 combat path bypasses its public aim getter and calls a private
 isometric aim calculation directly. The bridge now hooks both routes and
 reasserts FPS yaw/pitch after `setAngleFromAim()`, while leaving PZ's normal
 attack authorization and `AttemptAttack` execution intact. This fixes actor
-facing at the Java action boundary; it does not yet make B42's native Bullet
-camera ray perspective-correct, so ranged targeting is explicitly not accepted.
+facing at the Java action boundary. A second exact hook now gives B42's native
+Bullet target query the FPS muzzle direction and a camera quaternion aligned to
+the center-view ray. PZ still owns collision, LOS, body-part selection, hit
+chance, damage and network actions. The coordinate/quaternion path is built and
+unit-tested against the installed descriptors and native ray convention, but it
+has not yet passed a live aimed-firearm sequence, so ranged combat remains
+explicitly unaccepted.
 
 ## Active direction
 
