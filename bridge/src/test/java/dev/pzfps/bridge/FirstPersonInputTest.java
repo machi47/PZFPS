@@ -1,6 +1,8 @@
 package dev.pzfps.bridge;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 import zombie.iso.Vector2;
@@ -41,6 +43,15 @@ final class FirstPersonInputTest {
         assertEquals(-right.x, left.x, 0.0001f);
         assertEquals(-right.y, left.y, 0.0001f);
         assertEquals(0.0f, forward.x * right.x + forward.y * right.y, 0.0001f);
+    }
+
+    @Test
+    void releasesImmediatelyForInventoryAndOtherCursorOwningUi() {
+        assertTrue(FirstPersonInput.uiWantsCursor(false, true, false, false));
+        assertTrue(FirstPersonInput.uiWantsCursor(true, false, false, false));
+        assertTrue(FirstPersonInput.uiWantsCursor(false, false, true, false));
+        assertTrue(FirstPersonInput.uiWantsCursor(false, false, false, true));
+        assertFalse(FirstPersonInput.uiWantsCursor(false, false, false, false));
     }
 
     private static Vector2 pzWorldMovement(Vector2 input) {

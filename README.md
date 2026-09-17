@@ -76,6 +76,10 @@ Live FPS controls currently reserve two editable entries under the `[PZFPS]`
 key-binding section: F8 releases/recaptures mouse look, and F7 asks PZ to open
 its own world context menu for the identity-checked three-dimensional reticle
 target. The cursor is released only when PZ actually creates a non-empty menu.
+The same UI pass draws a fixed reticle from B42's installed `crosshair00.png`
+without copying that asset into the project, and hides it whenever the real
+cursor is visible. Toggling inventory releases capture on that same input poll;
+the visible PZ inventory/loot pages then retain cursor ownership for drag/drop.
 Immediately before that handoff, B42's own square sightline traversal rejects a
 target hidden by a wall; a closed door or window admits only itself, not a
 container behind it. PZ still owns the menu options, reach/action checks and

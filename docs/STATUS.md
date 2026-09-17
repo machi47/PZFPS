@@ -67,7 +67,7 @@ gameplay:
    player is stationary. The former 169 -> 117/104 -> 169 oscillation is gone.
 5. The perspective room uses source PZ textures on known geometry and retains
    the normal PZ text/UI pass. The owner reported no further whole-world flash.
-6. The current source build passes 49 Java tests and 45 Python tests.
+6. The current source build passes 50 Java tests and 45 Python tests.
 
 No source/enhanced video pair or matched gameplay performance capture has yet
 been accepted.
@@ -108,7 +108,9 @@ been accepted.
 - `bridge/src/main/java/dev/pzfps/bridge/FirstPersonInput.java` — uses GLFW
   relative mouse deltas without macOS cursor warping, reads PZ's actual physical
   key bindings simultaneously, and returns the inverse of B42's isometric input
-  transform so camera-space WASD remains in world space.
+  transform so camera-space WASD remains in world space. `Toggle Inventory`
+  releases capture on the same mouse-input poll instead of waiting for the Lua
+  UI visibility change.
 - `bridge/src/main/java/dev/pzfps/bridge/CursorCaptureState.java` — distinguishes
   gameplay capture, deliberate F8 release and temporary UI ownership. Modal or
   explicitly force-cursor UI releases mouse-look and requires two consecutive
@@ -151,7 +153,10 @@ been accepted.
   capture action and F7 perspective context-menu action through PZ's editable
   key-binding system. Its context wrapper feeds the exact target's isometric
   location to B42's normal menu builder, then positions the resulting PZ UI at
-  the centre of the first-person viewport.
+  the centre of the first-person viewport. Its post-UI callback reuses the
+  installed `media/ui/Reticle/crosshair00.png` at the viewport centre and hides
+  it whenever the real cursor is visible; no proprietary texture is copied into
+  the project.
 - `WorldState.WorldItem` and `WorldCapture.worldItem(...)` — preserve a dropped
   item's real ID/type, static/world model identities, world texture, absolute
   placement, rotations, scale and extended-placement state. The mesh builder
@@ -282,6 +287,10 @@ java -jar .local/toolchains/downloads/cfr-0.152.jar "$PZ_JAR" \
   --outputdir <temporary-directory> --jarfilter CombatManager
 nm -gU "$PZ_BULLET" | rg -i 'Ballistics|AimReticle'
 otool -arch arm64 -tvV "$PZ_BULLET"
+
+jshell --execution local --class-path "$PZ_JAR"
+# In JShell: LuaCompiler.loadis(Files.newBufferedReader(script),
+#     script.toString(), J2SEPlatform.getInstance().newTable())
 ```
 
 Targeted installed-class inspection used `javap -c -p` on `IsoPlayer`,
@@ -310,7 +319,7 @@ native binary was changed. Socket/log diagnostics used `lsof`, `nc`, `xxd` and
 Most recent test results:
 
 - Python/pytest: 45 passed, 0 failed (49 deprecation warnings).
-- Java/Gradle: 49 passed, 0 failed across `ChunkLifecycleTest`,
+- Java/Gradle: 50 passed, 0 failed across `ChunkLifecycleTest`,
   `CursorCaptureStateTest`, `DirectPatchInstallerTest`, `FirstPersonInputTest`,
   `FirstPersonCharacterCameraTest`, `FirstPersonModelCameraTest`,
   `InputStateTest`, `InteractionTargetTest`, `MovementDiagnosticsTest`,
@@ -334,7 +343,7 @@ Most recent test results:
 - Live-tested staged bridge JAR SHA-256:
   `c0904da6d2f775c6dcd8bfac90ccc1096093640fff7fc05d61149cc8bd8946d2`.
 - Newest built but not live-tested bridge JAR SHA-256:
-  `3829380cc1ecf861f1a14bda131953d9250cfe7f1f4341a438ff322fb3d8c874`.
+  `7fcb9a2bfe40194ee4f46decc53414c89649bbdb4fe50a1ce41b6bc9902dbfc5`.
 - Offline canonical report:
   `.local/canonical-bed-v64/store/objects/5107aa94b47977535039da77ac4018329c238388ad51c94829dc5a69d01d1a0a/report.json`.
 - Geometry source SHA-256:
@@ -416,6 +425,13 @@ update rates have not been reported as achieved performance.
     before inspection because zsh interpreted the method parentheses as a glob
     pattern. Exact `rg` line selection followed by `sed` inspected the installed
     methods successfully; no game or project file was changed by either command.
+13. No standalone `luac` executable is installed, so the updated key-binding/UI
+    script could not use `luac -p`. The installed game's own
+    `LuaCompiler.loadis(...)` then parsed the complete script successfully from
+    JShell using a project path and a fresh Kahlua table. Its `OnPostUIDraw`,
+    `Mouse.isCursorVisible`, `getTexture` and `UIManager.DrawTexture` calls were
+    also checked read-only against installed B42 Lua and Java signatures; live
+    loading remains the required behavioral validation.
 
 ## Next smallest experiment
 
@@ -434,7 +450,9 @@ Without restarting the current accepted visual session merely to inspect it:
 3. Press F7 on a centre-view container and verify the new path opens B42's own
    non-empty menu, releases the cursor, executes one normal option, and
    recaptures only after the menu clears. The implementation is built but not
-   live-tested; acceptance requires PZ's real action/context code to run.
+   live-tested; acceptance requires PZ's real action/context code to run. Also
+   verify that the fixed reticle disappears while the cursor owns the menu and
+   returns after recapture.
 4. Inspect one real dropped item from several angles and verify the new native
    item pass selects PZ's installed model/texture, placement and scale, shares
    the perspective depth buffer, and leaves unresolved identities as honest

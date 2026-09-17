@@ -54,9 +54,11 @@ public final class FirstPersonInput {
             return;
         }
         boolean togglePressed = GameKeyboard.isKeyPressed(captureKey());
-        boolean uiWantsCursor = GameKeyboard.isKeyPressed(Keyboard.KEY_ESCAPE)
-                || UIManager.isModalVisible()
-                || hasVisibleForceCursorUi();
+        boolean uiWantsCursor = uiWantsCursor(
+                GameKeyboard.isKeyPressed(Keyboard.KEY_ESCAPE),
+                GameKeyboard.isKeyPressed("Toggle Inventory"),
+                UIManager.isModalVisible(),
+                hasVisibleForceCursorUi());
         CursorCaptureState.Mode previousMode = CURSOR.mode();
         if (CURSOR.update(togglePressed, uiWantsCursor)) {
             applyCaptureState();
@@ -76,6 +78,16 @@ public final class FirstPersonInput {
             pitch = clamp(pitch + deltaY * MOUSE_RADIANS_PER_PIXEL, -MAX_PITCH, MAX_PITCH);
         }
         Mouse.setCursorVisible(false);
+    }
+
+    static boolean uiWantsCursor(
+            boolean escapePressed,
+            boolean inventoryTogglePressed,
+            boolean modalVisible,
+            boolean forceCursorVisible) {
+        // Release on the same input poll that asks PZ to expose inventory. The Lua handler then
+        // marks the visible inventory/loot pair as force-cursor owners for its entire lifetime.
+        return escapePressed || inventoryTogglePressed || modalVisible || forceCursorVisible;
     }
 
     /**

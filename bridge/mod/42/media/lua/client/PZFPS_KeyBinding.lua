@@ -74,3 +74,22 @@ local function PZFPS_SyncInventoryCursor(key)
 end
 
 Events.OnKeyPressed.Add(PZFPS_SyncInventoryCursor)
+
+-- Draw a fixed first-person reference through PZ's own UI pass. Reuse the
+-- installed reticle asset rather than shipping a copied game texture, and hide
+-- it whenever PZFPS has released the real cursor to menus or inventory.
+local PZFPS_reticle = nil
+function PZFPS_DrawReticle()
+    if not getSpecificPlayer(0) or Mouse.isCursorVisible() then return end
+    if not PZFPS_reticle then
+        PZFPS_reticle = getTexture("media/ui/Reticle/crosshair00.png")
+    end
+    if not PZFPS_reticle then return end
+
+    local size = 20
+    local x = getPlayerScreenLeft(0) + (getPlayerScreenWidth(0) - size) / 2
+    local y = getPlayerScreenTop(0) + (getPlayerScreenHeight(0) - size) / 2
+    UIManager.DrawTexture(PZFPS_reticle, x, y, size, size, 0.85)
+end
+
+Events.OnPostUIDraw.Add(PZFPS_DrawReticle)
