@@ -11,7 +11,7 @@ import java.util.Set;
 /** Converts immutable PZ snapshots into renderer-owned triangles without touching live objects. */
 public final class WorldMeshBuilder {
     public static final int FLOATS_PER_VERTEX = 9;
-    public static final int TEXTURED_FLOATS_PER_VERTEX = 11;
+    public static final int TEXTURED_FLOATS_PER_VERTEX = 12;
     private static final float LEVEL_HEIGHT = 3.0f;
     // PZ's tile-depth scene uses 2*sqrt(1.5) authored units per floor, not 3.
     static final float AUTHORED_HEIGHT_TO_WORLD = (float) Math.sqrt(1.5);
@@ -144,6 +144,7 @@ public final class WorldMeshBuilder {
                     FloatBuilder batch = textured.computeIfAbsent(
                             floorSprite,
                             ignored -> new FloatBuilder(512, TEXTURED_FLOATS_PER_VERTEX));
+                    batch.layer = 0;
                     addTexturedQuad(
                             batch,
                             new float[] {baseX, baseY, baseZ},
@@ -212,8 +213,13 @@ public final class WorldMeshBuilder {
                     FloatBuilder batch = textured.computeIfAbsent(
                             object.sprite(),
                             ignored -> new FloatBuilder(512, TEXTURED_FLOATS_PER_VERTEX));
+                    batch.layer = Math.min(16, Math.max(1, object.index() + 1));
                     for (TileGeometryRegistry.Primitive primitive : geometry) {
                         addTexturedPrimitive(batch, baseX, baseY, baseZ, primitive, light);
+                        if (primitive.kind().equals("box")) {
+                            int sideAxis = BoxSideCompletion.sideAxis(object.sprite(), object.appearanceFacing(), primitive);
+                            if (sideAxis >= 0) addOppositeBoxSide(batch, baseX, baseY, baseZ, primitive, light, sideAxis);
+                        }
                         primitiveCount++;
                     }
                 } else if (isStructuralPanel(object)) {
@@ -225,6 +231,7 @@ public final class WorldMeshBuilder {
                     FloatBuilder batch = textured.computeIfAbsent(
                             object.sprite(),
                             ignored -> new FloatBuilder(512, TEXTURED_FLOATS_PER_VERTEX));
+                    batch.layer = Math.min(16, Math.max(1, object.index() + 1));
                     boolean emitted = false;
                     if (object.edgeNorth()) {
                         addSourceEdgePanel(
@@ -392,7 +399,10 @@ public final class WorldMeshBuilder {
         float height = 3.0f;
         // PZ composes several sprite layers on the same tile edge. Preserve that
         // deterministic order without coplanar depth fighting in perspective.
-        float layerOffset = Math.max(0, Math.min(31, objectLayer)) * 0.0004f;
+        // Layer ordering is applied as a bounded depth-only offset in the shader, shared
+        // with authored props. Shifting only walls physically made their order depend on
+        // which side the camera viewed and left shelf/window layers at identical depths.
+        float layerOffset = 0;
         float[][] local = north
                 ? new float[][] {
                     {-0.5f, 0, -0.5f + layerOffset},
@@ -616,6 +626,40 @@ public final class WorldMeshBuilder {
                     {1, 2, 6, 5}, {3, 7, 6, 2}, {0, 1, 5, 4}
                 },
                 light);
+    }
+
+    private static void addOppositeBoxSide(
+            FloatBuilder output, float baseX, float baseY, float baseZ,
+            TileGeometryRegistry.Primitive box, float[] light, int sideAxis) {
+        for (boolean positive : new boolean[] {false, true}) {
+            float x = positive ? box.maxX() : box.minX();
+            float[][] local = positive
+                    ? new float[][] {{x, box.minY(), box.minZ()}, {x, box.maxY(), box.minZ()},
+                        {x, box.maxY(), box.maxZ()}, {x, box.minY(), box.maxZ()}}
+                    : new float[][] {{x, box.minY(), box.minZ()}, {x, box.minY(), box.maxZ()},
+                        {x, box.maxY(), box.maxZ()}, {x, box.maxY(), box.minZ()}};
+            if (sideAxis == 2) {
+                float z = positive ? box.maxZ() : box.minZ();
+                local = positive
+                        ? new float[][] {{box.minX(), box.minY(), z}, {box.maxX(), box.minY(), z},
+                            {box.maxX(), box.maxY(), z}, {box.minX(), box.maxY(), z}}
+                        : new float[][] {{box.minX(), box.minY(), z}, {box.minX(), box.maxY(), z},
+                            {box.maxX(), box.maxY(), z}, {box.maxX(), box.minY(), z}};
+            }
+            float[][] transformed = transformedLocal(box, local);
+            float[][] world = worldPoints(baseX, baseY, baseZ, transformed);
+            float[] n = normal(world[0], world[1], world[2]);
+            // Already-observed faces are emitted above. Never overlay a second copy.
+            if (sourceFacing(n) >= -0.05f) continue;
+            float[][] uv = new float[4][];
+            for (int i = 0; i < 4; i++) {
+                float donorX = sideAxis == 0 ? box.minX() + box.maxX() - local[i][0] : local[i][0];
+                float donorZ = sideAxis == 2 ? box.minZ() + box.maxZ() - local[i][2] : local[i][2];
+                float[] donor = transformLocal(box, donorX, local[i][1], donorZ);
+                uv[i] = sourcePixel(donor);
+            }
+            addTexturedQuad(output, world[0], world[1], world[2], world[3], n, light, uv);
+        }
     }
 
     private static void addTexturedCylinder(
@@ -1000,6 +1044,7 @@ public final class WorldMeshBuilder {
         output.add(n[0]); output.add(n[1]); output.add(n[2]);
         output.add(c[0]); output.add(c[1]); output.add(c[2]);
         output.add(sourcePixel[0]); output.add(sourcePixel[1]);
+        output.add(output.layer);
     }
 
     private static void addVertex(FloatBuilder output, float[] p, float[] n, float[] c) {
@@ -1064,6 +1109,7 @@ public final class WorldMeshBuilder {
         private float[] values;
         private int size;
         private final int stride;
+        private float layer;
 
         FloatBuilder(int capacity, int stride) {
             values = new float[capacity];

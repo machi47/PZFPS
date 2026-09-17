@@ -21,7 +21,7 @@ PZ render thread     -> PZFPS perspective world -> PZ text/UI
 
 One isolated PZ process is currently running from the project-local
 disposable profile with staged bridge JAR
-`20a00e9b8f8df4171e1bf72fc2b54c924cce4dd611f6e51294425ebf8718db27`.
+`9a6c54aa25a7a53788e22939d15aa17c76df2c79f864384ee4dd9f37cbcd6163`.
 No normal save, installed game binary or
 unrelated mod was changed.
 
@@ -215,7 +215,7 @@ are harmonic prior-only. It is an offline diagnostic, not a live asset replaceme
 or neural completion. The body-texture and room checkpoint remains intact;
 cylinder/particle source changes await the next batched reload.
 
-**Owner feedback and follow-up, 2026-09-17 22:14 UTC:** the owner explicitly
+**Owner feedback and follow-up, 2026-09-17:** the owner explicitly
 accepted improved grass/floor/exterior-wall continuity, but reported door gaps,
 roof-edge strips, intersecting props, missing cabinet sides and black floor
 squares under furniture. These remain failures, not accepted completed assets.
@@ -242,6 +242,57 @@ The batched source builds with 91 Java tests passing. Native cylinder tests and
 floor-cache regression are offline evidence; the running PID 27987 still uses
 the prior surface build until explicitly staged/reloaded. No accepted lighting,
 sky, render-distance expansion or full first-person body work is claimed.
+
+**Loaded floor/opening batch:** commit `b484ae4` was pushed and remote-verified.
+`stop-isolated`, `stage-isolated`, `launch-app-isolated` replaced only the tracked
+isolated instance with PID 28679 at 22:13:37 UTC, JAR `9a6c54aa` above. Console
+before reload is `.local/reports/live-20a00e9-before-floor-repair.txt`. The new
+read-only tile inspection received 195 chunks and saved nearby data to
+`.local/reports/live-9a6c54-tile-floor-evidence.json`; actual floor objects with
+false square caches are preserved there. `industry_01_10` now has west-edge
+flag 64 instead of zero. Owner screenshots show the previously black occupied
+floor is present (`occupied-floor-before.png` / `occupied-floor-after.png` in
+`.local/captures/`), but still report shelf/window/bench flicker. This is not
+surface or interaction acceptance. Existing game startup reported invalid room
+metaIDs; no renderer exception was observed in this run. Callback samples were
+~60 Hz, state age 4–5 ms during active simulation, not a gameplay/GPU benchmark.
+
+**Next batched source, not yet live-accepted:** shared precision/layer repair
+uses direction-only camera rotation (no `eye + unitDirection` quantization at
+large map coordinates), chunk-local GPU vertices and chunk-relative camera
+matrices. Native actor cameras retain world coordinates and the same projection.
+All source surfaces now carry their immutable source-object order, with a
+depth-only separation bounded to 0–8 mm in eye distance, rather than physically
+offsetting only fallback walls. It does not grow to metres with render distance.
+The world pass explicitly sets/restores depth range, depth function, polygon
+offset enable and alpha-test enable. This targets coplanar-layer instability;
+it does not repair objects genuinely intersecting other geometry or prove every
+flicker source eliminated. Regression checks compare identical nearby/distant
+scenes and ensure rebasing preserves texture, normal and layer attributes.
+
+`BoxSideCompletion` uses PZ's actual `Facing` metadata to select side faces of
+authored boxes and copy the opposite observed side's UVs. It never maps the front
+to the back and never adds another copy of an already observed face. Without
+orientation evidence it abstains, except for the inspected four-view tool-cabinet
+family `location_business_machinery_01_32..35` (Tiles2x100; local source manifest
+`.local/assets/pz-42.20/toolchest-source/`). This is deterministic side completion,
+not complete asset reconstruction: backs, bottoms, occluded source regions and
+other kinds of missing geometry still need treatment. `appearanceFacing` is
+in-process immutable appearance metadata; protocol 5 intentionally remains wire
+compatible and does not export this new field yet. Tests cover four cabinet
+orientations, native facing routing, unchanged unrelated assets and donor UVs.
+
+**Lighting diagnosis, not a lighting fix:** current world meshes bake captured
+square RGB, clamp it to >=0.42, and do not invalidate on light changes. Therefore
+the owner's blockwise outdoor brightness is not accepted physical lighting.
+Installed `LightingJNI.JNILighting` separately reads visibility, `lightInfo`,
+`darkMulti`, `targetDarkMulti`, raw `lightLevel` and vertex-light values; replacing
+one with another or forcing gameplay visibility is not justified. Lighting needs
+a separately refreshed presentation input, without isometric seen-state masking
+and without rebuilding geometry for every light change. The developers describe
+the historical view-arc lighting in [Knox Event: 30 Years On](https://projectzomboid.com/blog/news/2023/07/knox-event-30-years-on/)
+and physical B42 light propagation in [Upstairs Downstairs](https://projectzomboid.com/blog/news/2022/09/upstairs-downstairs/).
+No fullbright workaround or gameplay visibility mutation was applied.
 
 ## Truthful acceptance state
 

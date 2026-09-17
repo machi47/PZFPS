@@ -166,17 +166,28 @@ public final class InProcessWorldRenderer {
         if (Math.abs(directionX) + Math.abs(directionZ) < 0.001f) directionZ = 1.0f;
         Matrix4f projection = new Matrix4f().perspective(
                 (float) Math.toRadians(82.0), (float) width / height, 0.035f, 400.0f);
-        Matrix4f view = new Matrix4f().lookAt(
-                eyeX,
-                eyeY,
-                eyeZ,
-                eyeX + directionX,
-                eyeY + directionY,
-                eyeZ + directionZ,
-                0,
-                1,
-                0);
+        // Adding a unit direction to map coordinates ~10,000 quantizes small mouse
+        // rotations before lookAt even runs. Keep direction independent of the origin.
+        Matrix4f view = new Matrix4f().lookAlong(directionX, directionY, directionZ, 0, 1, 0)
+                .translate(-eyeX, -eyeY, -eyeZ);
         return new CameraMatrices(projection, view);
+    }
+
+    static Matrix4f relativeMatrix(CameraMatrices camera, WorldState.Player player,
+            float eyeHeight, float originX, float originZ) {
+        PerspectiveViewRay.Ray ray = PerspectiveViewRay.fromPlayer(player, eyeHeight);
+        Matrix4f view = new Matrix4f(camera.view()).m30(0).m31(0).m32(0)
+                .translate(originX - ray.originX(), -ray.originY(), originZ - ray.originZ());
+        return new Matrix4f(camera.projection()).mul(view);
+    }
+
+    static float[] relativeVertices(float[] source, int stride, float originX, float originZ) {
+        float[] result = source.clone();
+        for (int i = 0; i < result.length; i += stride) {
+            result[i] -= originX;
+            result[i + 2] -= originZ;
+        }
+        return result;
     }
 
     private static void meshWorker(Path registryPath) {
@@ -350,6 +361,7 @@ public final class InProcessWorldRenderer {
         private final int uvBoundsUniform;
         private final int cropUniform;
         private final int surfaceKindUniform;
+        private final int originUniform;
         private final Map<String, Texture> sourceTextures = new HashMap<>();
         private final Set<String> reportedMissingTextures = ConcurrentHashMap.newKeySet();
         private boolean entityBufferCreated;
@@ -370,12 +382,13 @@ public final class InProcessWorldRenderer {
             uvBoundsUniform = GL20.glGetUniformLocation(program, "uUvBounds");
             cropUniform = GL20.glGetUniformLocation(program, "uCrop");
             surfaceKindUniform = GL20.glGetUniformLocation(program, "uSurfaceKind");
+            originUniform = GL20.glGetUniformLocation(program, "uOrigin");
             if (mvpUniform < 0
                     || texturedUniform < 0
                     || materialUniform < 0
                     || textureUniform < 0
                     || uvBoundsUniform < 0
-                    || cropUniform < 0 || surfaceKindUniform < 0) {
+                    || cropUniform < 0 || surfaceKindUniform < 0 || originUniform < 0) {
                 throw new IllegalStateException("one or more source-texture shader uniforms are absent");
             }
         }
@@ -391,6 +404,11 @@ public final class InProcessWorldRenderer {
             int previousCullFace = GL11.glGetInteger(GL11.GL_CULL_FACE_MODE);
             int previousFrontFace = GL11.glGetInteger(GL11.GL_FRONT_FACE);
             boolean previousDepthMask = GL11.glGetBoolean(GL11.GL_DEPTH_WRITEMASK);
+            int previousDepthFunction = GL11.glGetInteger(GL11.GL_DEPTH_FUNC);
+            boolean previousPolygonOffset = GL11.glIsEnabled(GL11.GL_POLYGON_OFFSET_FILL);
+            boolean previousAlphaTest = GL11.glIsEnabled(GL11.GL_ALPHA_TEST);
+            java.nio.DoubleBuffer previousDepthRange = BufferUtils.createDoubleBuffer(2);
+            GL11.glGetDoublev(GL11.GL_DEPTH_RANGE, previousDepthRange);
             int previousActiveTexture = GL11.glGetInteger(GL13.GL_ACTIVE_TEXTURE);
             GL13.glActiveTexture(GL13.GL_TEXTURE0);
             int previousTexture = GL11.glGetInteger(GL11.GL_TEXTURE_BINDING_2D);
@@ -403,6 +421,9 @@ public final class InProcessWorldRenderer {
                 GL11.glClear(GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT);
                 GL11.glEnable(GL11.GL_DEPTH_TEST);
                 GL11.glDepthFunc(GL11.GL_LEQUAL);
+                GL11.glDepthRange(0, 1);
+                GL11.glDisable(GL11.GL_POLYGON_OFFSET_FILL);
+                GL11.glDisable(GL11.GL_ALPHA_TEST);
                 GL11.glDisable(GL11.GL_BLEND);
                 GL11.glEnable(GL11.GL_CULL_FACE);
                 GL11.glCullFace(GL11.GL_BACK);
@@ -434,6 +455,11 @@ public final class InProcessWorldRenderer {
                 for (WorldMeshBuilder.MeshData source : visible) {
                     GpuMesh mesh = meshes.get(source.key());
                     if (mesh == null) continue;
+                    matrixBuffer.clear();
+                    relativeMatrix(camera, snapshot.player, renderedEyeHeight, mesh.originX, mesh.originZ)
+                            .get(matrixBuffer);
+                    GL20.glUniformMatrix4fv(mvpUniform, false, matrixBuffer);
+                    GL20.glUniform3f(originUniform, mesh.originX, 0, mesh.originZ);
                     if (mesh.vertexCount > 0) {
                         GL20.glUniform1i(texturedUniform, 0);
                         GL20.glUniform1i(materialUniform, 0);
@@ -456,6 +482,10 @@ public final class InProcessWorldRenderer {
                 }
                 GL20.glUniform1i(texturedUniform, 0);
                 GL20.glUniform1i(materialUniform, 0);
+                matrixBuffer.clear();
+                matrix.get(matrixBuffer);
+                GL20.glUniformMatrix4fv(mvpUniform, false, matrixBuffer);
+                GL20.glUniform3f(originUniform, 0, 0, 0);
                 GL11.glDisable(GL11.GL_BLEND);
                 GL11.glDisable(GL11.GL_TEXTURE_2D);
                 drawEntities(snapshot.entities, snapshot.nativeEntityIds);
@@ -470,6 +500,10 @@ public final class InProcessWorldRenderer {
                 GL11.glFrontFace(previousFrontFace);
                 setEnabled(GL11.GL_CULL_FACE, previousCull);
                 GL11.glDepthMask(previousDepthMask);
+                GL11.glDepthFunc(previousDepthFunction);
+                GL11.glDepthRange(previousDepthRange.get(0), previousDepthRange.get(1));
+                setEnabled(GL11.GL_POLYGON_OFFSET_FILL, previousPolygonOffset);
+                setEnabled(GL11.GL_ALPHA_TEST, previousAlphaTest);
                 GL13.glActiveTexture(GL13.GL_TEXTURE0);
                 GL11.glBindTexture(GL11.GL_TEXTURE_2D, previousTexture);
                 setEnabled(GL11.GL_TEXTURE_2D, previousTexture2d);
@@ -596,13 +630,16 @@ public final class InProcessWorldRenderer {
         }
 
         private static GpuMesh upload(WorldMeshBuilder.MeshData source) {
+            float originX = (int) (source.key() >> 32) * zombie.iso.IsoChunkMap.CHUNK_SIZE_IN_SQUARES;
+            float originZ = (int) source.key() * zombie.iso.IsoChunkMap.CHUNK_SIZE_IN_SQUARES;
             int vbo = 0;
             int vertexCount = source.vertices().length / WorldMeshBuilder.FLOATS_PER_VERTEX;
             if (vertexCount > 0) {
                 vbo = GL15.glGenBuffers();
                 GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, vbo);
                 FloatBuffer vertices = BufferUtils.createFloatBuffer(source.vertices().length);
-                vertices.put(source.vertices()).flip();
+                vertices.put(relativeVertices(source.vertices(), WorldMeshBuilder.FLOATS_PER_VERTEX,
+                        originX, originZ)).flip();
                 GL15.glBufferData(GL15.GL_ARRAY_BUFFER, vertices, GL15.GL_STATIC_DRAW);
             }
             ArrayList<GpuTexturedBatch> textured = new ArrayList<>();
@@ -610,7 +647,8 @@ public final class InProcessWorldRenderer {
                 int texturedVbo = GL15.glGenBuffers();
                 GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, texturedVbo);
                 FloatBuffer vertices = BufferUtils.createFloatBuffer(sourceBatch.vertices().length);
-                vertices.put(sourceBatch.vertices()).flip();
+                vertices.put(relativeVertices(sourceBatch.vertices(), WorldMeshBuilder.TEXTURED_FLOATS_PER_VERTEX,
+                        originX, originZ)).flip();
                 GL15.glBufferData(GL15.GL_ARRAY_BUFFER, vertices, GL15.GL_STATIC_DRAW);
                 textured.add(new GpuTexturedBatch(
                         sourceBatch.sprite(), texturedVbo, sourceBatch.vertexCount(),
@@ -621,13 +659,15 @@ public final class InProcessWorldRenderer {
                 int materialVbo = GL15.glGenBuffers();
                 GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, materialVbo);
                 FloatBuffer vertices = BufferUtils.createFloatBuffer(sourceBatch.vertices().length);
-                vertices.put(sourceBatch.vertices()).flip();
+                vertices.put(relativeVertices(sourceBatch.vertices(), WorldMeshBuilder.FLOATS_PER_VERTEX,
+                        originX, originZ)).flip();
                 GL15.glBufferData(GL15.GL_ARRAY_BUFFER, vertices, GL15.GL_STATIC_DRAW);
                 materials.add(new GpuMaterialBatch(
                         sourceBatch.material(), materialVbo, sourceBatch.vertexCount()));
             }
             return new GpuMesh(
                     source.fingerprint(),
+                    originX, originZ,
                     vbo,
                     vertexCount,
                     List.copyOf(textured),
@@ -665,9 +705,13 @@ public final class InProcessWorldRenderer {
                 GL20.glEnableVertexAttribArray(3);
                 GL20.glVertexAttribPointer(
                         3, 2, GL11.GL_FLOAT, false, strideBytes, 9L * Float.BYTES);
+                GL20.glEnableVertexAttribArray(4);
+                GL20.glVertexAttribPointer(4, 1, GL11.GL_FLOAT, false, strideBytes, 11L * Float.BYTES);
             } else {
                 GL20.glDisableVertexAttribArray(3);
                 GL20.glVertexAttrib2f(3, 0.0f, 0.0f);
+                GL20.glDisableVertexAttribArray(4);
+                GL20.glVertexAttrib1f(4, 0.0f);
             }
         }
 
@@ -698,7 +742,9 @@ public final class InProcessWorldRenderer {
                     attribute vec3 inNormal;
                     attribute vec3 inColor;
                     attribute vec2 inSourcePixel;
+                    attribute float inLayer;
                     uniform mat4 uMvp;
+                    uniform vec3 uOrigin;
                     uniform int uTextured;
                     uniform int uMaterial;
                     varying vec3 vertexColor;
@@ -712,9 +758,17 @@ public final class InProcessWorldRenderer {
                                 : 0.42 + 0.58 * max(dot(normalize(inNormal), sun), 0.0);
                         vertexColor = uTextured == 1 ? inColor : inColor * light;
                         sourcePixel = inSourcePixel;
-                        worldPosition = inPosition;
+                        worldPosition = inPosition + uOrigin;
                         surfaceNormal = inNormal;
                         gl_Position = uMvp * vec4(inPosition, 1.0);
+                        // PZ object order resolves layered sprites. Preserve a bounded
+                        // sub-centimetre depth order without moving their XY silhouette.
+                        // Unlike constant NDC bias this does not expand to metres far away.
+                        float bias = clamp(inLayer, 0.0, 16.0) * 0.0005;
+                        if (uTextured == 1 && gl_Position.w > 0.035) {
+                            gl_Position.z -= (2.0 * 0.035 * 400.0 / (400.0 - 0.035))
+                                    * bias / max(0.035, gl_Position.w - bias);
+                        }
                     }
                     """;
             String fragment = """
@@ -797,6 +851,7 @@ public final class InProcessWorldRenderer {
             GL20.glBindAttribLocation(result, 1, "inNormal");
             GL20.glBindAttribLocation(result, 2, "inColor");
             GL20.glBindAttribLocation(result, 3, "inSourcePixel");
+            GL20.glBindAttribLocation(result, 4, "inLayer");
             GL20.glLinkProgram(result);
             if (GL20.glGetProgrami(result, GL20.GL_LINK_STATUS) == GL11.GL_FALSE) {
                 throw new IllegalStateException("shader link failed: " + GL20.glGetProgramInfoLog(result));
@@ -838,6 +893,7 @@ public final class InProcessWorldRenderer {
 
     private record GpuMesh(
             long fingerprint,
+            float originX, float originZ,
             int vbo,
             int vertexCount,
             List<GpuTexturedBatch> texturedBatches,

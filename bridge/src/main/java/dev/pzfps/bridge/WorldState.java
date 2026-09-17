@@ -106,9 +106,20 @@ public final class WorldState {
             boolean solidTrans,
             boolean blocksSight,
             boolean floor,
-            WorldItem worldItem) {
+            WorldItem worldItem,
+            String appearanceFacing) {
         public TileObject {
             worldItem = worldItem == null ? WorldItem.none() : worldItem;
+            appearanceFacing = appearanceFacing == null ? "" : appearanceFacing;
+        }
+
+        /** Protocol-5/older fixtures omit this in-process appearance-only metadata. */
+        public TileObject(int index, String javaType, String objectType, String sprite,
+                boolean door, boolean window, boolean north, boolean edgeNorth, boolean edgeWest,
+                boolean open, boolean hoppable, boolean container, boolean solid, boolean solidTrans,
+                boolean blocksSight, boolean floor, WorldItem worldItem) {
+            this(index, javaType, objectType, sprite, door, window, north, edgeNorth, edgeWest,
+                    open, hoppable, container, solid, solidTrans, blocksSight, floor, worldItem, "");
         }
 
         public TileObject(

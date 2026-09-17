@@ -283,6 +283,7 @@ public final class WorldCapture {
                         }
                         WorldState.TileObject value = tileObject(index, object);
                         hash = mix(hash, stringHash(value.sprite()));
+                        hash = mix(hash, stringHash(value.appearanceFacing()));
                         hash = mix(hash, objectFlags(value));
                         hash = mix(hash, worldItemFingerprint(value.worldItem()));
                     }
@@ -375,7 +376,8 @@ public final class WorldCapture {
                 object.hasProperty(IsoFlagType.solidtrans),
                 object.hasProperty(IsoFlagType.blocksight),
                 object.hasProperty(IsoFlagType.solidfloor),
-                worldItem(object));
+                worldItem(object),
+                object.getFacing() == null ? "" : object.getFacing().name());
     }
 
     private static int visibility(IsoGridSquare square, int playerIndex) {

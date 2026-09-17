@@ -81,6 +81,7 @@ final class WorldMeshBuilderTest {
         assertEquals(12, mesh.vertexCount()); // GPU two-sided draw: no coplanar reverse duplicates
         assertTrue(mesh.texturedBatches().getFirst().wallEdges());
         float[] vertices = mesh.texturedBatches().getFirst().vertices();
+        assertEquals(1, vertices[11]); // shared source-object layer, not a physical plane shift
         for (int vertex = 0; vertex < 6; vertex++) {
             assertEquals(3.0f, vertices[vertex * WorldMeshBuilder.TEXTURED_FLOATS_PER_VERTEX + 2]);
         }
@@ -141,8 +142,8 @@ final class WorldMeshBuilderTest {
         float[] vertices = mesh.texturedBatches().getFirst().vertices();
         assertEquals(64.0f, vertices[9]);
         assertEquals(192.0f, vertices[10]);
-        assertEquals(0.0f, vertices[20]);
-        assertEquals(224.0f, vertices[21]);
+        assertEquals(0.0f, vertices[WorldMeshBuilder.TEXTURED_FLOATS_PER_VERTEX + 9]);
+        assertEquals(224.0f, vertices[WorldMeshBuilder.TEXTURED_FLOATS_PER_VERTEX + 10]);
     }
 
     @Test
