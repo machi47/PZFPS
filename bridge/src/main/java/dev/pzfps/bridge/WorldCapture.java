@@ -273,6 +273,9 @@ public final class WorldCapture {
                     }
                     hash = mix(hash, square.isSolidFloor() ? 1 : 0);
                     hash = mix(hash, squareTopologyFlags(square));
+                    // Includes east/south walls owned by adjacent squares/chunks. Their
+                    // creation/removal must invalidate this square's prop constraints too.
+                    hash = mix(hash, sealedEdges(square));
                     PZArrayList<IsoObject> objects = square.getObjects();
                     hash = mix(hash, objects.size());
                     for (int index = 0; index < objects.size(); index++) {
@@ -323,12 +326,48 @@ public final class WorldCapture {
                             square.HasStairs(),
                             square.HasStairsBelow(),
                             square.HasStairTop(),
-                            objects));
+                            objects,
+                            sealedEdges(square)));
                 }
             }
         }
         return new WorldState.Chunk(
                 chunk.wx, chunk.wy, chunk.revision, fingerprint, squares);
+    }
+
+    /** Game-thread only; never infer solid walls from cutaway or generic collision flags. */
+    private static int sealedEdges(IsoGridSquare square) {
+        IsoCell cell = square.getCell();
+        int result = 0;
+        if (sealedWall(square, true)) result |= StructuralPropClip.NORTH;
+        if (sealedWall(square, false)) result |= StructuralPropClip.WEST;
+        if (cell != null) {
+            if (sealedWall(cell.getGridSquare(square.getX() + 1, square.getY(), square.getZ()), false))
+                result |= StructuralPropClip.EAST;
+            if (sealedWall(cell.getGridSquare(square.getX(), square.getY() + 1, square.getZ()), true))
+                result |= StructuralPropClip.SOUTH;
+        }
+        return result;
+    }
+
+    private static boolean sealedWall(IsoGridSquare square, boolean north) {
+        if (square == null) return false;
+        boolean opaque = false;
+        PZArrayList<IsoObject> objects = square.getObjects();
+        // PZArrayList deliberately does not implement iterator(); indexed access
+        // is required, just as in the main immutable snapshot capture above.
+        for (int i = 0; i < objects.size(); i++) {
+            IsoObject object = objects.get(i);
+            if (object == null) continue;
+            // WallN/W, unlike WallNTrans/WTrans, identifies an opaque wall. Openings
+            // remain unconstrained even when the window/door object itself is absent.
+            if (object.hasProperty(north ? IsoFlagType.WindowN : IsoFlagType.WindowW)
+                    || object.hasProperty(north ? IsoFlagType.DoorWallN : IsoFlagType.DoorWallW)) return false;
+            if (!object.isHoppable()
+                    && !object.hasProperty(north ? IsoFlagType.WallNTrans : IsoFlagType.WallWTrans)
+                    && object.hasProperty(north ? IsoFlagType.WallN : IsoFlagType.WallW)) opaque = true;
+        }
+        return opaque;
     }
 
     /** Game-thread only: native lightInfo() refreshes the lazy lighting cache before raw RGB. */

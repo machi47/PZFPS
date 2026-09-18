@@ -334,6 +334,33 @@ int main(int argc, char** argv) {
             }
         }
         std::cout << "physicalOcclusion cases=10 failures=" << occlusionFailures << '\n';
+        // Free-standing geometry must not inherit the source sprite's overlay layer.
+        // The mesher clips props 1mm inside actual opaque wall segments. Check that
+        // clearance with wall layer 1 / prop layer 0, in both submission orders.
+        int propFailures = 0, oldPropLeaks = 0;
+        for (float distance : {.5f, 2.f, 8.f, 16.f, 32.f}) {
+            for (bool reverse : {false, true}) {
+                for (bool legacy : {false, true}) {
+                    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+                    auto surface = [&](bool prop) {
+                        float d = distance + (prop ? .001f : 0.f);
+                        const float vertices[] = {-d,-d,-d, 3*d,-d,-d, -d,3*d,-d};
+                        glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STREAM_DRAW);
+                        glVertexAttrib1f(4, prop ? (legacy ? 16 : 0) : 1);
+                        glVertexAttrib3f(2, prop ? 1 : 0, prop ? 0 : 1, 0);
+                        glDrawArrays(GL_TRIANGLES, 0, 3);
+                    };
+                    surface(reverse); surface(!reverse);
+                    std::array<unsigned char,4> result{};
+                    glReadPixels(64,64,1,1,GL_RGBA,GL_UNSIGNED_BYTE,result.data());
+                    bool leaked = result[0] > 10 || result[1] < 240;
+                    if (legacy) oldPropLeaks += leaked; else propFailures += leaked;
+                }
+            }
+        }
+        std::cout << "wallPropClearance cases=10 failures=" << propFailures
+                  << " legacyOverlayLeaks=" << oldPropLeaks << '\n';
+        if (propFailures) throw std::runtime_error("Prop crosses opaque wall after clearance repair");
         if (occlusionFailures || glGetError()!=GL_NO_ERROR)
             throw std::runtime_error("Physical occlusion/depth probe failed");
         CGLSetCurrentContext(nullptr);

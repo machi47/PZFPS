@@ -103,6 +103,7 @@ public final class WorldMeshBuilder {
     // One worker owns this builder. Bounded by this immutable registry's polygons,
     // not live object count; repeat instances never rerun triangulation.
     private final Map<TileGeometryRegistry.Primitive, int[]> polygonTriangles = new java.util.IdentityHashMap<>();
+    private int reportedPropConstraints;
 
     public WorldMeshBuilder(TileGeometryRegistry registry) {
         this.registry = registry;
@@ -220,8 +221,12 @@ public final class WorldMeshBuilder {
                     FloatBuilder batch = textured.computeIfAbsent(
                             object.sprite(),
                             ignored -> new FloatBuilder(512, TEXTURED_FLOATS_PER_VERTEX));
-                    batch.layer = Math.min(16, Math.max(1, object.index() + 1));
+                    boolean physicalProp = StructuralPropClip.freestanding(object);
+                    // A solid prop is not a wall decal. Pulling it toward the camera
+                    // by source-object order exposes its back through exterior walls.
+                    batch.layer = physicalProp ? 0 : Math.min(16, Math.max(1, object.index() + 1));
                     batch.lightingIndex = lightingIndex;
+                    int objectStart = batch.size;
                     for (TileGeometryRegistry.Primitive primitive : geometry) {
                         addTexturedPrimitive(batch, baseX, baseY, baseZ, primitive, light);
                         if (primitive.kind().equals("box")) {
@@ -235,6 +240,20 @@ public final class WorldMeshBuilder {
                             }
                         }
                         primitiveCount++;
+                    }
+                    if (physicalProp && square.sealedEdges() != 0) {
+                        float[] original = java.util.Arrays.copyOfRange(batch.values, objectStart, batch.size);
+                        float[] constrained = StructuralPropClip.clip(
+                                original, baseX, baseY, baseZ, square.sealedEdges());
+                        if (reportedPropConstraints < 8 && !java.util.Arrays.equals(original, constrained)) {
+                            reportedPropConstraints++;
+                            System.out.printf("[PZFPS prop-boundary] sprite=%s chunk=%d,%d local=%d,%d,%d sealedEdges=%d triangles=%d->%d%n",
+                                    object.sprite(), chunk.worldX(), chunk.worldY(), square.localX(), square.localY(), square.z(),
+                                    square.sealedEdges(), original.length / (3 * TEXTURED_FLOATS_PER_VERTEX),
+                                    constrained.length / (3 * TEXTURED_FLOATS_PER_VERTEX));
+                        }
+                        batch.size = objectStart;
+                        for (float value : constrained) batch.add(value);
                     }
                 } else if (isStructuralPanel(object)) {
                     structuralFallbackObjects++;

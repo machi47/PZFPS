@@ -21,13 +21,89 @@ PZ render thread     -> PZFPS perspective world -> PZ text/UI
 
 One isolated PZ process is currently running from the project-local
 disposable profile with staged bridge JAR
-`812c608271a90ec252f08bf6bcf01a6484a13b548ea5afe81a704354cb37315a`
-(atlas-mip repair batch, PID 33199, launched 23:55:39 UTC).
+`a13ac5900fff1378034c8d1d6cf4440f4775e6a26dc8d395bf062062702cc561`
+(opaque-wall prop-boundary batch, PID 34328, launched 18 September 00:21:01 UTC).
 This includes the fragment-depth, concave-polygon, chunk-local construction and
 fence-coverage repairs described below. PID 31018 was replaced by 32194 at
 23:34:18 UTC for depth/polygon testing; 32194 was stopped before 32654 launched.
 No normal save, installed game binary or
 unrelated mod was changed.
+
+### Solid props crossing walls: constrained presentation (loaded diagnostic)
+
+The previous atlas fix cannot prevent physical source primitives from crossing
+walls. Inspection of the actual nearby snapshot and installed shapes found
+cabinet support bounds extending 0.46–7.7mm past wall edges; some appliance and
+bed bounds end exactly on the wall. All previously inherited the source-object
+foreground depth layer, which can pull those faces up to 8mm toward an exterior
+camera. The production-shader regression reproduces a 1mm-separated prop showing
+through a wall in all 10 legacy-layer cases (0.5–32m, both draw orders).
+
+`StructuralPropClip` now treats furniture/appliance families and the already
+verified closed crates as physical props, with no foreground overlay bias.
+On the verified game thread, `WorldCapture` copies four opaque-wall boundary
+bits per square using explicit `WallN/W`, excluding translucent walls,
+hoppable objects and door/window openings. East/south ownership is read from
+adjacent squares, including adjacent chunks, and included in the chunk
+fingerprint so changed boundaries trigger rebuilding. This is in-process
+metadata; protocol 5 remains unchanged and old captures default to no clipping.
+
+The mesh worker clips prop triangles beyond those finite wall segments with
+1mm clearance, preserving interpolated UVs/normals/light indices. Segment ends,
+other storeys and unverified/open boundaries remain unconstrained; source objects,
+collision and placement are never mutated. Wall-mounted fixtures and arbitrary
+box-shaped assets are not reclassified as free-standing furniture. This repairs
+one cause of exterior leakage, not missing walls, wall alpha holes, arbitrary
+multi-tile assembly errors or missing prop faces.
+
+113 Java tests pass. New tests cover all four boundaries, UV preservation,
+openings, segment/storey limits, exact-wall faces, repeated clipping, and builder
+separation of physical props versus attachment layers. An initial repeat-clipping
+test caught unnecessary retessellation; trivial outside rejection fixed it.
+GPU `wallPropClearance`: 10/10 pass with the new ordering, versus 10/10 legacy
+leaks. Atlas leakage stays 0/9 cases; fences pass 12/12; previous far-depth
+residual remains 10,044 wrong pixels beyond 16m, not fixed by this pass.
+Raw GPU output: `.local/reports/prop-boundary-gpu.txt`.
+
+Live reload exposed an integration failure missed by pure geometry tests:
+PZArrayList.iterator() throws UnsupportedOperationException. The wall scan now
+uses indexed access. Failed PID 34156 was stopped; error evidence is retained in
+`.local/reports/prop-boundary-first-launch-error.txt`. Corrected PID 34328 resumes
+the disposable character and renders successfully. Logs confirm constraints on
+real storage cabinets, shelving and crates, explicit-LOD sampling and 24-bit depth.
+Frames 600–3300 show 59.99–60.01 completed callbacks/s, 5–6ms state age, 169 meshes,
+zero dropped mesh requests; these are CPU callback diagnostics, not GPU timings.
+
+Controlled native-input sweep: 482 authoritative samples, one position, unchanged
+pitch, -0.800018rad yaw travel. Evidence:
+`.local/reports/prop-boundary-level-sweep-player.json` and
+`.local/captures/prop-boundary-level-sweep.mov` (frames 02/05 inspected).
+Windows/radiator/wall remain present across the sweep; the dresser's source
+projection and a hanging ceiling fragment remain visibly wrong. The initial
+post-reload synthetic mouse event again produced a large yaw/pitch jump; that
+failed input case is recorded separately in `prop-boundary-sweep-player.json`,
+and pitch was restored with native input before the controlled test.
+A bounded W test moved the authoritative player 1.068m north and returned to idle;
+it is not a full collision/combat acceptance run. No new broad visual acceptance
+checkpoint is declared. Normal saves/game binaries remain untouched.
+
+Additional live traversal: ordinary A/W input reached the kitchen door; the
+normal Interact key resolved `(10768,10267,0)`, object index 3, and PZ changed
+`fixtures_doors_01_45` to its open sprite `fixtures_doors_01_47` (open flag set).
+The player then walked through it to `(10768.848,10264.498,0)` without direct
+position writes. Read-only evidence: `prop-boundary-door-state.json` and
+`prop-boundary-exit-player.json` under `.local/reports/`.
+`.local/captures/prop-boundary-exterior.png` shows the doorway still open and no
+large prop protrusion on this facade; it also exposes a separate rejected result:
+interior wall finishes show on the exterior and glass is still source-painted
+opaque. This is not an exact before/after of the owner's pictured house.
+The subsequent `prop-boundary-exterior-sweep.mov` and matching read-only player
+trace include position/pitch changes not requested by the horizontal-only mouse
+test. They are mixed-input evidence, not a controlled stationary sweep; further
+automated input was stopped. Frames 02/05 show the source finish changing across
+viewpoints and incorrect window visibility, still rejected. Source/diagnostic
+implementation checkpoint: commit subject `Constrain physical prop surfaces at
+authoritative opaque walls`; broad gameplay acceptance remains unchanged.
 
 ### Atlas boundary outlines: reproduced mip contamination
 
@@ -1354,9 +1430,14 @@ update rates have not been reported as achieved performance.
 
 ## Next smallest experiment
 
-The current single PID 33199 has the combined depth, concave-polygon,
-chunk-local precision, fence-coverage and atlas-mip repairs. Actual depth bits, completed
+The current single PID 34328 has the combined depth, concave-polygon,
+chunk-local precision, fence-coverage, atlas-mip and solid-wall prop constraints. Actual depth bits, completed
 callback cadence and fresh state age are recorded above.
+First compare both sides of actual opaque walls adjoining cabinets/beds and a
+wall spanning a chunk boundary. Check opening states and wall removal: the new
+in-process boundary fingerprint must release the constraint when a real wall
+goes away. Explicitly keep wall-alpha holes and incomplete prop faces separate
+from the bounded physical overhang/depth-order repair.
 At a window/sill, shelf bracket and multi-tile bench, hold player position fixed
 and sweep the camera slowly through the formerly unstable angles. Preserve
 moving evidence and distinguish depth-layer flicker from alpha-edge aliasing,

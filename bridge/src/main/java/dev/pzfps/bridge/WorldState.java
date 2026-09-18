@@ -267,9 +267,19 @@ public final class WorldState {
             boolean stairs,
             boolean stairsBelow,
             boolean stairTop,
-            List<TileObject> objects) {
+            List<TileObject> objects,
+            int sealedEdges) {
         public Square {
             objects = List.copyOf(objects);
+        }
+
+        /** Protocol-5 captures have no authoritative opaque-wall boundary metadata. */
+        public Square(int localX, int localY, int z, long roomId, int visibility,
+                int lightR, int lightG, int lightB, boolean solidFloor, boolean exterior,
+                boolean roof, boolean stairs, boolean stairsBelow, boolean stairTop,
+                List<TileObject> objects) {
+            this(localX, localY, z, roomId, visibility, lightR, lightG, lightB,
+                    solidFloor, exterior, roof, stairs, stairsBelow, stairTop, objects, 0);
         }
     }
 
