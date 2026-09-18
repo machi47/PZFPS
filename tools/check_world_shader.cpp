@@ -88,6 +88,8 @@ int main(int argc, char** argv) {
         glUniform1i(uniform("uTexture"), 0);
         glUniform1i(uniform("uLighting"), 1);
         glUniform1i(uniform("uLightingEnabled"), 1);
+        GLint texturePass = uniform("uTexturePass");
+        glUniform1i(texturePass, 0);
         // Optional solely so the same regression can reproduce the old shader failure.
         glUniform1f(glGetUniformLocation(program, "uDepthUnit"), 1.f / 16777215.f);
         GLuint output = 0, framebuffer = 0, light = 0;
@@ -261,6 +263,53 @@ int main(int argc, char** argv) {
         }
         std::cout << "fenceCoverage cases=12 failures=" << fenceFailures << '\n';
         if (fenceFailures) throw std::runtime_error("Fence coverage/depth ordering failed");
+        // Real installed window panes use partial alpha (for example 99/255). They must
+        // be absent from the opaque/depth pass, then blend over an already-rendered world
+        // without writing depth. This exercises the production shader's pass split.
+        int windowFailures = 0;
+        glUniform1i(uniform("uSurfaceKind"),0);
+        glClearColor(0,0,0,1);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        auto flatTextured = [&](float d, int pass, unsigned char alpha,
+                                float red, float green, float blue) {
+            const float vertices[] = {-d,-d,-d, 3*d,-d,-d, -d,3*d,-d};
+            glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STREAM_DRAW);
+            const unsigned char texel[] = {255,255,255,alpha};
+            glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA8,1,1,0,GL_RGBA,GL_UNSIGNED_BYTE,texel);
+            glUniform1i(texturePass,pass);
+            glVertexAttrib1f(4,0);
+            glVertexAttrib3f(2,red,green,blue);
+            glDrawArrays(GL_TRIANGLES,0,3);
+        };
+        glDisable(GL_BLEND);
+        glDepthMask(GL_TRUE);
+        flatTextured(3,0,255,0,1,0);   // opaque world behind the pane
+        flatTextured(2,0,99,1,0,0);    // pane must not enter depth/colour here
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+        glDepthMask(GL_FALSE);
+        flatTextured(2,1,99,1,0,0);    // pane colour-only pass
+        std::array<unsigned char,4> glassPixel{};
+        glReadPixels(64,64,1,1,GL_RGBA,GL_UNSIGNED_BYTE,glassPixel.data());
+        if (glassPixel[0] < 95 || glassPixel[0] > 105
+                || glassPixel[1] < 150 || glassPixel[1] > 160
+                || glassPixel[2] > 5) windowFailures++;
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        flatTextured(2,1,99,0,0,1);    // colour-only pane before a later native callback
+        glDisable(GL_BLEND);
+        glDepthMask(GL_TRUE);
+        flatTextured(3,0,255,0,1,0);   // must remain depth-visible behind it
+        std::array<unsigned char,4> latePixel{};
+        glReadPixels(64,64,1,1,GL_RGBA,GL_UNSIGNED_BYTE,latePixel.data());
+        if (latePixel[0] > 5 || latePixel[1] < 250 || latePixel[2] > 5) windowFailures++;
+        std::cout << "windowTransparency cases=2 failures=" << windowFailures
+                  << " composite=" << int(glassPixel[0]) << ',' << int(glassPixel[1])
+                  << ',' << int(glassPixel[2]) << " lateDepth=" << int(latePixel[0])
+                  << ',' << int(latePixel[1]) << ',' << int(latePixel[2]) << '\n';
+        if (windowFailures) throw std::runtime_error("Window transparency pass split failed");
+        glUniform1i(texturePass,0);
+        glDisable(GL_BLEND);
+        glDepthMask(GL_TRUE);
         glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA8,1,1,0,GL_RGBA,GL_UNSIGNED_BYTE,whitePixel);
         glUniform1i(uniform("uSurfaceKind"),0);
         int failures = 0, cases = 0, distantWrong = 0, nearWrong = 0;

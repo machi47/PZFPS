@@ -29,6 +29,56 @@ fence-coverage repairs described below. PID 31018 was replaced by 32194 at
 No normal save, installed game binary or
 unrelated mod was changed.
 
+### Window transparency: separated opaque and translucent passes (built; reload pending)
+
+The black-window failure is now reproduced from the installed source assets and
+the production shader. Extracted diagnostic copies remain under
+`.local/assets/pz-42.20/window-source/` only. In `fixtures_windows_01_24`, 868
+pixels use RGBA alpha 99/255; variant 25 contains 902 such pixels. These are
+authored translucent panes rather than alpha holes. The previous single source
+pass blended them over the renderer's black clear colour while also writing
+depth, so the opaque world behind a window could never reach the framebuffer.
+
+The live renderer now draws source textures in two phases. Effectively opaque
+samples render first with depth writes; partially transparent samples render
+after all opaque chunks, back-to-front, with standard alpha blending and depth
+writes disabled. Fence/gate cutouts remain in the existing opaque alpha-tested
+path. Missing source textures retain their opaque fallback but are not drawn a
+second time. Renderer state is restored before PZ's native entity and UI
+callbacks. This repairs world-through-pane composition; it does not yet tint a
+native actor/model callback that is submitted after the pane, sort translucent
+triangles within a chunk, add glass refraction, or turn windows into physical
+frame/glass assemblies.
+
+The actual Java-embedded production GLSL compiles and links on Apple M4 Max.
+The new regression composites alpha-99 red glass over an opaque green world as
+RGB 99,156,0 and verifies a later depth-tested native-style callback remains
+visible at RGB 0,255,0: 2/2 cases pass. Atlas isolation remains 0/9 leaks,
+fence coverage 12/12, physical occlusion 10/10 and wall-prop clearance 10/10.
+The known far-depth diagnostic remains 10,044 wrong pixels beyond 16m.
+Raw output: `.local/reports/window-transparency-gpu.txt`. The pinned Gradle
+build reports 113 tests, zero failures/errors. Built JAR SHA-256:
+`6061eb48df2acd644ff789a5489d2d384a931328abadc19050a413d04d32b588`.
+PID 34328 still has the preceding `a18176c` build loaded while the owner gathers
+moving-view evidence; no live visual acceptance is claimed for this pending JAR.
+
+Read-only captures around the current house also identify the next structural
+slice. `lighting_indoor_01_1`, `_3`, `_10` and `_40` are wall attachments whose
+isometric support geometry is currently rendered as literal volume, producing
+floating/clipping switches and vents. Nearby beds, dressers and storage assets
+still have open faces, and at least one interior furniture object remains visible
+through an exterior shell. Short fence segments alternate `_24`/`_25` and a
+`fixtures_doors_fences_01_17` gate but do not share physical boundary endpoints.
+The roof uses `roofs_02_3/4/5` plus accent/exterior-roof families and is missing a
+large assembled section. Evidence:
+`.local/reports/window-switch-live.json` and
+`.local/reports/exterior-leak-live.json`. These are rejected diagnostics, not
+completed fixes. The next smallest accepted geometry work is a wall-owned,
+shallow closed attachment assembly and exterior-shell clipping that applies to
+all interior objects crossing a sealed boundary, including neighboring-tile
+ownership; doors, closed furniture boxes, fences and roofs remain queued family
+assemblies rather than per-house patches.
+
 ### Solid props crossing walls: constrained presentation (loaded diagnostic)
 
 The previous atlas fix cannot prevent physical source primitives from crossing

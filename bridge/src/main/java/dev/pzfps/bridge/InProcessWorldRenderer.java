@@ -369,6 +369,7 @@ public final class InProcessWorldRenderer {
         private final int uvBoundsUniform;
         private final int cropUniform;
         private final int surfaceKindUniform;
+        private final int texturePassUniform;
         private final int projectedBoundsUniform;
         private final int originUniform;
         private final int lightingUniform;
@@ -403,6 +404,7 @@ public final class InProcessWorldRenderer {
             uvBoundsUniform = GL20.glGetUniformLocation(program, "uUvBounds");
             cropUniform = GL20.glGetUniformLocation(program, "uCrop");
             surfaceKindUniform = GL20.glGetUniformLocation(program, "uSurfaceKind");
+            texturePassUniform = GL20.glGetUniformLocation(program, "uTexturePass");
             projectedBoundsUniform = GL20.glGetUniformLocation(program, "uProjectedBounds");
             originUniform = GL20.glGetUniformLocation(program, "uOrigin");
             lightingUniform = GL20.glGetUniformLocation(program, "uLighting");
@@ -413,7 +415,8 @@ public final class InProcessWorldRenderer {
                     || materialUniform < 0
                     || textureUniform < 0
                     || uvBoundsUniform < 0
-                    || cropUniform < 0 || surfaceKindUniform < 0 || projectedBoundsUniform < 0 || originUniform < 0
+                    || cropUniform < 0 || surfaceKindUniform < 0 || texturePassUniform < 0
+                    || projectedBoundsUniform < 0 || originUniform < 0
                     || lightingUniform < 0 || lightingEnabledUniform < 0 || depthUnitUniform < 0) {
                 throw new IllegalStateException("one or more source-texture shader uniforms are absent");
             }
@@ -530,14 +533,40 @@ public final class InProcessWorldRenderer {
                     for (GpuMaterialBatch batch : mesh.materialBatches) {
                         drawMaterialBatch(batch);
                     }
-                    // Reversible two-sided source-surface fallback, not a duplicate shell or
-                    // generated backside. Stateful alpha openings remain in the source texture.
+                    // First resolve every opaque source sample into the shared depth buffer.
+                    // Translucent glass cannot participate in this pass: doing so blends it
+                    // against the clear colour and prevents the actual world behind it from
+                    // ever reaching the framebuffer.
                     GL11.glDisable(GL11.GL_CULL_FACE);
                     for (GpuTexturedBatch batch : mesh.texturedBatches) {
-                        drawTexturedBatch(batch);
+                        drawTexturedBatch(batch, false);
                     }
                     GL11.glEnable(GL11.GL_CULL_FACE);
                 }
+                // PZ window sprites contain genuinely translucent pane pixels (commonly alpha
+                // 99/255), not alpha holes. Draw those only after all opaque world surfaces,
+                // back-to-front and without depth writes. The frame remains in the opaque pass;
+                // later native actor/model callbacks can still pass the pane's depth.
+                GL11.glDepthMask(false);
+                GL11.glEnable(GL11.GL_BLEND);
+                GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+                GL11.glDisable(GL11.GL_CULL_FACE);
+                for (int visibleIndex = visible.size() - 1; visibleIndex >= 0; visibleIndex--) {
+                    WorldMeshBuilder.MeshData source = visible.get(visibleIndex);
+                    GpuMesh mesh = meshes.get(source.key());
+                    if (mesh == null) continue;
+                    bindLighting(source.key(), snapshot.lighting.get(source.key()));
+                    matrixBuffer.clear();
+                    relativeMatrix(camera, snapshot.player, renderedEyeHeight, mesh.originX, mesh.originZ)
+                            .get(matrixBuffer);
+                    GL20.glUniformMatrix4fv(mvpUniform, false, matrixBuffer);
+                    GL20.glUniform3f(originUniform, mesh.originX, 0, mesh.originZ);
+                    for (GpuTexturedBatch batch : mesh.texturedBatches) {
+                        if (!cutoutFence(batch.sprite)) drawTexturedBatch(batch, true);
+                    }
+                }
+                GL11.glEnable(GL11.GL_CULL_FACE);
+                GL11.glDepthMask(true);
                 GL20.glUniform1i(texturedUniform, 0);
                 GL20.glUniform1i(materialUniform, 0);
                 matrixBuffer.clear();
@@ -608,7 +637,7 @@ public final class InProcessWorldRenderer {
             GL13.glActiveTexture(GL13.GL_TEXTURE0);
         }
 
-        private void drawTexturedBatch(GpuTexturedBatch batch) {
+        private void drawTexturedBatch(GpuTexturedBatch batch, boolean translucentPass) {
             Texture texture = sourceTextures.get(batch.sprite);
             if (texture == null || texture.getID() == 0) {
                 texture = Texture.getSharedTexture(batch.sprite);
@@ -629,9 +658,11 @@ public final class InProcessWorldRenderer {
             boolean cutout = cutoutFence(batch.sprite);
             GL20.glUniform1i(surfaceKindUniform, cutout ? 4 : batch.solidFloor ? 1 : batch.wallEdges ? 2
                     : BoxSideCompletion.closedCrate(batch.sprite) ? 3 : 0);
+            GL20.glUniform1i(texturePassUniform, translucentPass ? 1 : 0);
             GL20.glUniform4f(projectedBoundsUniform, batch.projectedBounds[0], batch.projectedBounds[1],
                     batch.projectedBounds[2], batch.projectedBounds[3]);
             if (texture == null || texture.getID() == 0) {
+                if (translucentPass) return;
                 GL20.glUniform1i(texturedUniform, 0);
                 GL11.glDisable(GL11.GL_TEXTURE_2D);
                 if (reportedMissingTextures.add(batch.sprite)) {
@@ -639,8 +670,7 @@ public final class InProcessWorldRenderer {
                 }
             } else {
                 GL11.glEnable(GL11.GL_TEXTURE_2D);
-                setEnabled(GL11.GL_BLEND, !cutout);
-                GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+                setEnabled(GL11.GL_BLEND, translucentPass);
                 GL11.glBindTexture(GL11.GL_TEXTURE_2D, texture.getID());
                 GL20.glUniform1i(texturedUniform, 1);
                 GL20.glUniform4f(
@@ -881,6 +911,8 @@ public final class InProcessWorldRenderer {
                     uniform vec4 uUvBounds;
                     uniform vec4 uCrop;
                     uniform int uSurfaceKind;
+                    // 0 = opaque/cutout depth pass, 1 = translucent colour-only pass.
+                    uniform int uTexturePass;
                     uniform vec4 uProjectedBounds;
                     uniform sampler2D uLighting;
                     uniform int uLightingEnabled;
@@ -1004,7 +1036,15 @@ public final class InProcessWorldRenderer {
                                 if (source.a < 0.5) discard;
                                 source.a = 1.0;
                             }
-                            if (source.a < 0.02) discard;
+                            if (uTexturePass == 0) {
+                                // Treat only effectively opaque source samples as depth-bearing.
+                                // In particular, real window panes in the installed assets use
+                                // alpha around 99/255 and must not mask the scene behind them.
+                                if (source.a < 0.995) discard;
+                                source.a = 1.0;
+                            } else {
+                                if (source.a < 0.02 || source.a >= 0.995) discard;
+                            }
                             gl_FragColor = vec4(source.rgb * vertexColor * liveLight, source.a);
                             return;
                         }
