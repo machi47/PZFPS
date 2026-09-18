@@ -19,15 +19,85 @@ PZ simulation/update -> immutable authoritative snapshot
 PZ render thread     -> PZFPS perspective world -> PZ text/UI
 ```
 
-One isolated PZ process is currently running from the project-local
-disposable profile with staged bridge JAR
-`6061eb48df2acd644ff789a5489d2d384a931328abadc19050a413d04d32b588`
-(window-transparency batch, PID 35118, launched 18 September 00:46:59 UTC).
-This includes the fragment-depth, concave-polygon, chunk-local construction and
-fence-coverage repairs described below. PID 31018 was replaced by 32194 at
-23:34:18 UTC for depth/polygon testing; 32194 was stopped before 32654 launched.
-No normal save, installed game binary or
-unrelated mod was changed.
+No isolated PZ process is currently running. PID 41825 was stopped at
+18 September 02:44:31 UTC after the depth-derived roof checkpoint loaded but
+failed to yield a capturable game window. The staged bridge JAR is
+`d83584c3cced5b8a9e179ba5f2c35aee2ccf749ae359e3e73f498ee0906e2377` and the
+supplemental roof registry is
+`cf518011f16d35b726ea84eb11e5c0d7a5b8d5ca5a16c2297b6bce5c6d581c7b`.
+The load/cadence diagnostics passed, but the desktop-only screenshot is not
+visual roof evidence and the checkpoint is **not** accepted. No normal save,
+installed game binary or unrelated mod was changed.
+
+### Installed corpus ledger and depth-derived roof checkpoint
+
+The owner's accumulated visual reports are now consolidated in
+`docs/VISUAL_ISSUES.md` instead of being left across conversation turns. The 34
+supplied screenshots are retained locally under
+`.local/captures/user-visual-reports/2026-09-17/`; they are not committed because
+they contain proprietary game art. `bin/pzfps assets audit-coverage` joins the
+installed geometry, atlas and model indexes into
+`.local/reports/asset-coverage-pz-42.20.json`. The current report inventories
+21,523 tile-geometry identities, 35,746 atlas identities, 32,284 tile-definition
+identities, 39,902 unique joined tile identities, 3,835 named models and 5,092
+unique item identities from 5,105 installed item declarations. Thirteen
+duplicate item identities remain explicit in the item index. Of the unique
+items, 3,857 declare and resolve a world model and 1,235 declare none. The audit
+explicitly labels accepted,
+unaccepted, rejected and unsupported renderer paths instead of treating index
+presence as successful visual coverage.
+
+This corpus covers installed tile/sprite definitions, named models and item
+scripts. It does not pretend to enumerate every modded identity, procedural
+runtime object, character/clothing combination, damage variant, object state or
+multi-tile scene grouping. Runtime captures are joined to the installed corpus
+so those combinations can be measured when encountered.
+
+The joined audit exposes the scale of the roof gap: 4,569 roof-related
+identities are present and only 84 have installed authored source primitives.
+`bin/pzfps assets compile-roof-surfaces` now reconstructs conservative connected
+planar patches from PZ's installed depth atlases using the game's source
+projection/depth equations. The local supplemental registry contains 3,998
+identities and 38,372 triangles; 3,949 of those identities are roofs pending
+live acceptance. Authored geometry wins when both paths exist. The compiler
+rejects 8 entries with no depth image, 76 non-planar entries and 417 unsafe
+patch hulls, leaving 536 roof identities rejected/unsupported after authored
+precedence. This is a systemic identity-level representation path, not a
+per-house patch and not a visual acceptance claim.
+
+`bin/pzfps assets audit-scene` joins a runtime capture to that installed ledger.
+For `.local/reports/prop-boundary-scene.json`, the generated
+`.local/reports/prop-boundary-scene-coverage.json` records 586 object instances,
+189 exact identities and zero identities absent from the corpus. All 91 roof
+instances in that captured problem scene resolve to compiled or authored roof
+geometry. The snapshot specifically includes `roofs_02_3/4/5/111`, the pictured
+`roofs_accents_01_*` pieces and `walls_exterior_roofs_06_*`/
+`walls_exterior_roofs_10_*` families.
+
+Python discovery passes 34 tests. The clean Gradle build passes 129 tests,
+including loading the installed supplemental registry, validating 3,998 entries
+and rendering source-projected roof triangles. The Apple production-shader
+probe passes shader link, roof-adjacent material, transparency, fence, physical
+occlusion and wall-prop fixtures; its known far-depth residual remains 10,044
+wrong pixels beyond 16m and is not hidden by this checkpoint. PID 41825 loaded
+the staged registry and reported 59.91--60.08 completed callbacks/s, 4--15ms
+state age and zero dropped mesh requests. The attempted live capture
+`.local/captures/roof-depth-checkpoint-live.png` contains only the desktop, so
+the visual roof check is explicitly inconclusive and V-12 remains open.
+
+The indexed source properties retain `RoofGroup`, `BlockRain`, `attached*`,
+`isEave`, `diamondFloor` and `solidfloor` roles for later topology grouping.
+Doors remain rejected as non-volumetric, while windows remain rejected as
+non-physical despite the narrower translucent-pass GPU fixture.
+
+A guessed six-face door slab was briefly built and loaded. It mapped the full
+isometric source crop onto multiple rectangular faces, producing grossly
+distorted stacked door shapes and opaque panes. The owner rejected it
+immediately. `DoorAssembly`, its shader surface kind and tests were removed;
+the 126-test Gradle build and Apple production-shader probe pass after rollback.
+PID 37548 containing that regression was stopped. PID 38323 loaded the rollback
+JAR, confirmed the bad assembly was absent, and was then stopped; the restored
+single edge-card door remains inadequate and is not described as a fix.
 
 ### Window transparency: separated opaque and translucent passes (loaded diagnostic)
 
@@ -1518,26 +1588,21 @@ update rates have not been reported as achieved performance.
 
 ## Next smallest experiment
 
-The current single PID 34328 has the combined depth, concave-polygon,
-chunk-local precision, fence-coverage, atlas-mip and solid-wall prop constraints. Actual depth bits, completed
-callback cadence and fresh state age are recorded above.
-First compare both sides of actual opaque walls adjoining cabinets/beds and a
-wall spanning a chunk boundary. Check opening states and wall removal: the new
-in-process boundary fingerprint must release the constraint when a real wall
-goes away. Explicitly keep wall-alpha holes and incomplete prop faces separate
-from the bounded physical overhang/depth-order repair.
-At a window/sill, shelf bracket and multi-tile bench, hold player position fixed
-and sweep the camera slowly through the formerly unstable angles. Preserve
-moving evidence and distinguish depth-layer flicker from alpha-edge aliasing,
-real geometry intersections and source-projection errors. Inspect a tool chest's
-new opposite side and verify the drawer front was not copied onto its back.
-The owner permits further batched diagnostic reloads without waiting for input;
-each must still identify a changed artifact and a failure being tested.
-Also exercise a real light switch and compare light-grid uploads against the
-mesh-build counter; establish which native RGB/vertex-light values are physical
-illumination versus perception before removing the diagnostic exposure floor.
-The older gameplay and coverage checks below remain outstanding regression
-work, not instructions to restart an already running instance.
+No PZ process is running. The next experiment is narrowly V-12: establish a
+reliable capturable isolated window, load a disposable position containing the
+91-roof-instance audited house (or an equivalent deterministic roof fixture),
+and record slow exterior camera sweeps from both sides. Compare exact roof
+identity/triangle counters against the scene audit and reject any missing side,
+bridged coplanar island, inverted patch, roof-wall card or camera-dependent
+disappearance. A load/callback log without a visible frame is not evidence and
+does not justify another general-purpose reopen.
+
+Only after that roof checkpoint is accepted or rejected should a separate live
+batch target V-03/V-04 (shell cracks and interior leakage). Keep V-05/V-09
+windows and doors, V-07 closed furniture, V-08 wall fixtures, V-11 fences,
+V-14 sky, V-15 lighting and V-16 local body explicitly open; they were not
+fixed by the roof compiler. The older gameplay checks below remain regression
+backlog, not claims about this checkpoint.
 
 1. Stage one batched build and live-test simultaneous W+A/W+D, A/D,
    Shift+W/A/D and backward movement while keeping mouse view fixed. Confirm

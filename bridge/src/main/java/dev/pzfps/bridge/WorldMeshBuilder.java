@@ -225,7 +225,20 @@ public final class WorldMeshBuilder {
                 List<TileGeometryRegistry.Primitive> geometry = registry.geometry(object.sprite());
                 var wallAttachment = WallAttachmentAssembly.placement(
                         object, geometry, square.sealedEdges());
-                if (wallAttachment.isPresent()) {
+                if (FenceAssembly.shortChainLink(object)) {
+                    // The installed family mixes authored boxes (24/26) with empty
+                    // geometry (25/27). Letting those take different paths shifted every
+                    // other tile in perspective. One boundary-owned path shares endpoints.
+                    structuralFallbackObjects++;
+                    FloatBuilder batch = textured.computeIfAbsent(
+                            object.sprite(),
+                            ignored -> new FloatBuilder(512, TEXTURED_FLOATS_PER_VERTEX));
+                    batch.layer = Math.min(16, Math.max(1, object.index() + 1));
+                    batch.lightingIndex = lightingIndex;
+                    addSourceEdgePanel(batch, baseX, baseY, baseZ,
+                            FenceAssembly.north(object), object.index(), light);
+                    primitiveCount++;
+                } else if (wallAttachment.isPresent()) {
                     authoredGeometryObjects++;
                     wallAttachmentSprites.add(object.sprite());
                     FloatBuilder batch = textured.computeIfAbsent(
@@ -418,6 +431,7 @@ public final class WorldMeshBuilder {
     }
 
     private static boolean isStructuralPanel(WorldState.TileObject object) {
+        if (isRoofSprite(object.sprite())) return false;
         if (object.edgeNorth() || object.edgeWest() || object.door() || object.window()) return true;
         String type = object.objectType().toLowerCase(java.util.Locale.ROOT);
         String sprite = object.sprite().toLowerCase(java.util.Locale.ROOT);
@@ -433,6 +447,7 @@ public final class WorldMeshBuilder {
      * Doors/windows retain their exact alpha and still need state-aware assemblies.
      */
     private static boolean isMirrorSafeStructuralPanel(WorldState.TileObject object) {
+        if (isRoofSprite(object.sprite())) return false;
         if (object.door() || object.window()) return false;
         String type = object.objectType().toLowerCase(java.util.Locale.ROOT);
         String sprite = object.sprite().toLowerCase(java.util.Locale.ROOT);
@@ -440,6 +455,13 @@ public final class WorldMeshBuilder {
                 || sprite.startsWith("walls_")
                 || sprite.startsWith("wall_")
                 || sprite.startsWith("fencing_");
+    }
+
+    private static boolean isRoofSprite(String sprite) {
+        String lower = sprite.toLowerCase(java.util.Locale.ROOT);
+        return lower.startsWith("roofs_")
+                || lower.startsWith("roofing_")
+                || lower.startsWith("walls_exterior_roofs_");
     }
 
     private static void addSourceEdgePanel(
@@ -713,10 +735,39 @@ public final class WorldMeshBuilder {
             case "box" -> addTexturedBox(output, baseX, baseY, baseZ, primitive, light);
             case "cylinder" -> addTexturedCylinder(output, baseX, baseY, baseZ, primitive, light);
             case "polygon" -> addTexturedPolygon(output, baseX, baseY, baseZ, primitive, light);
+            case "triangle" -> addTexturedSourceTriangle(
+                    output, baseX, baseY, baseZ, primitive, light);
             default -> {
                 // Unknown source primitives are deliberately omitted by the registry loader.
             }
         }
+    }
+
+    private static void addTexturedSourceTriangle(
+            FloatBuilder output,
+            float baseX,
+            float baseY,
+            float baseZ,
+            TileGeometryRegistry.Primitive triangle,
+            float[] light) {
+        if (triangle.points().size() != 3) return;
+        float[][] transformed = transformedLocal(
+                triangle, triangle.points().toArray(float[][]::new));
+        float[][] world = worldPoints(baseX, baseY, baseZ, transformed);
+        float[] faceNormal = normal(world[0], world[1], world[2]);
+        int second = 1;
+        int third = 2;
+        if (sourceFacing(faceNormal) < 0) {
+            second = 2;
+            third = 1;
+            faceNormal = new float[] {-faceNormal[0], -faceNormal[1], -faceNormal[2]};
+        }
+        addTexturedTriangle(
+                output,
+                world[0], world[second], world[third], faceNormal, light,
+                sourcePixel(transformed[0]),
+                sourcePixel(transformed[second]),
+                sourcePixel(transformed[third]));
     }
 
     /**
@@ -978,10 +1029,27 @@ public final class WorldMeshBuilder {
                     color);
             case "cylinder" -> addCylinder(output, baseX, baseY, baseZ, primitive, color);
             case "polygon" -> addPolygon(output, baseX, baseY, baseZ, primitive, color);
+            case "triangle" -> addSourceTriangle(
+                    output, baseX, baseY, baseZ, primitive, color);
             default -> {
                 // Unknown source primitives are deliberately omitted by the registry loader.
             }
         }
+    }
+
+    private static void addSourceTriangle(
+            FloatBuilder output,
+            float baseX,
+            float baseY,
+            float baseZ,
+            TileGeometryRegistry.Primitive triangle,
+            float[] color) {
+        if (triangle.points().size() != 3) return;
+        float[][] transformed = transformedLocal(
+                triangle, triangle.points().toArray(float[][]::new));
+        float[][] world = worldPoints(baseX, baseY, baseZ, transformed);
+        addTriangle(output, world[0], world[1], world[2],
+                normal(world[0], world[1], world[2]), color);
     }
 
     private static void addFallback(

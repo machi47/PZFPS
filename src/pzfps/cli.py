@@ -13,8 +13,12 @@ from typing import Any
 
 from . import __version__
 from .assets import compile_geometry
+from .asset_coverage import write_coverage, write_scene_coverage
 from .model_assets import compile_model_index
+from .item_definitions import compile_item_definitions
 from .texture_packs import extract_sprite_page, index_texture_pack
+from .tile_definitions import compile_tile_definitions
+from .depth_surfaces import compile_planar_roof_surfaces
 from .common import LOCAL, ROOT, command, load_config, now_utc, parse_version_prefix, sha256_file, timestamp_id, write_json
 from .deployment import cleanup as deployment_cleanup
 from .deployment import record_before, record_installed
@@ -359,6 +363,65 @@ def command_assets_index_geometry(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_assets_index_definitions(args: argparse.Namespace) -> int:
+    report = inspect()
+    install = report["game"]["install_path"]
+    if not report["game"]["installed"] or not install:
+        raise UserError("Project Zomboid is not installed")
+    source = (
+        Path(install)
+        / "Project Zomboid.app"
+        / "Contents"
+        / "Java"
+        / "media"
+        / "newtiledefinitions.tiles.txt"
+    )
+    if not source.is_file():
+        raise UserError(f"installed text tile definitions are absent: {source}")
+    output = args.output or (
+        LOCAL / "assets" / f"pz-{report['game']['version']}" / "tile-definitions.json"
+    )
+    document = compile_tile_definitions(source, output, game_version=report["game"]["version"])
+    _print_json({
+        "schema_version": document["schema_version"],
+        "game_version": document["game_version"],
+        "source": document["source"],
+        "source_sha256": document["source_sha256"],
+        "tile_count": document["tile_count"],
+        "output": str(output),
+    })
+    return 0
+
+
+def command_assets_compile_roof_surfaces(args: argparse.Namespace) -> int:
+    report = inspect()
+    install = report["game"]["install_path"]
+    if not report["game"]["installed"] or not install:
+        raise UserError("Project Zomboid is not installed")
+    version = report["game"]["version"]
+    media = Path(install) / "Project Zomboid.app" / "Contents" / "Java" / "media"
+    definitions = args.definitions or LOCAL / "assets" / f"pz-{version}" / "tile-definitions.json"
+    assignments = media / "tileDepthTextureAssignments.txt"
+    depthmaps = media / "depthmaps"
+    output = args.output or LOCAL / "assets" / f"pz-{version}" / "roof-depth-surfaces.json"
+    for label, path in (("tile-definition index", definitions), ("depth assignments", assignments),
+                        ("depth-map directory", depthmaps)):
+        if not path.exists():
+            raise UserError(f"{label} is absent: {path}")
+    document = compile_planar_roof_surfaces(
+        definitions, assignments, depthmaps, output, game_version=version)
+    _print_json({
+        "schema_version": document["schema_version"],
+        "game_version": document["game_version"],
+        "method": document["method"],
+        "tile_count": document["tile_count"],
+        "triangle_count": document["triangle_count"],
+        "rejected": document["rejected"],
+        "output": str(output),
+    })
+    return 0
+
+
 def command_assets_index_textures(args: argparse.Namespace) -> int:
     report = inspect()
     install = report["game"]["install_path"]
@@ -435,6 +498,70 @@ def command_assets_index_models(args: argparse.Namespace) -> int:
         }
         | {"output": str(output)}
     )
+    return 0
+
+
+def command_assets_index_items(args: argparse.Namespace) -> int:
+    report = inspect()
+    install = report["game"]["install_path"]
+    if not report["game"]["installed"] or not install:
+        raise UserError("Project Zomboid is not installed")
+    media = Path(install) / "Project Zomboid.app" / "Contents" / "Java" / "media"
+    root = LOCAL / "assets" / f"pz-{report['game']['version']}"
+    models = args.models or root / "model-index.json"
+    output = args.output or root / "item-definitions.json"
+    document = compile_item_definitions(
+        media / "scripts", models, output, game_version=report["game"]["version"])
+    _print_json({
+        key: document[key]
+        for key in (
+            "schema_version",
+            "game_version",
+            "source_count",
+            "definition_count",
+            "item_count",
+            "duplicate_identity_count",
+            "items_with_world_model",
+            "world_models_resolved",
+            "world_models_unresolved",
+            "item_types",
+        )
+    } | {"output": str(output)})
+    return 0
+
+
+def command_assets_audit_coverage(args: argparse.Namespace) -> int:
+    report = inspect()
+    version = report["game"]["version"]
+    root = LOCAL / "assets" / f"pz-{version}"
+    geometry = args.geometry or root / "tile-geometry.json"
+    textures = args.textures or root / "Tiles2x-texture-index.json"
+    models = args.models or root / "model-index.json"
+    definitions = args.definitions or root / "tile-definitions.json"
+    depth_surfaces = args.depth_surfaces or root / "roof-depth-surfaces.json"
+    items = args.items or root / "item-definitions.json"
+    output = args.output or LOCAL / "reports" / f"asset-coverage-pz-{version}.json"
+    for label, path in (("geometry", geometry), ("texture", textures), ("model", models),
+                        ("tile-definition", definitions), ("roof depth-surface", depth_surfaces),
+                        ("item-definition", items)):
+        if not path.is_file():
+            raise UserError(f"{label} index is absent: {path}")
+    document = write_coverage(
+        geometry, textures, models, output, definitions, depth_surfaces, items)
+    _print_json(document["summary"] | {"output": str(output)})
+    return 0
+
+
+def command_assets_audit_scene(args: argparse.Namespace) -> int:
+    report = inspect()
+    version = report["game"]["version"]
+    coverage = args.coverage or LOCAL / "reports" / f"asset-coverage-pz-{version}.json"
+    output = args.output or LOCAL / "reports" / f"scene-coverage-pz-{version}.json"
+    for label, path in (("scene", args.scene), ("coverage", coverage)):
+        if not path.is_file():
+            raise UserError(f"{label} report is absent: {path}")
+    document = write_scene_coverage(args.scene, coverage, output)
+    _print_json(document["summary"] | {"output": str(output)})
     return 0
 
 
@@ -574,6 +701,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     geometry.add_argument("--output", type=Path)
     geometry.set_defaults(func=command_assets_index_geometry)
+    definitions = asset_commands.add_parser(
+        "index-definitions",
+        help="index installed tile properties such as roof groups and attachment roles",
+    )
+    definitions.add_argument("--output", type=Path)
+    definitions.set_defaults(func=command_assets_index_definitions)
+    roof_surfaces = asset_commands.add_parser(
+        "compile-roof-surfaces",
+        help="derive strict planar roof faces from installed PZ depth textures",
+    )
+    roof_surfaces.add_argument("--definitions", type=Path)
+    roof_surfaces.add_argument("--output", type=Path)
+    roof_surfaces.set_defaults(func=command_assets_compile_roof_surfaces)
     textures = asset_commands.add_parser(
         "index-textures",
         help="index installed PZ texture-pack metadata without extracting all game art",
@@ -587,6 +727,33 @@ def build_parser() -> argparse.ArgumentParser:
     )
     models.add_argument("--output", type=Path)
     models.set_defaults(func=command_assets_index_models)
+    items = asset_commands.add_parser(
+        "index-items",
+        help="index every installed PZ item script and its declared world model",
+    )
+    items.add_argument("--models", type=Path)
+    items.add_argument("--output", type=Path)
+    items.set_defaults(func=command_assets_index_items)
+    coverage = asset_commands.add_parser(
+        "audit-coverage",
+        help="join indexed tiles, atlas sprites, models and item scripts with honest renderer coverage states",
+    )
+    coverage.add_argument("--geometry", type=Path)
+    coverage.add_argument("--textures", type=Path)
+    coverage.add_argument("--models", type=Path)
+    coverage.add_argument("--definitions", type=Path)
+    coverage.add_argument("--depth-surfaces", type=Path)
+    coverage.add_argument("--items", type=Path)
+    coverage.add_argument("--output", type=Path)
+    coverage.set_defaults(func=command_assets_audit_coverage)
+    scene_coverage = asset_commands.add_parser(
+        "audit-scene",
+        help="join every object in a captured scene to the installed renderer coverage corpus",
+    )
+    scene_coverage.add_argument("--scene", type=Path, required=True)
+    scene_coverage.add_argument("--coverage", type=Path)
+    scene_coverage.add_argument("--output", type=Path)
+    scene_coverage.set_defaults(func=command_assets_audit_scene)
     extract_sprite = asset_commands.add_parser(
         "extract-sprite",
         help="extract the one atlas page containing a named sprite",

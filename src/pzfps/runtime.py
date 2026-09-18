@@ -26,6 +26,7 @@ ZB_CONFIG = RUNTIME_ROOT / "zombie-buddy"
 STATE = LOCAL / "state" / "isolated-game.json"
 LAUNCH_APP = RUNTIME_ROOT / "PZFPS Isolated.app"
 ASSET_REGISTRY = LOCAL / "assets" / "pz-42.20" / "tile-geometry.json"
+SUPPLEMENTAL_ASSET_REGISTRY = LOCAL / "assets" / "pz-42.20" / "roof-depth-surfaces.json"
 
 
 def stage(install: Path) -> dict[str, Any]:
@@ -35,7 +36,13 @@ def stage(install: Path) -> dict[str, Any]:
     zombie_buddy_source = LOCAL / "upstream" / "ZombieBuddy"
     zombie_buddy_jar = zombie_buddy_source / "java" / "build" / "jdk26" / "libs" / "ZombieBuddy.jar"
     bridge_jar = ROOT / "bridge" / "build" / "libs" / "PZFPSBridge-0.1.0.jar"
-    for required in (game_jar, zombie_buddy_jar, bridge_jar, ASSET_REGISTRY):
+    for required in (
+        game_jar,
+        zombie_buddy_jar,
+        bridge_jar,
+        ASSET_REGISTRY,
+        SUPPLEMENTAL_ASSET_REGISTRY,
+    ):
         if not required.is_file():
             raise RuntimeError(f"required runtime artifact is absent: {required}")
 
@@ -117,6 +124,8 @@ def stage(install: Path) -> dict[str, Any]:
             "kind": "single-window OpenGL world replacement",
             "asset_registry": str(ASSET_REGISTRY),
             "asset_registry_sha256": sha256_file(ASSET_REGISTRY),
+            "supplemental_asset_registry": str(SUPPLEMENTAL_ASSET_REGISTRY),
+            "supplemental_asset_registry_sha256": sha256_file(SUPPLEMENTAL_ASSET_REGISTRY),
         },
         "launch_app": str(LAUNCH_APP),
     }
@@ -164,6 +173,7 @@ def launch(install: Path) -> dict[str, Any]:
         "-Dpzfps.renderer.enabled=true",
         "-Dpzfps.autoContinue=true",
         f"-Dpzfps.assetRegistry={ASSET_REGISTRY}",
+        f"-Dpzfps.supplementalAssetRegistry={SUPPLEMENTAL_ASSET_REGISTRY}",
         f"-Dpzfps.bridgeJar={bridge}",
         "-Xmx3072m",
         "-XX:+UseZGC",
@@ -350,6 +360,7 @@ def _build_launch_app(install: Path, agent: Path) -> None:
             "-Dpzfps.renderer.enabled=true",
             "-Dpzfps.autoContinue=true",
             f"-Dpzfps.assetRegistry={ASSET_REGISTRY}",
+            f"-Dpzfps.supplementalAssetRegistry={SUPPLEMENTAL_ASSET_REGISTRY}",
             f"-Dpzfps.bridgeJar={bridge}",
             _agent_option(agent, bridge),
         ]

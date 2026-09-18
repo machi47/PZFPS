@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import zombie.GameTime;
 import zombie.characters.IsoPlayer;
 import zombie.input.GameKeyboard;
 import zombie.iso.IsoChunk;
@@ -45,7 +46,10 @@ public final class BridgeRuntime {
             server.start();
             String assetRegistry = System.getProperty("pzfps.assetRegistry", "").trim();
             if (!assetRegistry.isEmpty()) {
-                InProcessWorldRenderer.start(Path.of(assetRegistry));
+                String supplemental = System.getProperty("pzfps.supplementalAssetRegistry", "").trim();
+                InProcessWorldRenderer.start(
+                        Path.of(assetRegistry),
+                        supplemental.isEmpty() ? null : Path.of(supplemental));
             } else if (Boolean.getBoolean("pzfps.renderer.enabled")) {
                 System.err.println(
                         "[PZFPS] in-process renderer disabled: pzfps.assetRegistry is absent");
@@ -147,6 +151,9 @@ public final class BridgeRuntime {
         WorldState.Player playerSnapshot = WorldCapture.player(player, sequence, now, epochMillis);
         server.publishPlayer(playerSnapshot);
         InProcessWorldRenderer.acceptPlayer(playerSnapshot);
+        GameTime clock = GameTime.getInstance();
+        InProcessWorldRenderer.acceptSky(TimeOfDaySky.from(
+                clock.getTimeOfDay(), clock.getDawn(), clock.getDusk(), clock.getNight()));
         captureLighting(player);
         if (FIRST_SNAPSHOT_SEEN.compareAndSet(false, true)) {
             System.out.printf(

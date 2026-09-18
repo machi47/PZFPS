@@ -3,15 +3,20 @@ package dev.pzfps.bridge;
 import java.util.List;
 import java.util.Optional;
 
-/** Converts PZ's isometric light-switch support volumes into shallow wall-owned housings. */
+/** Converts PZ's isometric wall-switch support volumes into shallow wall-owned housings. */
 final class WallAttachmentAssembly {
     record Placement(int edge, float width, float height, float bottom, float depth) {}
 
     private WallAttachmentAssembly() {}
 
     static boolean eligible(WorldState.TileObject object) {
-        return object.javaType().endsWith("IsoLightSwitch")
-                && object.sprite().startsWith("lighting_");
+        if (!object.javaType().endsWith("IsoLightSwitch")
+                || !object.sprite().startsWith("lighting_indoor_01_")) return false;
+        // IsoLightSwitch is PZ's controller class, not a visual family: table lamps,
+        // floor lamps and exterior sconces also use it. Installed Tiles2x96 confirms
+        // only the first four sprites are the two wall-switch faces/orientations.
+        int suffix = spriteSuffix(object.sprite());
+        return suffix >= 0 && suffix <= 3;
     }
 
     static Optional<Placement> placement(
@@ -25,12 +30,9 @@ final class WallAttachmentAssembly {
         // sometimes an entire 2.45-unit wall. They are not the fixture's visible volume.
         // A restrained closed housing preserves the real sprite while making placement
         // physical and wall-relative. Exact per-model meshes remain future asset work.
-        int suffix = spriteSuffix(object.sprite());
-        boolean compactVent = suffix == 1 || suffix == 3;
-        float width = compactVent ? .42f : .28f;
-        float height = compactVent ? .22f : .38f;
-        float bottom = compactVent ? 1.02f : 1.08f;
-        return Optional.of(new Placement(edge, width, height, bottom, .045f));
+        // The installed crop is 13x27 pixels for both visible orientations. Preserve
+        // that portrait aspect ratio instead of stretching the plate into a wide slab.
+        return Optional.of(new Placement(edge, .105f, .22f, 1.08f, .018f));
     }
 
     private static int nearestAvailableEdge(

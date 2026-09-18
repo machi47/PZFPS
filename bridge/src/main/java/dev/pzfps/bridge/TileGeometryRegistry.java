@@ -106,6 +106,27 @@ public final class TileGeometryRegistry {
                                 0, 0, 0, 0, 0, 0, 0, 0, 0,
                                 value.optString("plane", ""), parsedPoints));
                     }
+                    case "triangle" -> {
+                        JSONArray points = value.getJSONArray("points");
+                        if (points.length() != 3) {
+                            throw new IOException("triangle must contain three points for " + sprite);
+                        }
+                        ArrayList<float[]> parsedPoints = new ArrayList<>(3);
+                        for (int pointIndex = 0; pointIndex < 3; pointIndex++) {
+                            JSONArray point = points.getJSONArray(pointIndex);
+                            if (point.length() != 3) {
+                                throw new IOException("triangle point must be a 3-vector for " + sprite);
+                            }
+                            parsedPoints.add(new float[] {
+                                point.getFloat(0), point.getFloat(1), point.getFloat(2)
+                            });
+                        }
+                        primitives.add(new Primitive(
+                                "triangle",
+                                0, 0, 0, 0, 0, 0,
+                                0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                "", parsedPoints));
+                    }
                     default -> {
                         // The indexer may grow new primitive kinds. Unknown kinds stay explicit.
                     }
@@ -114,6 +135,17 @@ public final class TileGeometryRegistry {
             if (!primitives.isEmpty()) parsed.put(sprite, List.copyOf(primitives));
         }
         return new TileGeometryRegistry(parsed, root.optString("source_sha256", ""));
+    }
+
+    /** Merge evidence-derived geometry only where the installed authored registry has no mesh. */
+    public static TileGeometryRegistry load(Path primary, Path supplemental) throws IOException {
+        TileGeometryRegistry authored = load(primary);
+        TileGeometryRegistry derived = load(supplemental);
+        HashMap<String, List<Primitive>> merged = new HashMap<>(derived.bySprite);
+        merged.putAll(authored.bySprite);
+        return new TileGeometryRegistry(
+                merged,
+                authored.sourceSha256 + "+supplemental:" + derived.sourceSha256);
     }
 
     public List<Primitive> geometry(String sprite) {

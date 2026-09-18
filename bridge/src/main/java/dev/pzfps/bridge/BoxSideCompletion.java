@@ -48,7 +48,11 @@ final class BoxSideCompletion {
         // This completes only the unseen opposite side; it does not invent a back/bottom.
         return switch (sprite) {
             case "location_business_machinery_01_32", "location_business_machinery_01_33",
-                    "location_business_machinery_01_34", "location_business_machinery_01_35" -> true;
+                    "location_business_machinery_01_34", "location_business_machinery_01_35",
+                    // Installed bedroom dresser pair. Their authored multi-box model
+                    // supplies one local-X side; copying only that side closes the
+                    // opposite end without putting drawer/front artwork on the back.
+                    "furniture_storage_02_36", "furniture_storage_02_37" -> true;
             default -> false;
         };
     }

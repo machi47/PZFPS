@@ -47,6 +47,8 @@ public final class InProcessWorldRenderer {
     private static final AtomicBoolean REPLACEMENT_ANNOUNCED = new AtomicBoolean();
     private static final AtomicReference<WorldState.Player> PLAYER = new AtomicReference<>();
     private static final AtomicReference<WorldState.Entities> ENTITIES = new AtomicReference<>();
+    private static final AtomicReference<TimeOfDaySky> SKY = new AtomicReference<>(
+            TimeOfDaySky.from(12, 6, 20, 0));
     private static final ChunkLighting.Store LIGHTING = new ChunkLighting.Store(4096);
     private static final ConcurrentHashMap<Long, WorldMeshBuilder.MeshData> MESHES =
             new ConcurrentHashMap<>();
@@ -65,9 +67,11 @@ public final class InProcessWorldRenderer {
 
     private InProcessWorldRenderer() {}
 
-    public static void start(Path registryPath) {
+    public static void start(Path registryPath, Path supplementalRegistryPath) {
         if (!ENABLED || !STARTED.compareAndSet(false, true)) return;
-        Thread worker = new Thread(() -> meshWorker(registryPath), "PZFPS-mesh-builder");
+        Thread worker = new Thread(
+                () -> meshWorker(registryPath, supplementalRegistryPath),
+                "PZFPS-mesh-builder");
         worker.setDaemon(true);
         worker.start();
     }
@@ -78,6 +82,10 @@ public final class InProcessWorldRenderer {
 
     public static void acceptEntities(WorldState.Entities entities) {
         ENTITIES.set(entities);
+    }
+
+    static void acceptSky(TimeOfDaySky sky) {
+        SKY.set(sky);
     }
 
     public static void submitChunk(WorldState.Chunk chunk) {
@@ -109,7 +117,7 @@ public final class InProcessWorldRenderer {
                 PLAYER.get(),
                 ENTITIES.get(),
                 List.copyOf(MESHES.values()),
-                Set.copyOf(nativeEntityIds), LIGHTING.snapshot());
+                Set.copyOf(nativeEntityIds), LIGHTING.snapshot(), SKY.get());
         SpriteRenderer.instance.drawGeneric(new WorldDrawer(snapshot));
         ENQUEUED_FRAMES.incrementAndGet();
         if (REPLACEMENT_ANNOUNCED.compareAndSet(false, true)) {
@@ -194,9 +202,11 @@ public final class InProcessWorldRenderer {
         return sprite.startsWith("fencing_") || sprite.startsWith("fixtures_doors_fences_");
     }
 
-    private static void meshWorker(Path registryPath) {
+    private static void meshWorker(Path registryPath, Path supplementalRegistryPath) {
         try {
-            TileGeometryRegistry registry = TileGeometryRegistry.load(registryPath);
+            TileGeometryRegistry registry = supplementalRegistryPath == null
+                    ? TileGeometryRegistry.load(registryPath)
+                    : TileGeometryRegistry.load(registryPath, supplementalRegistryPath);
             WorldMeshBuilder builder = new WorldMeshBuilder(registry);
             ASSETS_READY.set(true);
             System.out.printf(
@@ -302,7 +312,8 @@ public final class InProcessWorldRenderer {
             WorldState.Entities entities,
             List<WorldMeshBuilder.MeshData> meshes,
             Set<Integer> nativeEntityIds,
-            Map<Long, ChunkLighting> lighting) {}
+            Map<Long, ChunkLighting> lighting,
+            TimeOfDaySky sky) {}
 
     private record CullingCounts(int visible, int empty, int distance, int frustum) {
         private static CullingCounts none() {
@@ -375,6 +386,10 @@ public final class InProcessWorldRenderer {
         private final int lightingUniform;
         private final int lightingEnabledUniform;
         private final int depthUnitUniform;
+        private final int skyPassUniform;
+        private final int skyHorizonUniform;
+        private final int skyZenithUniform;
+        private final int skyVbo;
         private int reportedDepthBits = -1;
         private final Map<Long, GpuLighting> lightingTextures = new HashMap<>();
         private final java.nio.ByteBuffer lightingUpload = BufferUtils.createByteBuffer(ChunkLighting.BYTES);
@@ -410,6 +425,9 @@ public final class InProcessWorldRenderer {
             lightingUniform = GL20.glGetUniformLocation(program, "uLighting");
             lightingEnabledUniform = GL20.glGetUniformLocation(program, "uLightingEnabled");
             depthUnitUniform = GL20.glGetUniformLocation(program, "uDepthUnit");
+            skyPassUniform = GL20.glGetUniformLocation(program, "uSkyPass");
+            skyHorizonUniform = GL20.glGetUniformLocation(program, "uSkyHorizon");
+            skyZenithUniform = GL20.glGetUniformLocation(program, "uSkyZenith");
             if (mvpUniform < 0
                     || texturedUniform < 0
                     || materialUniform < 0
@@ -417,9 +435,11 @@ public final class InProcessWorldRenderer {
                     || uvBoundsUniform < 0
                     || cropUniform < 0 || surfaceKindUniform < 0 || texturePassUniform < 0
                     || projectedBoundsUniform < 0 || originUniform < 0
-                    || lightingUniform < 0 || lightingEnabledUniform < 0 || depthUnitUniform < 0) {
+                    || lightingUniform < 0 || lightingEnabledUniform < 0 || depthUnitUniform < 0
+                    || skyPassUniform < 0 || skyHorizonUniform < 0 || skyZenithUniform < 0) {
                 throw new IllegalStateException("one or more source-texture shader uniforms are absent");
             }
+            skyVbo = createSkyBuffer();
         }
 
         void render(RenderSnapshot snapshot) {
@@ -472,6 +492,7 @@ public final class InProcessWorldRenderer {
                 GL20.glUseProgram(program);
                 GL20.glUniform1i(textureUniform, 0);
                 GL20.glUniform1i(lightingUniform, 1);
+                drawSky(snapshot.sky);
                 int depthBits = GL11.glGetInteger(GL11.GL_DEPTH_BITS);
                 if (depthBits != reportedDepthBits) {
                     System.out.printf("[PZFPS depth] bits=%d ordering=fragment layers=16 unitsPerLayer=2%n", depthBits);
@@ -607,6 +628,40 @@ public final class InProcessWorldRenderer {
         }
 
         private record GpuLighting(int texture, ChunkLighting source) {}
+
+        private int createSkyBuffer() {
+            // Oversized triangle covers the viewport. y=-1 maps to horizon and y=1
+            // to zenith in the shader; its third vertex deliberately reaches y=3.
+            float[] vertices = {
+                -1,-1,0, 0,0,1, 1,1,1, -1,
+                 3,-1,0, 0,0,1, 1,1,1, -1,
+                -1, 3,0, 0,0,1, 1,1,1, -1
+            };
+            int buffer = GL15.glGenBuffers();
+            GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, buffer);
+            FloatBuffer upload = BufferUtils.createFloatBuffer(vertices.length);
+            upload.put(vertices).flip();
+            GL15.glBufferData(GL15.GL_ARRAY_BUFFER, upload, GL15.GL_STATIC_DRAW);
+            return buffer;
+        }
+
+        private void drawSky(TimeOfDaySky sky) {
+            TimeOfDaySky.Color horizon = sky.horizon();
+            TimeOfDaySky.Color zenith = sky.zenith();
+            GL20.glUniform1i(skyPassUniform, 1);
+            GL20.glUniform3f(skyHorizonUniform, horizon.red(), horizon.green(), horizon.blue());
+            GL20.glUniform3f(skyZenithUniform, zenith.red(), zenith.green(), zenith.blue());
+            GL11.glDepthMask(false);
+            GL11.glDisable(GL11.GL_DEPTH_TEST);
+            GL11.glDisable(GL11.GL_BLEND);
+            GL11.glDisable(GL11.GL_TEXTURE_2D);
+            GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, skyVbo);
+            configureAttributes(STRIDE_BYTES, false);
+            GL11.glDrawArrays(GL11.GL_TRIANGLES, 0, 3);
+            GL20.glUniform1i(skyPassUniform, 0);
+            GL11.glDepthMask(true);
+            GL11.glEnable(GL11.GL_DEPTH_TEST);
+        }
 
         private void bindLighting(long key, ChunkLighting source) {
             GL20.glUniform1i(lightingEnabledUniform, source == null ? 0 : 1);
@@ -882,12 +937,14 @@ public final class InProcessWorldRenderer {
                     uniform vec3 uOrigin;
                     uniform int uTextured;
                     uniform int uMaterial;
+                    uniform int uSkyPass;
                     varying vec3 vertexColor;
                     varying vec2 sourcePixel;
                     varying vec3 worldPosition;
                     varying vec3 surfaceNormal;
                     varying vec2 lightingUv;
                     varying float surfaceLayer;
+                    varying float skyGradient;
                     void main() {
                         vec3 sun = normalize(vec3(-0.45, 0.82, -0.35));
                         float light = uMaterial == 1
@@ -899,8 +956,11 @@ public final class InProcessWorldRenderer {
                         surfaceNormal = inNormal;
                         lightingUv = vec2(mod(inLightingIndex, 8.0) + 0.5,
                                 floor(inLightingIndex / 8.0) + 0.5) / vec2(8.0, 512.0);
-                        gl_Position = uMvp * vec4(inPosition, 1.0);
+                        gl_Position = uSkyPass == 1
+                                ? vec4(inPosition, 1.0)
+                                : uMvp * vec4(inPosition, 1.0);
                         surfaceLayer = uTextured == 1 ? clamp(inLayer, 0.0, 16.0) : 0.0;
+                        skyGradient = inPosition.y * 0.5 + 0.5;
                     }
                     """;
             String fragment = """
@@ -918,12 +978,16 @@ public final class InProcessWorldRenderer {
                     uniform sampler2D uLighting;
                     uniform int uLightingEnabled;
                     uniform float uDepthUnit;
+                    uniform int uSkyPass;
+                    uniform vec3 uSkyHorizon;
+                    uniform vec3 uSkyZenith;
                     varying vec3 vertexColor;
                     varying vec2 sourcePixel;
                     varying vec3 worldPosition;
                     varying vec3 surfaceNormal;
                     varying vec2 lightingUv;
                     varying float surfaceLayer;
+                    varying float skyGradient;
                     float spriteLod;
                     vec4 sampleSprite(vec2 pixel) {
                         vec2 lo = uCrop.xy + vec2(0.5);
@@ -945,6 +1009,11 @@ public final class InProcessWorldRenderer {
                         #endif
                     }
                     void main() {
+                        if (uSkyPass == 1) {
+                            float height = smoothstep(0.0, 1.0, clamp(skyGradient, 0.0, 1.0));
+                            gl_FragColor = vec4(mix(uSkyHorizon, uSkyZenith, height), 1.0);
+                            return;
+                        }
                         // Derivatives must be evaluated before divergent alpha/repair branches.
                         vec2 pixelScale = uSurfaceKind == 3 || uSurfaceKind == 5
                                 ? (uCrop.zw-vec2(1.0))/uProjectedBounds.zw : vec2(1.0);

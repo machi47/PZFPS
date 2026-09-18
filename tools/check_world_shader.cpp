@@ -88,6 +88,8 @@ int main(int argc, char** argv) {
         glUniform1i(uniform("uTexture"), 0);
         glUniform1i(uniform("uLighting"), 1);
         glUniform1i(uniform("uLightingEnabled"), 1);
+        GLint skyPass = uniform("uSkyPass");
+        glUniform1i(skyPass, 0);
         GLint texturePass = uniform("uTexturePass");
         glUniform1i(texturePass, 0);
         // Optional solely so the same regression can reproduce the old shader failure.
@@ -134,6 +136,25 @@ int main(int argc, char** argv) {
             glReadPixels(8, 8, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel.data());
             return pixel[0];
         };
+        // The production sky path is screen-space and must interpolate horizon to
+        // zenith without touching the depth buffer or source texture path.
+        glUniform1i(skyPass, 1);
+        glUniform3f(uniform("uSkyHorizon"), 1, 0, 0);
+        glUniform3f(uniform("uSkyZenith"), 0, 0, 1);
+        glDisable(GL_DEPTH_TEST);
+        glClear(GL_COLOR_BUFFER_BIT);
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+        std::array<unsigned char,4> skyBottom{}, skyTop{};
+        glReadPixels(8,1,1,1,GL_RGBA,GL_UNSIGNED_BYTE,skyBottom.data());
+        glReadPixels(8,14,1,1,GL_RGBA,GL_UNSIGNED_BYTE,skyTop.data());
+        if (skyBottom[0] < 200 || skyBottom[2] > 55
+                || skyTop[2] < 200 || skyTop[0] > 55)
+            throw std::runtime_error("Sky gradient failed");
+        std::cout << "timeSkyGradient=passed bottom=" << int(skyBottom[0]) << ','
+                  << int(skyBottom[1]) << ',' << int(skyBottom[2]) << " top="
+                  << int(skyTop[0]) << ',' << int(skyTop[1]) << ',' << int(skyTop[2]) << '\n';
+        glUniform1i(skyPass, 0);
+        glEnable(GL_DEPTH_TEST);
         int bright = draw();
         for (size_t i = 0; i < pixels.size(); i += 4) pixels[i] = pixels[i + 1] = pixels[i + 2] = 128;
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 8, 512, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());

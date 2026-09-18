@@ -22,4 +22,22 @@ final class NativeFirstPersonHandsPassTest {
         assertTrue(NativeFirstPersonHandsPass.isHeldModel(weaponPart, primary, secondary));
         assertTrue(NativeFirstPersonHandsPass.isHeldModel(secondary, primary, secondary));
     }
+
+    @Test
+    void localBodyUsesAttachmentsWithoutPuttingCameraInsideRootOrHeadwear() {
+        ModelInstance body = new ModelInstance();
+        ModelInstance trousers = new ModelInstance();
+        ModelInstance hair = new ModelInstance();
+        ModelInstance held = new ModelInstance();
+        trousers.parent = body;
+        hair.parent = body;
+        held.parent = body;
+
+        assertFalse(NativeFirstPersonHandsPass.isFirstPersonVisible(body, held, null));
+        assertTrue(NativeFirstPersonHandsPass.isFirstPersonVisible(trousers, held, null));
+        assertTrue(NativeFirstPersonHandsPass.isFirstPersonVisible(held, held, null));
+        assertTrue(NativeFirstPersonHandsPass.headAdjacentIdentity("Base.Hair_Long"));
+        assertTrue(NativeFirstPersonHandsPass.headAdjacentIdentity("Base.BalaclavaFull"));
+        assertFalse(NativeFirstPersonHandsPass.headAdjacentIdentity("Base.Trousers_DefaultTEXTURE"));
+    }
 }

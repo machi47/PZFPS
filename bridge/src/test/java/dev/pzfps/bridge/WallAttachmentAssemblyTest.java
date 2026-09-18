@@ -26,8 +26,9 @@ final class WallAttachmentAssemblyTest {
                 List.of(box(-.45f,0,-.5f,-.4f,2.4495f,.5f)),
                 StructuralPropClip.NORTH | StructuralPropClip.WEST).orElseThrow();
         assertEquals(StructuralPropClip.WEST, west.edge());
-        assertEquals(.42f, west.width());
+        assertEquals(.105f, west.width());
         assertEquals(.22f, west.height());
+        assertEquals(.018f, west.depth());
 
         var south = WallAttachmentAssembly.placement(
                 light("lighting_indoor_01_3"),
@@ -44,5 +45,14 @@ final class WallAttachmentAssemblyTest {
                 0,"zombie.iso.IsoObject","MAX","lighting_indoor_01_10",
                 false,false,false,false,false,false,false);
         assertFalse(WallAttachmentAssembly.eligible(unrelated));
+    }
+
+    @Test
+    void controllerClassDoesNotTurnLampsOrSconcesIntoWallSwitchSlabs() {
+        assertFalse(WallAttachmentAssembly.eligible(light("lighting_indoor_01_10")));
+        assertFalse(WallAttachmentAssembly.eligible(light("lighting_indoor_01_40")));
+        assertFalse(WallAttachmentAssembly.eligible(light("lighting_outdoor_01_24")));
+        assertTrue(WallAttachmentAssembly.eligible(light("lighting_indoor_01_0")));
+        assertTrue(WallAttachmentAssembly.eligible(light("lighting_indoor_01_3")));
     }
 }

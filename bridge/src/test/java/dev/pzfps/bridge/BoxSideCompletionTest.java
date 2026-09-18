@@ -20,6 +20,14 @@ final class BoxSideCompletionTest {
     }
 
     @Test
+    void onlyInspectedBedroomDresserPairGetsStorageSideCompletion() {
+        assertTrue(BoxSideCompletion.mirrorLocalX("furniture_storage_02_36"));
+        assertTrue(BoxSideCompletion.mirrorLocalX("furniture_storage_02_37"));
+        assertFalse(BoxSideCompletion.mirrorLocalX("furniture_storage_01_12"));
+        assertFalse(BoxSideCompletion.mirrorLocalX("furniture_bedding_01_52"));
+    }
+
+    @Test
     void nativeFacingSelectsSidesWithoutGuessingUnrelatedAssetNames() {
         var box = new TileGeometryRegistry.Primitive("box", 0, 0, 0, 0, 0, 0,
                 -.5f, 0, -.25f, .5f, 1, .25f, 0, 0, 0, "", List.of());

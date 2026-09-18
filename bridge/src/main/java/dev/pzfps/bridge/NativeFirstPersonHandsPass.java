@@ -18,13 +18,14 @@ import zombie.core.skinnedmodel.model.ModelSlotRenderData;
 import zombie.core.textures.Texture;
 import zombie.core.textures.TextureDraw;
 
-/** Draws only the local player's PZ-evaluated held models, never the head or torso mesh. */
+/** Draws the local player's evaluated clothing/body attachments and held models in perspective. */
 public final class NativeFirstPersonHandsPass {
     private static final ConcurrentLinkedQueue<Drawer> DRAWER_POOL = new ConcurrentLinkedQueue<>();
     private static final AtomicBoolean FAILED = new AtomicBoolean();
     private static final AtomicLong QUEUED = new AtomicLong();
     private static final AtomicLong COMPLETED_CALLBACKS = new AtomicLong();
     private static final AtomicLong NO_HELD_MODEL = new AtomicLong();
+    private static final AtomicLong BODY_CALLBACKS = new AtomicLong();
     private static long frames;
 
     private NativeFirstPersonHandsPass() {}
@@ -37,7 +38,6 @@ public final class NativeFirstPersonHandsPass {
         ModelInstance secondary = player.secondaryHandModel;
         if (primary == null && secondary == null) {
             NO_HELD_MODEL.incrementAndGet();
-            return PreparedFrame.empty();
         }
         ModelManager.ModelSlot slot = player.legsSprite == null
                 ? null
@@ -62,6 +62,40 @@ public final class NativeFirstPersonHandsPass {
             if (current == primary || current == secondary) return true;
         }
         return false;
+    }
+
+    static boolean isFirstPersonVisible(
+            ModelInstance candidate, ModelInstance primary, ModelInstance secondary) {
+        if (candidate == null) return false;
+        if (isHeldModel(candidate, primary, secondary)) return true;
+        // The root mesh includes the face surrounding the eye camera. Until a copied
+        // render palette can mask its head bone, show evaluated garment/body attachments
+        // but never render the camera from inside that root mesh.
+        if (candidate.parent == null) return false;
+        return !headAdjacentIdentity(modelIdentity(candidate));
+    }
+
+    static boolean headAdjacentIdentity(String identity) {
+        String value = identity == null ? "" : identity.toLowerCase(java.util.Locale.ROOT);
+        return value.contains("hair")
+                || value.contains("beard")
+                || value.contains("moustache")
+                || value.contains("head")
+                || value.contains("helmet")
+                || value.contains("glasses")
+                || value.contains("earring")
+                || value.contains("balaclava")
+                || value.contains("bandana")
+                || value.contains("facemask")
+                || value.contains("makeup");
+    }
+
+    private static String modelIdentity(ModelInstance candidate) {
+        if (candidate.modelScript != null && candidate.modelScript.name != null) {
+            return candidate.modelScript.name;
+        }
+        if (candidate.model != null && candidate.model.name != null) return candidate.model.name;
+        return "";
     }
 
     private static boolean usable(ModelManager.ModelSlot slot, IsoPlayer player) {
@@ -106,9 +140,10 @@ public final class NativeFirstPersonHandsPass {
             }
             if (++frames % 300 == 0) {
                 System.out.printf(
-                        "[PZFPS hands] queuedTotal=%d completedCallbacks=%d noHeldModel=%d%n",
+                        "[PZFPS local-body] queuedTotal=%d completedCallbacks=%d bodyCallbacks=%d noHeldModel=%d%n",
                         QUEUED.get(),
                         COMPLETED_CALLBACKS.get(),
+                        BODY_CALLBACKS.get(),
                         NO_HELD_MODEL.get());
             }
         }
@@ -170,15 +205,18 @@ public final class NativeFirstPersonHandsPass {
                 Model.CharacterModelCameraBegin(renderData);
                 cameraBegun = true;
                 int renderedModels = 0;
+                int renderedBodyModels = 0;
                 for (ModelInstanceRenderData value : values) {
                     if (value.modelInstance == null
-                            || !isHeldModel(value.modelInstance, primary, secondary)) {
+                            || !isFirstPersonVisible(value.modelInstance, primary, secondary)) {
                         continue;
                     }
                     value.RenderCharacter(renderData);
                     renderedModels++;
+                    if (!isHeldModel(value.modelInstance, primary, secondary)) renderedBodyModels++;
                 }
                 if (renderedModels > 0) COMPLETED_CALLBACKS.incrementAndGet();
+                if (renderedBodyModels > 0) BODY_CALLBACKS.incrementAndGet();
             } catch (Throwable error) {
                 fail("render", error);
             } finally {

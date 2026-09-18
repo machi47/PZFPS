@@ -1,6 +1,7 @@
 package dev.pzfps.bridge;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Files;
@@ -12,6 +13,13 @@ import org.junit.jupiter.api.io.TempDir;
 
 final class WorldMeshBuilderTest {
     @TempDir Path temporary;
+
+    private static WorldState.Chunk chunkWithSingleObject(WorldState.TileObject object) {
+        WorldState.Square square = new WorldState.Square(
+                0, 0, 0, -1, 0, 255, 255, 255,
+                false, true, false, false, false, false, List.of(object));
+        return new WorldState.Chunk(0, 0, 1, 1, List.of(square));
+    }
 
     @Test
     void usesAuthoredGeometryBeforeStructuralFallbackAndKeepsOnlyObservedFaces() throws Exception {
@@ -118,6 +126,36 @@ final class WorldMeshBuilderTest {
     }
 
     @Test
+    void shortChainLinkVariantsShareTheSameBoundaryGeometry() throws Exception {
+        Path registryPath = temporary.resolve("mixed-chain-link.json");
+        Files.writeString(registryPath, """
+                {"schema_version":1,"source_sha256":"x","tiles":{
+                  "fencing_01_24":{"geometry":[{
+                    "kind":"box","min":[-0.5,0,-0.5],"max":[0.5,1.3,-0.4]
+                  }]},
+                  "fencing_01_25":{"geometry":[]}
+                }}
+                """);
+        WorldMeshBuilder builder = new WorldMeshBuilder(TileGeometryRegistry.load(registryPath));
+        WorldMeshBuilder.MeshData authored = builder.build(chunkWithSingleObject(
+                new WorldState.TileObject(0, "zombie.iso.IsoObject", "", "fencing_01_24",
+                        false, false, true, true, false, false, true)));
+        WorldMeshBuilder.MeshData empty = builder.build(chunkWithSingleObject(
+                new WorldState.TileObject(0, "zombie.iso.IsoObject", "", "fencing_01_25",
+                        false, false, true, true, false, false, true)));
+
+        assertEquals(6, authored.vertexCount());
+        assertEquals(6, empty.vertexCount());
+        float[] a = authored.texturedBatches().getFirst().vertices();
+        float[] b = empty.texturedBatches().getFirst().vertices();
+        for (int vertex = 0; vertex < 6; vertex++) {
+            int offset = vertex * WorldMeshBuilder.TEXTURED_FLOATS_PER_VERTEX;
+            assertArrayEquals(new float[] {a[offset], a[offset + 1], a[offset + 2]},
+                    new float[] {b[offset], b[offset + 1], b[offset + 2]});
+        }
+    }
+
+    @Test
     void replacesLightSwitchSupportVolumeWithClosedWallOwnedHousing() throws Exception {
         Path registryPath = temporary.resolve("wall-attachment.json");
         Files.writeString(
@@ -146,9 +184,9 @@ final class WorldMeshBuilderTest {
         assertEquals(36, batch.vertexCount());
         float[] vertices = batch.vertices();
         for (int i = 0; i < vertices.length; i += WorldMeshBuilder.TEXTURED_FLOATS_PER_VERTEX) {
-            assertTrue(vertices[i] >= .002f && vertices[i] <= .045f);
-            assertTrue(vertices[i + 1] >= 1.02f && vertices[i + 1] <= 1.24f);
-            assertTrue(vertices[i + 2] >= .29f && vertices[i + 2] <= .71f);
+            assertTrue(vertices[i] >= .002f && vertices[i] <= .018f);
+            assertTrue(vertices[i + 1] >= 1.079f && vertices[i + 1] <= 1.301f);
+            assertTrue(vertices[i + 2] >= .4475f && vertices[i + 2] <= .5525f);
             assertEquals(0, vertices[i + 11]);
         }
     }
