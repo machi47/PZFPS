@@ -165,6 +165,48 @@ int main(int argc, char** argv) {
                   << " dim=" << dim << " sourceDim=" << sourceDim << " geometryUploads=1 lightUploads=2\n";
         std::cout << "closedCrateEdge=passed ordinaryHole=" << ordinaryHole
                   << " repairedCrate=" << repairedCrate << '\n';
+        // Native PZ atlases have whole-page mipmaps. A transparent sprite region
+        // must stay transparent even beside opaque art at fractional mip boundaries.
+        // This tests the production sampler, not a separately reimplemented formula.
+        GLuint atlas = 0, sourceVbo = 0;
+        glGenTextures(1,&atlas);
+        glBindTexture(GL_TEXTURE_2D,atlas);
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR_MIPMAP_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+        glGenBuffers(1,&sourceVbo);
+        glBindBuffer(GL_ARRAY_BUFFER,sourceVbo);
+        const float sourceCoordinates[] = {0,0,32,0,0,32};
+        glBufferData(GL_ARRAY_BUFFER,sizeof(sourceCoordinates),sourceCoordinates,GL_STATIC_DRAW);
+        glEnableVertexAttribArray(3);
+        glVertexAttribPointer(3,2,GL_FLOAT,GL_FALSE,0,nullptr);
+        glUniform1i(uniform("uSurfaceKind"),0);
+        glUniform1i(uniform("uLightingEnabled"),0);
+        glUniform4f(uniform("uCrop"),0,0,16,16);
+        int atlasLeakPixels = 0;
+        for (int offset : {17,21,27}) {
+            std::vector<unsigned char> atlasPixels(64*64*4,255);
+            for (int y=offset;y<offset+16;y++) for(int x=offset;x<offset+16;x++)
+                for(int c=0;c<4;c++) atlasPixels[(y*64+x)*4+c]=0;
+            glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA8,64,64,0,GL_RGBA,GL_UNSIGNED_BYTE,atlasPixels.data());
+            glGenerateMipmapEXT(GL_TEXTURE_2D);
+            glUniform4f(uniform("uUvBounds"),offset/64.f,offset/64.f,(offset+16)/64.f,(offset+16)/64.f);
+            for (int viewport : {4,8,16}) {
+                glViewport(0,0,viewport,viewport);
+                glClear(GL_COLOR_BUFFER_BIT);
+                glDrawArrays(GL_TRIANGLES,0,3);
+                std::vector<unsigned char> result(viewport*viewport*4);
+                glReadPixels(0,0,viewport,viewport,GL_RGBA,GL_UNSIGNED_BYTE,result.data());
+                for (int i=0;i<viewport*viewport;i++) if(result[4*i]!=51) atlasLeakPixels++;
+            }
+        }
+        std::cout << "atlasMipIsolation cases=9 leakedPixels=" << atlasLeakPixels << '\n';
+        if (atlasLeakPixels) throw std::runtime_error("Atlas mip samples leak unrelated artwork");
+        glDisableVertexAttribArray(3);
+        glBindBuffer(GL_ARRAY_BUFFER,vbo);
+        glDeleteBuffers(1,&sourceVbo);
+        glBindTexture(GL_TEXTURE_2D,white);
+        glDeleteTextures(1,&atlas);
+        glUniform4f(uniform("uUvBounds"),0,0,1,1);
         // Coplanar wall and attachment use different tessellations. Layer two
         // must win locally, independent of angle and submission order. Quantify
         // the far-range limitation of keeping the total depth displacement <=8mm.

@@ -21,13 +21,63 @@ PZ render thread     -> PZFPS perspective world -> PZ text/UI
 
 One isolated PZ process is currently running from the project-local
 disposable profile with staged bridge JAR
-`534f967121136cfb830992fc993bafa7fa621017ce159e2dfb3624596b0c9fe3`
-(precision/fence repair batch, PID 32654, launched 23:45:38 UTC).
+`812c608271a90ec252f08bf6bcf01a6484a13b548ea5afe81a704354cb37315a`
+(atlas-mip repair batch, PID 33199, launched 23:55:39 UTC).
 This includes the fragment-depth, concave-polygon, chunk-local construction and
 fence-coverage repairs described below. PID 31018 was replaced by 32194 at
 23:34:18 UTC for depth/polygon testing; 32194 was stopped before 32654 launched.
 No normal save, installed game binary or
 unrelated mod was changed.
+
+### Atlas boundary outlines: reproduced mip contamination
+
+The latest wire-like outlines have a reproduced shared sampling defect.
+Installed `GameWindow.enter()` loads Tiles2x with flag 0x40; `TextureID` uses
+whole-page trilinear mipmaps. The old shader clamped to each sprite's half-texel
+base-level rectangle but sampled coarse atlas mips containing neighboring art.
+A production-GLSL GPU regression using a transparent sprite region surrounded
+by unrelated opaque art produces 120 leaked pixels across nine alignment/scale
+cases with the old sampler and zero after this repair. This demonstrates atlas
+leakage, not proof that every line in the owner's screenshot shares that cause.
+
+The shader computes source-pixel derivatives before divergent alpha branches,
+then bounds both trilinear levels to a footprint contained in the sprite crop.
+Near crop boundaries it uses base-level detail; the interior retains safe mip
+minification. No PZ-owned texture data or sampler state is modified. On the tested
+Apple GL implementation it uses `GL_ARB_shader_texture_lod`; a compatibility
+fallback biases to base level, sacrificing mip antialiasing rather than sampling
+unrelated art. The extension's explicit-LOD and derivative requirements were
+checked against the [Khronos specification](https://registry.khronos.org/OpenGL/extensions/ARB/ARB_shader_texture_lod.txt).
+This may retain more aliasing near crop edges; independent padded sprite mips
+remain a possible quality improvement, not implemented here.
+
+Raw GPU reports: `.local/reports/atlas-mips-before.txt` and
+`.local/reports/atlas-mips-after.txt`. Fence coverage, crate edge, physical depth
+occlusion and near coplanar tests remain passing; far-depth residual unchanged.
+106 Java tests pass. Prior precision/fence batch is committed and remote-verified
+as `de2681181f008d5e63b1fc1a3c3f7efc54c90055`.
+PID 32654 was stopped before staging/launching PID 33199. This reload reached
+PZ's new-character flow rather than a resumed living player; ordinary native
+clicks selected the default Muldraugh location, occupation and generated character
+in the disposable world. Live logs confirm `atlasMipIsolation=explicit-lod`,
+24-bit depth and completed callback cadence 59.93–60.08Hz at frames 600–900,
+fresh state 6–11ms and zero dropped mesh requests. This is not GPU frame timing.
+
+Autonomous camera validation: `.local/reports/atlas-synchronized-sweep-player.json`
+contains 481 authoritative samples with exactly one player position, unchanged
+pitch and -0.45001rad horizontal travel; largest update step was 0.00250012rad.
+Native input was `look -1 0 180`. Synchronized moving evidence:
+`.local/captures/atlas-synchronized-sweep.mov`; inspected frames 02/04 show the
+window/radiator/wall scene at different angles without the previous large wire
+rectangles. This is one room, not acceptance of every attachment or all flicker.
+The room still has missing furniture faces, source-projection distortion and a
+small hanging wall fragment at the ceiling. No geometry completion is implied.
+
+An earlier synthetic mouse sequence's first event caused a 1.875rad yaw and
+-1.195rad pitch jump; subsequent events had the requested horizontal increments.
+That first-event transition remains a failed automation/input case. Pitch was
+restored through ordinary mouse events before the synchronized test. Another
+trace completed before its intended motion and is not counted as motion evidence.
 
 ### Chunk-local construction and fence coverage (loaded; live acceptance pending)
 
@@ -1304,8 +1354,8 @@ update rates have not been reported as achieved performance.
 
 ## Next smallest experiment
 
-The current single PID 32654 has the combined depth, concave-polygon,
-chunk-local precision and fence-coverage repairs. Actual depth bits, completed
+The current single PID 33199 has the combined depth, concave-polygon,
+chunk-local precision, fence-coverage and atlas-mip repairs. Actual depth bits, completed
 callback cadence and fresh state age are recorded above.
 At a window/sill, shelf bracket and multi-tile bench, hold player position fixed
 and sweep the camera slowly through the formerly unstable angles. Preserve

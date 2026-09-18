@@ -392,6 +392,10 @@ public final class InProcessWorldRenderer {
 
         GpuState() {
             program = createProgram();
+            String extensions = GL11.glGetString(GL11.GL_EXTENSIONS);
+            System.out.printf("[PZFPS sampler] atlasMipIsolation=%s%n",
+                    extensions != null && extensions.contains("GL_ARB_shader_texture_lod")
+                            ? "explicit-lod" : "base-level-bias-compatibility");
             mvpUniform = GL20.glGetUniformLocation(program, "uMvp");
             texturedUniform = GL20.glGetUniformLocation(program, "uTextured");
             materialUniform = GL20.glGetUniformLocation(program, "uMaterial");
@@ -870,6 +874,7 @@ public final class InProcessWorldRenderer {
                     """;
             String fragment = """
                     #version 120
+                    #extension GL_ARB_shader_texture_lod : enable
                     uniform int uTextured;
                     uniform int uMaterial;
                     uniform sampler2D uTexture;
@@ -886,13 +891,32 @@ public final class InProcessWorldRenderer {
                     varying vec3 surfaceNormal;
                     varying vec2 lightingUv;
                     varying float surfaceLayer;
+                    float spriteLod;
                     vec4 sampleSprite(vec2 pixel) {
                         vec2 lo = uCrop.xy + vec2(0.5);
                         vec2 hi = uCrop.xy + uCrop.zw - vec2(0.5);
-                        vec2 cropUv = (clamp(pixel, lo, hi) - uCrop.xy) / uCrop.zw;
-                        return texture2D(uTexture, mix(uUvBounds.xy, uUvBounds.zw, cropUv));
+                        vec2 clampedPixel = clamp(pixel, lo, hi);
+                        vec2 cropUv = (clampedPixel - uCrop.xy) / uCrop.zw;
+                        vec2 uv = mix(uUvBounds.xy, uUvBounds.zw, cropUv);
+                        // PZ mips the entire atlas, not each sprite independently. A base-level
+                        // half-texel clamp alone cannot exclude neighboring art in coarse mips.
+                        // Restrict both trilinear levels to footprints inside this sprite;
+                        // use level zero at its boundary, keep minification in its interior.
+                        vec2 edge = min(clampedPixel-uCrop.xy, uCrop.xy+uCrop.zw-clampedPixel);
+                        float safeLod = floor(log2(max(1.0, min(edge.x,edge.y)*0.5)));
+                        #ifdef GL_ARB_shader_texture_lod
+                        return texture2DLod(uTexture, uv, min(spriteLod,safeLod));
+                        #else
+                        // Compatibility fallback avoids atlas contamination but loses mip AA.
+                        return texture2D(uTexture, uv, -16.0);
+                        #endif
                     }
                     void main() {
+                        // Derivatives must be evaluated before divergent alpha/repair branches.
+                        vec2 pixelScale = uSurfaceKind == 3
+                                ? (uCrop.zw-vec2(1.0))/uProjectedBounds.zw : vec2(1.0);
+                        spriteLod = max(0.0, log2(max(0.0001,
+                                max(length(dFdx(sourcePixel)*pixelScale), length(dFdy(sourcePixel)*pixelScale)))));
                         // Apply ordering at the fragment's actual depth. Applying the
                         // nonlinear correction at vertices warps the depth plane and
                         // makes differently tessellated coplanar surfaces intersect.
