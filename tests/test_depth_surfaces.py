@@ -12,13 +12,16 @@ from pzfps.depth_surfaces import (
     fit_planar_surface,
     fit_piecewise_planar_surfaces,
     has_physical_roof_anchor,
+    opaque_rectangles,
     parse_depth_assignments,
     Plane3,
+    PlanarPatch,
     point_on_implicit_plane,
     point_on_plane,
     polygon_area,
     read_png,
     split_tile_identity,
+    triangulate_planar_patches,
 )
 
 
@@ -49,6 +52,23 @@ class DepthSurfaceTests(unittest.TestCase):
 
     def test_polygon_area_reports_convex_hull_coverage(self) -> None:
         self.assertEqual(polygon_area([(0, 0), (3, 0), (3, 2), (0, 2)]), 6)
+
+    def test_concave_planar_mask_uses_exact_rectangle_decomposition(self) -> None:
+        samples = []
+        for y in range(150, 160):
+            for x in range(60, 70):
+                if x < 62 or y >= 158:
+                    samples.append((x + 0.5, y + 0.5, 0.5))
+        rectangles = opaque_rectangles(samples)
+        self.assertEqual(sum((right - left) * (bottom - top)
+                             for left, top, right, bottom in rectangles), len(samples))
+        triangles, properties = triangulate_planar_patches([
+            PlanarPatch(Plane3((0.0, 1.0, 0.0), -0.8, 1.0, 0.0), samples),
+        ])
+        self.assertTrue(triangles)
+        self.assertTrue(all(item["mesh_method"] == "opaque_mask_rectangles"
+                            for item in triangles))
+        self.assertGreater(properties["opaque_mask_rectangle_count"], 0)
 
     def test_reads_depth_and_alpha_without_external_image_package(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -140,6 +160,10 @@ class DepthSurfaceTests(unittest.TestCase):
             # The explicit overlay and the unanchored depth-helper identity itself both
             # remain absent; the anchored colour tile may still reuse the helper's evidence.
             self.assertEqual(report["rejected"]["unanchored_roof_overlay"], 2)
+            self.assertEqual(report["rejected_identities"]["roofs_overlay_0"], {
+                "reason": "unanchored_roof_overlay",
+                "depth_target": "roofs_overlay_0",
+            })
             self.assertIn("walls_exterior_roofs_color_0", report["tiles"])
             self.assertEqual(
                 report["tiles"]["walls_exterior_roofs_color_0"]["properties"]["depth_target"],

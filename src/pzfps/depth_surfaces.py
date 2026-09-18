@@ -44,12 +44,24 @@ def compile_planar_roof_surfaces(
     tiles: dict[str, Any] = definitions.get("tiles", {})
     images: dict[Path, PngPixels] = {}
     target_cache: dict[str, tuple[list[dict[str, Any]], dict[str, Any]] | str] = {}
+    target_error_details: dict[str, str] = {}
     compiled: dict[str, dict[str, Any]] = {}
     rejected: dict[str, int] = {}
+    rejected_identities: dict[str, dict[str, str]] = {}
+
+    def reject(identity: str, reason: str, target: str, detail: str = "") -> None:
+        _count(rejected, reason)
+        rejected_identities[identity] = {
+            "reason": reason,
+            "depth_target": target,
+        }
+        if detail:
+            rejected_identities[identity]["detail"] = detail
 
     for identity, definition in sorted(tiles.items()):
         if category(identity) != "roof":
             continue
+        target = assignments.get(identity, identity)
         if not has_physical_roof_anchor(identity, definition):
             # A depth assignment is an occlusion hint, not proof that the target sprite is
             # itself a square-anchored surface. PZ places ridge/overlay art on upper squares
@@ -57,12 +69,11 @@ def compile_planar_roof_surfaces(
             # isometric compositor. Reusing the assigned plane as local 3D geometry instead
             # produces the observed long strips suspended above the building. Fail closed
             # until those identities have a topology-aware ridge/accent assembly.
-            _count(rejected, "unanchored_roof_overlay")
+            reject(identity, "unanchored_roof_overlay", target)
             continue
-        target = assignments.get(identity, identity)
         cached = target_cache.get(target)
         if isinstance(cached, str):
-            _count(rejected, cached)
+            reject(identity, cached, target, target_error_details.get(target, ""))
             continue
         if cached is not None:
             geometry, properties = cached
@@ -74,19 +85,19 @@ def compile_planar_roof_surfaces(
             xy = target_definition.get("xy", [])
             if len(xy) != 2:
                 target_cache[target] = "missing_depth_target_coordinates"
-                _count(rejected, "missing_depth_target_coordinates")
+                reject(identity, "missing_depth_target_coordinates", target)
                 continue
             target_index: int | None = None
         else:
             tileset, target_index = split_tile_identity(target)
             if target_index is None:
                 target_cache[target] = "missing_depth_target_definition"
-                _count(rejected, "missing_depth_target_definition")
+                reject(identity, "missing_depth_target_definition", target)
                 continue
         depth_path = depthmaps / f"DEPTH_{tileset}.png"
         if not depth_path.is_file():
             target_cache[target] = "missing_depth_image"
-            _count(rejected, "missing_depth_image")
+            reject(identity, "missing_depth_image", target)
             continue
         image = images.get(depth_path)
         if image is None:
@@ -95,7 +106,7 @@ def compile_planar_roof_surfaces(
         if target_definition is None:
             if image.width % _TILE_WIDTH:
                 target_cache[target] = "invalid_depth_atlas_width"
-                _count(rejected, "invalid_depth_atlas_width")
+                reject(identity, "invalid_depth_atlas_width", target)
                 continue
             columns = image.width // _TILE_WIDTH
             assert target_index is not None
@@ -104,12 +115,12 @@ def compile_planar_roof_surfaces(
         origin_y = int(xy[1]) * _TILE_HEIGHT
         if origin_x + _TILE_WIDTH > image.width or origin_y + _TILE_HEIGHT > image.height:
             target_cache[target] = "depth_tile_outside_image"
-            _count(rejected, "depth_tile_outside_image")
+            reject(identity, "depth_tile_outside_image", target)
             continue
         samples = _tile_samples(image, origin_x, origin_y)
         if len(samples) < 64:
             target_cache[target] = "empty_or_tiny_depth_tile"
-            _count(rejected, "empty_or_tiny_depth_tile")
+            reject(identity, "empty_or_tiny_depth_tile", target)
             continue
         plane = fit_planar_surface(samples)
         if plane is not None:
@@ -123,13 +134,20 @@ def compile_planar_roof_surfaces(
             surface_method = "piecewise_planar"
         if not patches:
             target_cache[target] = "not_planar_surface"
-            _count(rejected, "not_planar_surface")
+            reject(identity, "not_planar_surface", target)
             continue
         try:
             triangles, patch_properties = triangulate_planar_patches(patches)
-        except DepthSurfaceError:
-            target_cache[target] = "unsafe_planar_patch_hull"
-            _count(rejected, "unsafe_planar_patch_hull")
+        except DepthSurfaceError as error:
+            detail = str(error)
+            reason = (
+                "unsafe_tile_local_envelope"
+                if "conservative tile-local roof envelope" in detail
+                else "unsafe_planar_patch_mesh"
+            )
+            target_cache[target] = reason
+            target_error_details[target] = detail
+            reject(identity, reason, target, detail)
             continue
         properties = {
             "depth_target": target,
@@ -165,6 +183,7 @@ def compile_planar_roof_surfaces(
         "tile_count": len(compiled),
         "triangle_count": sum(len(value["geometry"]) for value in compiled.values()),
         "rejected": dict(sorted(rejected.items())),
+        "rejected_identities": dict(sorted(rejected_identities.items())),
         "tiles": compiled,
     }
     document["audit"] = audit_roof_surfaces(document)
@@ -486,6 +505,51 @@ def polygon_area(points: list[tuple[float, float]]) -> float:
     )) * 0.5
 
 
+def opaque_rectangles(
+    samples: list[tuple[float, float, float]],
+) -> list[tuple[int, int, int, int]]:
+    """Cover an opaque pixel mask exactly with vertically merged scanline runs.
+
+    Each returned rectangle is ``(left, top, right, bottom)`` with exclusive right/bottom
+    bounds. Unlike a convex hull, this can never bridge a transparent notch or hole. Runs
+    only merge across adjacent rows when their horizontal extent is identical, keeping the
+    decomposition deterministic and bounded by the number of source scanline runs.
+    """
+    by_row: dict[int, set[int]] = {}
+    for u, v, _ in samples:
+        by_row.setdefault(int(v - 0.5), set()).add(int(u - 0.5))
+    rectangles: list[tuple[int, int, int, int]] = []
+    active: dict[tuple[int, int], tuple[int, int, int, int]] = {}
+    previous_y: int | None = None
+    for y in sorted(by_row):
+        if previous_y is None or y != previous_y + 1:
+            rectangles.extend(active.values())
+            active = {}
+        xs = sorted(by_row[y])
+        runs: list[tuple[int, int]] = []
+        if xs:
+            start = end = xs[0]
+            for x in xs[1:]:
+                if x == end + 1:
+                    end = x
+                else:
+                    runs.append((start, end + 1))
+                    start = end = x
+            runs.append((start, end + 1))
+        next_active: dict[tuple[int, int], tuple[int, int, int, int]] = {}
+        for run in runs:
+            prior = active.pop(run, None)
+            if prior is None:
+                next_active[run] = (run[0], y, run[1], y + 1)
+            else:
+                next_active[run] = (prior[0], prior[1], prior[2], y + 1)
+        rectangles.extend(active.values())
+        active = next_active
+        previous_y = y
+    rectangles.extend(active.values())
+    return rectangles
+
+
 def audit_roof_surfaces(document: dict[str, Any]) -> dict[str, Any]:
     """Fail closed when compiled vertices cannot reproduce their source-tile footprint."""
     tile_count = 0
@@ -760,34 +824,50 @@ def triangulate_planar_patches(
     maximum_fill_ratio = 0.0
     maximum_rms = 0.0
     hull_vertices = 0
+    mask_rectangles = 0
     for patch_index, patch in enumerate(patches):
         hull = opaque_hull(patch.samples)
         if len(hull) < 3:
             continue
         area = polygon_area(hull)
         fill_ratio = area / len(patch.samples)
+        polygons = [hull]
+        mesh_method = "convex_hull"
         if fill_ratio > 1.15:
-            raise DepthSurfaceError("planar patch convex hull would invent excessive coverage")
-        points = [point_on_implicit_plane(u, v, patch.plane) for u, v in hull]
-        if not all(math.isfinite(component) for point in points for component in point):
-            raise DepthSurfaceError("non-finite planar patch point")
-        if any(
-            abs(point[0]) > 2.5 or not -1.0 <= point[1] <= 4.0 or abs(point[2]) > 2.5
-            for point in points
-        ):
-            raise DepthSurfaceError("planar patch exceeds a conservative tile-local roof envelope")
-        for index in range(1, len(points) - 1):
-            triangles.append({
-                "kind": "triangle",
-                "points": [points[0], points[index], points[index + 1]],
-                "evidence": "installed_depth_map_planar_patch_fit",
-                "patch": patch_index,
-            })
+            # The plane is supported, but a convex hull would bridge transparent regions
+            # in compound roof silhouettes. Decompose the exact alpha mask into rectangles
+            # instead. This is more geometry, but it preserves the installed evidence and
+            # eliminates the previous all-or-nothing hole for concave roof pieces.
+            polygons = [
+                [(left, top), (right, top), (right, bottom), (left, bottom)]
+                for left, top, right, bottom in opaque_rectangles(patch.samples)
+            ]
+            mesh_method = "opaque_mask_rectangles"
+            mask_rectangles += len(polygons)
+            area = float(len(patch.samples))
+            fill_ratio = 1.0
+        for polygon in polygons:
+            points = [point_on_implicit_plane(u, v, patch.plane) for u, v in polygon]
+            if not all(math.isfinite(component) for point in points for component in point):
+                raise DepthSurfaceError("non-finite planar patch point")
+            if any(
+                abs(point[0]) > 2.5 or not -1.0 <= point[1] <= 4.0 or abs(point[2]) > 2.5
+                for point in points
+            ):
+                raise DepthSurfaceError("planar patch exceeds a conservative tile-local roof envelope")
+            for index in range(1, len(points) - 1):
+                triangles.append({
+                    "kind": "triangle",
+                    "points": [points[0], points[index], points[index + 1]],
+                    "evidence": "installed_depth_map_planar_patch_fit",
+                    "patch": patch_index,
+                    "mesh_method": mesh_method,
+                })
         total_pixels += len(patch.samples)
         total_area += area
         maximum_fill_ratio = max(maximum_fill_ratio, fill_ratio)
         maximum_rms = max(maximum_rms, patch.plane.rms)
-        hull_vertices += len(hull)
+        hull_vertices += sum(len(polygon) for polygon in polygons)
     if not triangles:
         raise DepthSurfaceError("planar patches produced no triangles")
     return triangles, {
@@ -798,6 +878,7 @@ def triangulate_planar_patches(
         "opaque_pixels": total_pixels,
         "opaque_hull_area": round(total_area, 3),
         "opaque_hull_fill_ratio": round(maximum_fill_ratio, 7),
+        "opaque_mask_rectangle_count": mask_rectangles,
     }
 
 

@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import org.json.JSONObject;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -65,10 +66,13 @@ final class RoofDepthSurfaceTest {
         String path = System.getenv("PZFPS_ROOF_SURFACE_AUDIT");
         org.junit.jupiter.api.Assumptions.assumeTrue(
                 path != null, "Installed-data audit requires PZFPS_ROOF_SURFACE_AUDIT");
-        TileGeometryRegistry registry = TileGeometryRegistry.load(Path.of(path));
-        assertEquals(3998, registry.tileCount());
+        Path registryPath = Path.of(path);
+        JSONObject document = new JSONObject(Files.readString(registryPath));
+        TileGeometryRegistry registry = TileGeometryRegistry.load(registryPath);
+        assertEquals(document.getInt("tile_count"), registry.tileCount());
         assertFalse(registry.geometry("roofs_02_3").isEmpty());
         assertFalse(registry.geometry("roofs_accents_01_4").isEmpty());
+        assertFalse(registry.geometry("roofs_30_02_28").isEmpty());
         assertFalse(registry.geometry("walls_exterior_roofs_10_5").isEmpty());
     }
 }

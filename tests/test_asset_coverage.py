@@ -42,6 +42,13 @@ class AssetCoverageTests(unittest.TestCase):
             depth_surfaces.write_text(json.dumps({
                 "schema_version": 1,
                 "game_version": "42.20",
+                "rejected_identities": {
+                    "roofs_rejected_0": {
+                        "reason": "not_planar_surface",
+                        "depth_target": "preset_depthmaps_01_7",
+                        "detail": "fixture diagnostic",
+                    },
+                },
                 "tiles": {"roofs_02_3": {"geometry": [{"kind": "triangle"}]}},
             }))
             items = root / "items.json"
@@ -74,11 +81,27 @@ class AssetCoverageTests(unittest.TestCase):
             )
             self.assertEqual(rows["roofs_02_3"]["renderer_rule"], "installed_depth_planar_surface")
             self.assertEqual(rows["roofs_02_3"]["depth_surface_primitive_count"], 1)
+            self.assertEqual(rows["roofs_02_3"]["depth_surface_rejection_reason"], "")
+            self.assertEqual(
+                rows["roofs_rejected_0"]["depth_surface_rejection_reason"],
+                "not_planar_surface",
+            )
+            self.assertEqual(
+                rows["roofs_rejected_0"]["depth_surface_target"],
+                "preset_depthmaps_01_7",
+            )
+            self.assertEqual(
+                rows["roofs_rejected_0"]["depth_surface_rejection_detail"],
+                "fixture diagnostic",
+            )
             self.assertEqual(rows["roofs_02_3"]["source_properties"]["RoofGroup"], "3")
             self.assertEqual(rows["furniture_storage_02_36"]["coverage_state"], "implemented_unaccepted")
             self.assertEqual(rows["texture_only_0"]["coverage_state"], "unsupported_unless_native_runtime_path")
             self.assertEqual(report["summary"]["model_states"], {"native_model_resolved": 1})
             self.assertEqual(report["summary"]["identities_with_depth_surfaces"], 1)
+            self.assertEqual(report["summary"]["depth_surface_rejection_reasons"], {
+                "not_planar_surface": 1,
+            })
             self.assertEqual(report["summary"]["item_identities"], 2)
             self.assertEqual(report["summary"]["item_states"], {
                 "native_world_model_resolved": 1,
@@ -103,6 +126,8 @@ class AssetCoverageTests(unittest.TestCase):
                     "category": "roof",
                     "coverage_state": "implemented_pending_live_acceptance",
                     "renderer_rule": "installed_depth_planar_surface",
+                    "depth_surface_rejection_reason": "",
+                    "depth_surface_target": "roofs_02_3",
                 }],
             }))
             scene = root / "scene.json"
@@ -117,9 +142,11 @@ class AssetCoverageTests(unittest.TestCase):
             self.assertEqual(report["summary"]["scene_objects"], 2)
             self.assertEqual(report["summary"]["scene_identities"], 2)
             self.assertEqual(report["summary"]["identities_absent_from_installed_corpus"], 1)
+            self.assertEqual(report["summary"]["depth_surface_rejected_instances_by_reason"], {})
             roof = next(item for item in report["identities"] if item["identity"] == "roofs_02_3")
             self.assertEqual(roof["instances"], 1)
             self.assertEqual(roof["sample_positions"], [[10, 20, 1]])
+            self.assertEqual(roof["depth_surface_target"], "roofs_02_3")
 
 
 if __name__ == "__main__":

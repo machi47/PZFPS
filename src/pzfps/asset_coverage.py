@@ -129,8 +129,13 @@ def build_coverage(
     texture_records = textures.get("textures", {})
     definition_records = definitions.get("tiles", {})
     depth_surface_records = depth_surfaces.get("tiles", {})
+    depth_surface_rejections = depth_surfaces.get("rejected_identities", {})
     identities = sorted(
-        set(tile_records) | set(texture_records) | set(definition_records) | set(depth_surface_records)
+        set(tile_records)
+        | set(texture_records)
+        | set(definition_records)
+        | set(depth_surface_records)
+        | set(depth_surface_rejections)
     )
     rows: list[dict[str, Any]] = []
     by_category: dict[str, Counter[str]] = defaultdict(Counter)
@@ -138,6 +143,7 @@ def build_coverage(
         record = tile_records.get(identity, {})
         primitives = record.get("geometry", [])
         depth_primitives = depth_surface_records.get(identity, {}).get("geometry", [])
+        depth_rejection = depth_surface_rejections.get(identity, {})
         rule, state = renderer_rule(identity, len(primitives), len(depth_primitives))
         item = {
             "identity": identity,
@@ -151,6 +157,12 @@ def build_coverage(
             "depth_surface_primitive_kinds": dict(sorted(
                 Counter(value.get("kind", "unknown") for value in depth_primitives).items()
             )),
+            "depth_surface_rejection_reason": depth_rejection.get("reason", ""),
+            "depth_surface_rejection_detail": depth_rejection.get("detail", ""),
+            "depth_surface_target": depth_rejection.get(
+                "depth_target",
+                depth_surface_records.get(identity, {}).get("properties", {}).get("depth_target", ""),
+            ),
             "renderer_rule": rule,
             "coverage_state": state,
             "source_properties": definition_records.get(identity, {}).get("properties", {}),
@@ -221,6 +233,10 @@ def build_coverage(
             "tile_states": dict(sorted(Counter(row["coverage_state"] for row in rows).items())),
             "model_states": dict(sorted(model_states.items())),
             "item_states": dict(sorted(item_states.items())),
+            "depth_surface_rejection_reasons": dict(sorted(Counter(
+                row["depth_surface_rejection_reason"] for row in rows
+                if row["depth_surface_rejection_reason"]
+            ).items())),
             "by_category": {
                 key: {"total": sum(value.values()), "states": dict(sorted(value.items()))}
                 for key, value in sorted(by_category.items())
@@ -262,6 +278,7 @@ def build_scene_coverage(scene_path: Path, coverage_path: Path) -> dict[str, Any
     identities: dict[str, dict[str, Any]] = {}
     state_counts: Counter[str] = Counter()
     category_counts: Counter[str] = Counter()
+    depth_rejection_counts: Counter[str] = Counter()
     object_count = 0
     for square in scene.get("squares", []):
         position = square.get("position", [])
@@ -273,11 +290,20 @@ def build_scene_coverage(scene_path: Path, coverage_path: Path) -> dict[str, Any
             kind = row.get("category", category(identity)) if row else category(identity)
             state_counts[state] += 1
             category_counts[kind] += 1
+            if row and row.get("depth_surface_rejection_reason"):
+                depth_rejection_counts[row["depth_surface_rejection_reason"]] += 1
             item = identities.setdefault(identity, {
                 "identity": identity,
                 "category": kind,
                 "coverage_state": state,
                 "renderer_rule": row.get("renderer_rule", "none") if row else "none",
+                "depth_surface_rejection_reason": (
+                    row.get("depth_surface_rejection_reason", "") if row else ""
+                ),
+                "depth_surface_rejection_detail": (
+                    row.get("depth_surface_rejection_detail", "") if row else ""
+                ),
+                "depth_surface_target": row.get("depth_surface_target", "") if row else "",
                 "instances": 0,
                 "sample_positions": [],
                 "java_types": set(),
@@ -307,6 +333,9 @@ def build_scene_coverage(scene_path: Path, coverage_path: Path) -> dict[str, Any
             "scene_identities": len(rows),
             "object_instances_by_state": dict(sorted(state_counts.items())),
             "object_instances_by_category": dict(sorted(category_counts.items())),
+            "depth_surface_rejected_instances_by_reason": dict(
+                sorted(depth_rejection_counts.items())
+            ),
             "identities_absent_from_installed_corpus": sum(
                 item["coverage_state"] == "absent_from_installed_corpus" for item in rows
             ),

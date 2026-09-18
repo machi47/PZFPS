@@ -19,16 +19,20 @@ PZ simulation/update -> immutable authoritative snapshot
 PZ render thread     -> PZFPS perspective world -> PZ text/UI
 ```
 
-No isolated PZ process is currently running. PID 43472 was stopped at
-18 September 03:22:56 UTC after a bounded exact-window retest of the
-roof-overlay filter. The staged bridge JAR is
+No isolated PZ process is currently running. PID 44309 was stopped at
+18 September 03:40:41 UTC after a bounded exact-window retest of concave roof
+meshing. The staged bridge JAR is
 `d83584c3cced5b8a9e179ba5f2c35aee2ccf749ae359e3e73f498ee0906e2377` and the
 supplemental roof registry is
-`c9641062c1770e34af690b263751a504d9b11aedd7ef6a2041aef05487eb496b`.
-The prior valid frame showed long detached roof-textured strips above the
-represented house roof. The matching retest after semantically rejecting
-unanchored overlays removes those strips while retaining the anchored roof
-planes. This is a narrow accepted regression removal, not broad roof acceptance.
+`78fec525c09663f93648beb90dbc5dcec680d85bc0b16cbd17842cb6b213a4e7`.
+The current stationary capture shows the formerly rejected `roofs_30_02`
+surfaces present on the nearby building without the earlier detached strips.
+The macOS session was locked, so safe input refused to run and no moving-view
+acceptance is claimed. This is a narrow visible improvement, not broad roof acceptance.
+The subsequently regenerated local file is
+`8239a5e636be9bd5fb60b497206fcba771fcdd97278032569f287d75c5481d71`;
+only rejection metadata naming changed after the live run, so it was not used to
+justify another game reload.
 No normal save, installed game binary or unrelated mod was changed.
 
 ### Installed corpus ledger and depth-derived roof checkpoint
@@ -59,12 +63,14 @@ The joined audit exposes the scale of the roof gap: 4,569 roof-related
 identities are present and only 84 have installed authored source primitives.
 `bin/pzfps assets compile-roof-surfaces` now reconstructs conservative connected
 planar patches from PZ's installed depth atlases using the game's source
-projection/depth equations. The local supplemental registry contains 3,894
-identities and 37,080 triangles; 3,845 of those identities are roofs pending
-broader live acceptance. Authored geometry wins when both paths exist. The
-compiler rejects 8 entries with no depth image, 72 non-planar entries, 413
-unsafe patch hulls and 112 unanchored roof-overlay entries, leaving 640 roof
-identities rejected/unsupported after authored precedence. This is a systemic
+projection/depth equations. Concave source silhouettes use an exact alpha-mask
+rectangle decomposition instead of an unsafe convex hull. The local supplemental
+registry contains 4,296 identities and 86,009 triangles; 4,218 roof identities
+are pending broader live acceptance. Authored geometry wins when both paths
+exist. The compiler rejects 8 entries with no depth image, 72 non-planar entries,
+11 unsafe tile-local surfaces and 112 unanchored roof-overlay entries, leaving
+267 roof identities rejected/unsupported after authored precedence. Each
+rejected identity now records its reason, detail and depth target. This is a systemic
 identity-level representation path, not a per-house patch and not a broad
 visual acceptance claim.
 
@@ -77,8 +83,8 @@ geometry. The snapshot specifically includes `roofs_02_3/4/5/111`, the pictured
 `roofs_accents_01_*` pieces and `walls_exterior_roofs_06_*`/
 `walls_exterior_roofs_10_*` families.
 
-Python discovery passes 35 tests. The clean Gradle build passes 129 tests,
-including loading the installed supplemental registry, validating 3,894 entries
+At the initial depth-surface checkpoint, Python discovery passed 35 tests and
+the clean Gradle build passed 129 tests, including loading that supplemental registry, validating 3,894 entries
 and rendering source-projected roof triangles. The Apple production-shader
 probe passes shader link, roof-adjacent material, transparency, fence, physical
 occlusion and wall-prop fixtures; its known far-depth residual remains 10,044
@@ -100,13 +106,32 @@ has `RoofGroup`/`WestRoofT` compositing metadata but no rain-blocking, eave,
 floor or wall-attachment semantics. A depth assignment is valid evidence for
 PZ's isometric occlusion pass, but not sufficient proof of square-local 3D
 placement. `has_physical_roof_anchor` now rejects the whole analogous semantic
-class; 112 compiler entries fail closed. The 35-test Python suite and 129-test
-Java suite pass (two Java tests skipped, zero failures/errors). PID 43472 loaded
+class; 112 compiler entries fail closed. At that overlay-filter checkpoint, the
+35-test Python suite and 129-test Java suite passed (two Java tests skipped,
+zero failures/errors). PID 43472 loaded
 registry SHA-256 `c9641062c1770e34af690b263751a504d9b11aedd7ef6a2041aef05487eb496b`.
 The same exact window/view at
 `.local/captures/roof-anchor-filter-live-window.png` retains the main anchored
 roof planes and no longer contains either detached strip. This accepts only the
 specific overlay regression removal; building-wide roof topology remains V-12.
+
+The next roof compiler pass removes the false all-or-nothing rejection for a
+concave planar alpha silhouette. Vertically merged scanline rectangles cover
+only pixels assigned to each fitted plane, so transparent notches remain empty.
+This recovered 402 supplemental identities and 48,929 triangles relative to the
+preceding registry. In the retained 690-roof live scene, compiled instances rose
+from 458 to 566 while rejected/unsupported instances fell from 148 to 40. All
+135 `roofs_30_02_*` instances now have a geometry path. Python discovery passes
+36 tests; the clean Gradle build passes 129 tests (one unrelated opt-in test
+skipped, zero failures or errors) with the 4,296-entry generated roof registry
+explicitly loaded and `roofs_30_02_28` asserted present. PID 44309 loaded the new registry and the exact-window capture
+`.local/captures/roof-mask-live-window.png` shows the target building's visible
+roof slopes present. Static renderer callbacks remained approximately 59.61--
+60.19/s with zero dropped mesh requests. Those are callback/CPU diagnostics,
+not gameplay FPS or GPU frame time. State age rose while authoritative updates
+were paused/stalled. Because `loginwindow` was foreground, the bounded input
+harness refused to move the camera; the process was stopped and V-12 remains
+open for a moving two-sided sweep.
 
 The indexed source properties retain `RoofGroup`, `BlockRain`, `attached*`,
 `isEave`, `diamondFloor` and `solidfloor` roles for later topology grouping.
@@ -1413,12 +1438,17 @@ Most recent test results:
 - Live console: `.local/pz-runtime/user-cache/Zomboid/console.txt`.
 - Disposable save:
   `.local/pz-runtime/user-cache/Zomboid/Saves/Top Of The World/46507890207760758489`.
-- Current live-loaded staged bridge JAR SHA-256:
-  `604785a5b2d043d045a15ccadf0a035886a6830eb617aa8f6ede6729fd0e75d4`.
-- Last live screenshots:
-  `.local/captures/pz-d9d4c69-live.png` and
-  `.local/captures/pz-d9d4c69-reticle-live.png`. The latter visibly records the
-  four-way reticle while capture is active.
+- Latest staged bridge JAR SHA-256:
+  `d83584c3cced5b8a9e179ba5f2c35aee2ccf749ae359e3e73f498ee0906e2377`.
+- Last live-loaded supplemental roof registry SHA-256:
+  `78fec525c09663f93648beb90dbc5dcec680d85bc0b16cbd17842cb6b213a4e7`.
+- Current local supplemental roof registry SHA-256:
+  `8239a5e636be9bd5fb60b497206fcba771fcdd97278032569f287d75c5481d71`.
+- Latest live screenshot:
+  `.local/captures/roof-mask-live-window.png`; it is stationary roof evidence,
+  not a moving-view acceptance capture. Earlier gameplay/reticle evidence is
+  retained in `.local/captures/pz-d9d4c69-live.png` and
+  `.local/captures/pz-d9d4c69-reticle-live.png`.
 - Offline canonical report:
   `.local/canonical-bed-v64/store/objects/5107aa94b47977535039da77ac4018329c238388ad51c94829dc5a69d01d1a0a/report.json`.
 - Geometry source SHA-256:
@@ -1513,6 +1543,12 @@ update rates have not been reported as achieved performance.
     before inspection because zsh interpreted the method parentheses as a glob
     pattern. Exact `rg` line selection followed by `sed` inspected the installed
     methods successfully; no game or project file was changed by either command.
+12a. A final verification retry initially omitted `PYTHONPATH=src` and pointed
+    `PZ_JAR` at a nonexistent staged path. Python therefore could not import the
+    package and Gradle could not resolve the installed game dependencies. The
+    corrected repository-local/import and detected Steam paths immediately
+    produced the recorded 36-test Python pass and clean 129-test Java pass; the
+    failed invocations did not stage or launch anything.
 13. No standalone `luac` executable is installed, so the updated key-binding/UI
     script could not use `luac -p`. The installed game's own
     `LuaCompiler.loadis(...)` then parsed the complete script successfully from
@@ -1611,14 +1647,13 @@ update rates have not been reported as achieved performance.
 
 ## Next smallest experiment
 
-No PZ process is running. The next experiment is narrowly V-12: establish a
-reliable capturable isolated window, load a disposable position containing the
-91-roof-instance audited house (or an equivalent deterministic roof fixture),
-and record slow exterior camera sweeps from both sides. Compare exact roof
-identity/triangle counters against the scene audit and reject any missing side,
-bridged coplanar island, inverted patch, roof-wall card or camera-dependent
-disappearance. A load/callback log without a visible frame is not evidence and
-does not justify another general-purpose reopen.
+No PZ process is running. The next experiment remains narrowly V-12, but it now
+has a concrete target: when the macOS session is unlocked, record slow exterior
+camera sweeps around the building in
+`.local/captures/roof-mask-live-window.png`, whose captured corpus contains 135
+`roofs_30_02_*` instances. Reject any missing side, alpha-mask stair-step gap,
+inverted patch, roof-wall card, detached surface or camera-dependent
+disappearance. Do not reopen merely to observe the same stationary frame.
 
 Only after that roof checkpoint is accepted or rejected should a separate live
 batch target V-03/V-04 (shell cracks and interior leakage). Keep V-05/V-09
