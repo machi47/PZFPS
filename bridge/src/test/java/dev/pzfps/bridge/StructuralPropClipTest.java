@@ -91,7 +91,7 @@ final class StructuralPropClipTest {
     }
 
     @Test
-    void builderConstrainsPropsButLeavesAttachmentLayersAndUnblockedMultiTileParts(@TempDir Path dir) throws Exception {
+    void builderConstrainsFurnitureAndWallAttachmentsWithoutForegroundDepthBias(@TempDir Path dir) throws Exception {
         Path file = dir.resolve("geometry.json");
         String geometry = "{\"geometry\":[{\"kind\":\"box\",\"min\":[-0.51,0,-0.51],\"max\":[0.6,1,0.6]}]}";
         Files.writeString(file, "{\"schema_version\":1,\"tiles\":{\"furniture_fixture_0\":" + geometry
@@ -106,11 +106,36 @@ final class StructuralPropClipTest {
             float[] values = batch.vertices();
             assertTrue(values.length > 0);
             for (int i = 0; i < values.length; i += STRIDE) {
-                assertEquals(batch.sprite().startsWith("furniture") ? 0 : 4, values[i+11]);
-                if (batch.sprite().startsWith("furniture") && values[i] > 0 && values[i] < 1)
+                assertEquals(0, values[i+11]);
+                if (values[i] > 0 && values[i] < 1)
                     assertTrue(values[i+2] >= .001f);
             }
         }
+    }
+
+    @Test
+    void neighboringTileOwnedWallClipsCrossingObjectAndCanonicalDuplicatesCollapse() {
+        var owner = new WorldState.Square(0,0,0,1,0,255,255,255,
+                false,false,false,false,false,false,List.of(), StructuralPropClip.EAST);
+        var neighbor = new WorldState.Square(1,0,0,1,0,255,255,255,
+                false,false,false,false,false,false,List.of(), StructuralPropClip.WEST);
+        var boundaries = StructuralPropClip.boundaries(List.of(owner, neighbor));
+        assertEquals(1, boundaries.size());
+        float[] source = triangle(
+                new float[] {.8f,1,.2f}, new float[] {1.2f,1,.8f}, new float[] {1.2f,2,.2f});
+        float[] result = StructuralPropClip.clip(source, 0, 0, 0, boundaries);
+        assertTrue(result.length > 0);
+        for (int i = 0; i < result.length; i += STRIDE) assertTrue(result[i] <= .999f);
+    }
+
+    @Test
+    void allAuthoredSceneObjectsExceptBoundaryAssembliesAreWallConstrained() {
+        assertTrue(StructuralPropClip.constrainedByWalls(object("furniture_bedding_01_0")));
+        assertTrue(StructuralPropClip.constrainedByWalls(object("lighting_indoor_01_1")));
+        assertTrue(StructuralPropClip.constrainedByWalls(object("fixtures_bathroom_01_28")));
+        assertFalse(StructuralPropClip.constrainedByWalls(object("roofs_02_5")));
+        assertFalse(StructuralPropClip.constrainedByWalls(object("fencing_01_24")));
+        assertFalse(StructuralPropClip.constrainedByWalls(object("walls_exterior_house_01_0")));
     }
 
     private static WorldState.TileObject object(String sprite) {

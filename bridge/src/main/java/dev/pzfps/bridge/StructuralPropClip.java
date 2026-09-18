@@ -1,7 +1,10 @@
 package dev.pzfps.bridge;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 
 /** Removes sprite-depth support geometry that crosses a verified opaque wall.
  * This changes presentation only. No game object, collision or action is moved.
@@ -11,62 +14,153 @@ final class StructuralPropClip {
     static final int NORTH = 1, WEST = 2, EAST = 4, SOUTH = 8;
     static final float CLEARANCE = .001f;
 
+    /** Canonical finite wall segment in chunk-local coordinates. Axis 0 is an
+     * X-normal wall; axis 2 is a Z-normal wall. */
+    record Boundary(int axis, int coordinate, int spanStart, int level) {}
+
     private StructuralPropClip() {}
 
-    static boolean freestanding(WorldState.TileObject object) {
+    static boolean constrainedByWalls(WorldState.TileObject object) {
         if (object.door() || object.window() || object.edgeNorth() || object.edgeWest()) return false;
-        String sprite = object.sprite();
-        // Do not treat wall-mounted fixtures, fences, roofs or arbitrary mod art as
-        // furniture just because their source happens to contain a box primitive.
-        return sprite.startsWith("furniture_") || sprite.startsWith("appliances_")
-                || BoxSideCompletion.closedCrate(sprite);
+        String sprite = object.sprite().toLowerCase(Locale.ROOT);
+        String type = object.objectType().toLowerCase(Locale.ROOT);
+        // Boundary assemblies own their placement and must not be cut by themselves.
+        // Everything else with authored volume is a physical scene object, including
+        // fixtures and wall attachments: source draw order is not permission to cross
+        // an opaque wall or appear on its reverse side.
+        return !type.contains("wall")
+                && !sprite.startsWith("walls_")
+                && !sprite.startsWith("wall_")
+                && !sprite.startsWith("roofs_")
+                && !sprite.startsWith("roofing_")
+                && !sprite.startsWith("fencing_")
+                && !sprite.startsWith("fixtures_doors_fences_");
+    }
+
+    static List<Boundary> boundaries(List<WorldState.Square> squares) {
+        Set<Boundary> result = new LinkedHashSet<>();
+        for (WorldState.Square square : squares) {
+            int edges = square.sealedEdges();
+            if ((edges & NORTH) != 0)
+                result.add(new Boundary(2, square.localY(), square.localX(), square.z()));
+            if ((edges & SOUTH) != 0)
+                result.add(new Boundary(2, square.localY() + 1, square.localX(), square.z()));
+            if ((edges & WEST) != 0)
+                result.add(new Boundary(0, square.localX(), square.localY(), square.z()));
+            if ((edges & EAST) != 0)
+                result.add(new Boundary(0, square.localX() + 1, square.localY(), square.z()));
+        }
+        return List.copyOf(result);
+    }
+
+    static float[] clip(
+            float[] vertices,
+            float ownerX,
+            float ownerY,
+            float ownerZ,
+            List<Boundary> boundaries) {
+        float[] result = vertices;
+        for (Boundary boundary : boundaries) {
+            float wallY = boundary.level() * 3.0f;
+            float owner = boundary.axis() == 0 ? ownerX + .5f : ownerZ + .5f;
+            boolean keepLess = owner < boundary.coordinate();
+            // A finite wall segment only owns one tile span and one storey. This
+            // inexpensive rejection also keeps distant chunk walls out of the clipper.
+            if (!intersects(result, boundary.axis(), boundary.coordinate(), boundary.spanStart(), wallY, keepLess))
+                continue;
+            result = clipBoundary(
+                    result,
+                    boundary.axis(),
+                    boundary.coordinate(),
+                    boundary.spanStart(),
+                    wallY,
+                    keepLess);
+            if (result.length == 0) break;
+        }
+        return result;
     }
 
     static float[] clip(float[] vertices, float x, float y, float z, int edges) {
         if (edges == 0 || vertices.length == 0) return vertices;
+        List<Boundary> boundaries = new ArrayList<>(4);
+        int level = Math.round(y / 3.0f);
+        if ((edges & NORTH) != 0) boundaries.add(new Boundary(2, Math.round(z), Math.round(x), level));
+        if ((edges & SOUTH) != 0) boundaries.add(new Boundary(2, Math.round(z + 1), Math.round(x), level));
+        if ((edges & WEST) != 0) boundaries.add(new Boundary(0, Math.round(x), Math.round(z), level));
+        if ((edges & EAST) != 0) boundaries.add(new Boundary(0, Math.round(x + 1), Math.round(z), level));
+        return clip(vertices, x, y, z, boundaries);
+    }
+
+    private static boolean intersects(
+            float[] vertices, int axis, float coordinate, float spanStart, float wallY,
+            boolean keepLess) {
+        if (vertices.length == 0) return false;
+        int tangent = axis == 0 ? 2 : 0;
+        float minAxis = Float.POSITIVE_INFINITY, maxAxis = Float.NEGATIVE_INFINITY;
+        float minTangent = Float.POSITIVE_INFINITY, maxTangent = Float.NEGATIVE_INFINITY;
+        float minY = Float.POSITIVE_INFINITY, maxY = Float.NEGATIVE_INFINITY;
+        int stride = WorldMeshBuilder.TEXTURED_FLOATS_PER_VERTEX;
+        for (int i = 0; i < vertices.length; i += stride) {
+            minAxis = Math.min(minAxis, vertices[i + axis]);
+            maxAxis = Math.max(maxAxis, vertices[i + axis]);
+            minTangent = Math.min(minTangent, vertices[i + tangent]);
+            maxTangent = Math.max(maxTangent, vertices[i + tangent]);
+            minY = Math.min(minY, vertices[i + 1]);
+            maxY = Math.max(maxY, vertices[i + 1]);
+        }
+        boolean reachesForbiddenSide = keepLess
+                ? maxAxis >= coordinate - CLEARANCE
+                : minAxis <= coordinate + CLEARANCE;
+        return reachesForbiddenSide
+                && minTangent < spanStart + 1 && maxTangent > spanStart
+                && minY < wallY + 3 && maxY > wallY;
+    }
+
+    private static float[] clipBoundary(
+            float[] vertices,
+            int axis,
+            float coordinate,
+            float span,
+            float wallY,
+            boolean keepLess) {
         int stride = WorldMeshBuilder.TEXTURED_FLOATS_PER_VERTEX;
         if (vertices.length % (3 * stride) != 0) throw new IllegalArgumentException("incomplete triangles");
         List<float[]> triangles = new ArrayList<>();
         for (int i = 0; i < vertices.length; i += stride)
             triangles.add(java.util.Arrays.copyOfRange(vertices, i, i + stride));
-        for (int edge : new int[] {NORTH, WEST, EAST, SOUTH}) {
-            if ((edges & edge) == 0) continue;
-            boolean alongX = edge == NORTH || edge == SOUTH;
-            int axis = alongX ? 2 : 0, tangent = alongX ? 0 : 2;
-            float origin = alongX ? z : x, span = alongX ? x : z;
-            boolean negative = edge == NORTH || edge == WEST;
-            // Inside all five half-spaces is the forbidden volume beyond this
-            // wall segment. Coordinates are chunk-local, retaining fine clearance.
-            float[][] planes = {
-                {tangent, 1, span}, {tangent, -1, -(span + 1)},
-                {1, 1, y}, {1, -1, -(y + 3)},
-                {axis, negative ? -1 : 1, negative ? -(origin + CLEARANCE) : origin + 1 - CLEARANCE}
-            };
-            List<float[]> result = new ArrayList<>();
-            for (int i = 0; i < triangles.size(); i += 3) {
-                List<float[]> remaining = List.of(triangles.get(i), triangles.get(i + 1), triangles.get(i + 2));
-                boolean outside = false;
-                for (float[] plane : planes) {
-                    if (distance(remaining.get(0), plane) <= 0
-                            && distance(remaining.get(1), plane) <= 0
-                            && distance(remaining.get(2), plane) <= 0) {
-                        outside = true;
-                        break;
-                    }
+        int tangent = axis == 0 ? 2 : 0;
+        // Inside all five half-spaces is the forbidden volume beyond this
+        // wall segment. Coordinates are chunk-local, retaining fine clearance.
+        float[][] planes = {
+            {tangent, 1, span}, {tangent, -1, -(span + 1)},
+            {1, 1, wallY}, {1, -1, -(wallY + 3)},
+            {axis, keepLess ? 1 : -1,
+                keepLess ? coordinate - CLEARANCE : -(coordinate + CLEARANCE)}
+        };
+        List<float[]> clipped = new ArrayList<>();
+        for (int i = 0; i < triangles.size(); i += 3) {
+            List<float[]> remaining = List.of(triangles.get(i), triangles.get(i + 1), triangles.get(i + 2));
+            boolean outside = false;
+            for (float[] plane : planes) {
+                if (distance(remaining.get(0), plane) <= 0
+                        && distance(remaining.get(1), plane) <= 0
+                        && distance(remaining.get(2), plane) <= 0) {
+                    outside = true;
+                    break;
                 }
-                if (outside) {
-                    result.addAll(remaining);
-                    continue;
-                }
-                for (float[] plane : planes) {
-                    emit(result, half(remaining, plane, false));
-                    remaining = half(remaining, plane, true);
-                    if (remaining.size() < 3) break;
-                }
-                // Remaining interior is behind the opaque wall and is discarded.
             }
-            triangles = result;
+            if (outside) {
+                clipped.addAll(remaining);
+                continue;
+            }
+            for (float[] plane : planes) {
+                emit(clipped, half(remaining, plane, false));
+                remaining = half(remaining, plane, true);
+                if (remaining.size() < 3) break;
+            }
+            // Remaining interior is behind the opaque wall and is discarded.
         }
+        triangles = clipped;
         float[] result = new float[triangles.size() * stride];
         for (int i = 0; i < triangles.size(); i++)
             System.arraycopy(triangles.get(i), 0, result, i * stride, stride);

@@ -118,6 +118,42 @@ final class WorldMeshBuilderTest {
     }
 
     @Test
+    void replacesLightSwitchSupportVolumeWithClosedWallOwnedHousing() throws Exception {
+        Path registryPath = temporary.resolve("wall-attachment.json");
+        Files.writeString(
+                registryPath,
+                """
+                {"schema_version":1,"source_sha256":"x","tiles":{
+                  "lighting_indoor_01_1":{"geometry":[{
+                    "kind":"box","min":[-0.45,0,-0.5],"max":[-0.4,2.4495,0.5]
+                  }]}
+                }}
+                """);
+        WorldState.TileObject fixture = new WorldState.TileObject(
+                2,"zombie.iso.objects.IsoLightSwitch","lightswitch","lighting_indoor_01_1",
+                false,false,false,false,false,false,false);
+        WorldState.Square square = new WorldState.Square(
+                0,0,0,1,0,255,255,255,
+                false,false,false,false,false,false,List.of(fixture), StructuralPropClip.WEST);
+
+        WorldMeshBuilder.MeshData mesh = new WorldMeshBuilder(
+                        TileGeometryRegistry.load(registryPath))
+                .build(new WorldState.Chunk(0,0,1,1,List.of(square)));
+
+        assertEquals(1, mesh.texturedBatches().size());
+        WorldMeshBuilder.TexturedBatch batch = mesh.texturedBatches().getFirst();
+        assertTrue(batch.wallAttachment());
+        assertEquals(36, batch.vertexCount());
+        float[] vertices = batch.vertices();
+        for (int i = 0; i < vertices.length; i += WorldMeshBuilder.TEXTURED_FLOATS_PER_VERTEX) {
+            assertTrue(vertices[i] >= .002f && vertices[i] <= .045f);
+            assertTrue(vertices[i + 1] >= 1.02f && vertices[i + 1] <= 1.24f);
+            assertTrue(vertices[i + 2] >= .29f && vertices[i + 2] <= .71f);
+            assertEquals(0, vertices[i + 11]);
+        }
+    }
+
+    @Test
     void projectsRealFloorSpriteCoordinatesOntoTheKnownTopSurface() throws Exception {
         Path registryPath = temporary.resolve("floor.json");
         Files.writeString(

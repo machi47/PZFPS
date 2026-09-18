@@ -157,9 +157,15 @@ int main(int argc, char** argv) {
         int ordinaryHole = draw();
         glUniform1i(uniform("uSurfaceKind"), 3);
         int repairedCrate = draw();
+        // Wall-owned fixture housings use normalized assembly coordinates and must
+        // remap them to their sprite crop rather than sampling outside that crop.
+        glUniform1i(uniform("uSurfaceKind"), 5);
+        glUniform4f(uniform("uProjectedBounds"), 10, 20, 2, 4);
+        glVertexAttrib2f(3, 11, 22);
+        int fittedAttachment = draw();
         GLenum error = glGetError();
         if (error != GL_NO_ERROR || bright < 240 || dim < 120 || dim > 135 || sourceDim != 128
-                || ordinaryHole != 51 || repairedCrate != 128)
+                || ordinaryHole != 51 || repairedCrate != 128 || fittedAttachment != 128)
             throw std::runtime_error("Light-only render failed: bright=" + std::to_string(bright)
                     + " dim=" + std::to_string(dim) + " GL=" + std::to_string(error));
         std::cout << "renderer=" << glGetString(GL_RENDERER) << "\nversion=" << glGetString(GL_VERSION)
@@ -167,6 +173,7 @@ int main(int argc, char** argv) {
                   << " dim=" << dim << " sourceDim=" << sourceDim << " geometryUploads=1 lightUploads=2\n";
         std::cout << "closedCrateEdge=passed ordinaryHole=" << ordinaryHole
                   << " repairedCrate=" << repairedCrate << '\n';
+        std::cout << "wallAttachmentCrop=passed fitted=" << fittedAttachment << '\n';
         // Native PZ atlases have whole-page mipmaps. A transparent sprite region
         // must stay transparent even beside opaque art at fractional mip boundaries.
         // This tests the production sampler, not a separately reimplemented formula.

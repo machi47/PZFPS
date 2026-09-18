@@ -21,15 +21,15 @@ PZ render thread     -> PZFPS perspective world -> PZ text/UI
 
 One isolated PZ process is currently running from the project-local
 disposable profile with staged bridge JAR
-`a13ac5900fff1378034c8d1d6cf4440f4775e6a26dc8d395bf062062702cc561`
-(opaque-wall prop-boundary batch, PID 34328, launched 18 September 00:21:01 UTC).
+`6061eb48df2acd644ff789a5489d2d384a931328abadc19050a413d04d32b588`
+(window-transparency batch, PID 35118, launched 18 September 00:46:59 UTC).
 This includes the fragment-depth, concave-polygon, chunk-local construction and
 fence-coverage repairs described below. PID 31018 was replaced by 32194 at
 23:34:18 UTC for depth/polygon testing; 32194 was stopped before 32654 launched.
 No normal save, installed game binary or
 unrelated mod was changed.
 
-### Window transparency: separated opaque and translucent passes (built; reload pending)
+### Window transparency: separated opaque and translucent passes (loaded diagnostic)
 
 The black-window failure is now reproduced from the installed source assets and
 the production shader. Extracted diagnostic copies remain under
@@ -59,8 +59,12 @@ The known far-depth diagnostic remains 10,044 wrong pixels beyond 16m.
 Raw output: `.local/reports/window-transparency-gpu.txt`. The pinned Gradle
 build reports 113 tests, zero failures/errors. Built JAR SHA-256:
 `6061eb48df2acd644ff789a5489d2d384a931328abadc19050a413d04d32b588`.
-PID 34328 still has the preceding `a18176c` build loaded while the owner gathers
-moving-view evidence; no live visual acceptance is claimed for this pending JAR.
+PID 34328 was stopped, the isolated profile was staged with the checksum above,
+and PID 35118 loaded it. Startup logs show the expected transformed bridge,
+geometry registry and texture packs. Frames 900–3600 report 59.91–60.08 completed
+callbacks/s, 4–15ms state age and zero dropped mesh requests while the owner moves
+through the disposable world. These remain callback/CPU diagnostics, not GPU
+timings, and no broad moving-view visual acceptance is claimed yet.
 
 Read-only captures around the current house also identify the next structural
 slice. `lighting_indoor_01_1`, `_3`, `_10` and `_40` are wall attachments whose
@@ -78,6 +82,40 @@ shallow closed attachment assembly and exterior-shell clipping that applies to
 all interior objects crossing a sealed boundary, including neighboring-tile
 ownership; doors, closed furniture boxes, fences and roofs remain queued family
 assemblies rather than per-house patches.
+
+### Canonical wall clipping and wall-owned fixtures (built; reload pending)
+
+The anchor-square furniture filter was too narrow. A multi-tile object could
+cross a wall segment owned by its neighboring square, while authored fixtures
+retained source-object foreground depth and could appear through the reverse of
+a wall. `StructuralPropClip` now canonicalizes the chunk's finite opaque wall
+segments by axis, coordinate, tile span and storey, deduplicating the same wall
+reported as one square's east/south and its neighbor's west/north. Each authored
+physical object is clipped against every intersecting segment from the side
+containing its authoritative owner square. Doors, windows, structural wall
+families, roofs and fences remain separate assemblies and are not self-clipped.
+The existing 1mm clearance, UV interpolation and finite span/storey limits remain.
+
+PZ identifies the pictured switches, vents and related indoor/outdoor wall
+fixtures as `IsoLightSwitch`; their registry boxes/cylinders are isometric
+interaction/support shapes, sometimes 2.4495 authored units tall, not visible
+fixture volumes. `WallAttachmentAssembly` now requires that exact runtime family
+and an authoritative sealed adjacent wall. It chooses a corner wall from the
+support shape's thin axis, or the sole available boundary when geometry is absent,
+then emits a shallow closed six-face housing wholly on the owning side. The
+original sprite crop is fitted to this small assembly in a dedicated shader
+surface kind. It does not reinterpret unrelated `lighting_*` art, invent PZ state,
+or claim exact manufacturer-quality meshes.
+
+118 Java tests pass with zero failures/errors. New tests cover canonical
+neighbor-owned walls, duplicate boundary collapse, broad physical-object routing,
+fixture runtime-family gating, corner-wall selection, six-face housing placement,
+and absence of foreground depth bias. The Apple production-GLSL probe passes the
+new wall-attachment crop mapping (`fitted=128`) while transparency stays 2/2,
+atlas leakage 0/9, fence coverage 12/12, physical occlusion 10/10 and wall-prop
+clearance 10/10. Raw output: `.local/reports/wall-attachment-gpu.txt`. Built JAR
+SHA-256: `b0a5a4ff38572fe41db500b5995164165ba6435fc3e48b9abc16aca4d19d39e4`.
+This JAR has not yet replaced PID 35118, so there is no live acceptance claim.
 
 ### Solid props crossing walls: constrained presentation (loaded diagnostic)
 

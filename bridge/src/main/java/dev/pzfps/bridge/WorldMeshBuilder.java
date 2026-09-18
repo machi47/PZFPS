@@ -86,7 +86,12 @@ public final class WorldMeshBuilder {
     }
 
     /** Source sprite samples projected onto only the support surfaces we currently know. */
-    public record TexturedBatch(String sprite, float[] vertices, boolean solidFloor, boolean wallEdges) {
+    public record TexturedBatch(
+            String sprite,
+            float[] vertices,
+            boolean solidFloor,
+            boolean wallEdges,
+            boolean wallAttachment) {
         public int vertexCount() {
             return vertices.length / TEXTURED_FLOATS_PER_VERTEX;
         }
@@ -114,6 +119,7 @@ public final class WorldMeshBuilder {
         Map<String, FloatBuilder> textured = new LinkedHashMap<>();
         Set<String> floorSprites = new HashSet<>();
         Set<String> wallSprites = new HashSet<>();
+        Set<String> wallAttachmentSprites = new HashSet<>();
         Map<String, FloatBuilder> materials = new LinkedHashMap<>();
         int primitiveCount = 0;
         int sourceTexturedFloors = 0;
@@ -130,6 +136,7 @@ public final class WorldMeshBuilder {
         Map<String, Integer> unsupportedCollisionSprites = new HashMap<>();
         boolean truncated = false;
         Map<Long, WorldState.Square> squaresByPosition = squareIndex(chunk.squares());
+        List<StructuralPropClip.Boundary> wallBoundaries = StructuralPropClip.boundaries(chunk.squares());
         for (WorldState.Square square : chunk.squares()) {
             float baseX = square.localX();
             float baseY = square.z() * LEVEL_HEIGHT;
@@ -216,15 +223,27 @@ public final class WorldMeshBuilder {
                     continue;
                 }
                 List<TileGeometryRegistry.Primitive> geometry = registry.geometry(object.sprite());
-                if (!geometry.isEmpty()) {
+                var wallAttachment = WallAttachmentAssembly.placement(
+                        object, geometry, square.sealedEdges());
+                if (wallAttachment.isPresent()) {
+                    authoredGeometryObjects++;
+                    wallAttachmentSprites.add(object.sprite());
+                    FloatBuilder batch = textured.computeIfAbsent(
+                            object.sprite(),
+                            ignored -> new FloatBuilder(512, TEXTURED_FLOATS_PER_VERTEX));
+                    batch.layer = 0;
+                    batch.lightingIndex = lightingIndex;
+                    addWallAttachment(batch, baseX, baseY, baseZ, wallAttachment.get(), light);
+                    primitiveCount++;
+                } else if (!geometry.isEmpty()) {
                     authoredGeometryObjects++;
                     FloatBuilder batch = textured.computeIfAbsent(
                             object.sprite(),
                             ignored -> new FloatBuilder(512, TEXTURED_FLOATS_PER_VERTEX));
-                    boolean physicalProp = StructuralPropClip.freestanding(object);
-                    // A solid prop is not a wall decal. Pulling it toward the camera
-                    // by source-object order exposes its back through exterior walls.
-                    batch.layer = physicalProp ? 0 : Math.min(16, Math.max(1, object.index() + 1));
+                    boolean wallConstrained = StructuralPropClip.constrainedByWalls(object);
+                    // Authored scene volume is not a wall decal. Pulling fixtures or props
+                    // toward the camera by source-object order exposes them through walls.
+                    batch.layer = wallConstrained ? 0 : Math.min(16, Math.max(1, object.index() + 1));
                     batch.lightingIndex = lightingIndex;
                     int objectStart = batch.size;
                     for (TileGeometryRegistry.Primitive primitive : geometry) {
@@ -241,15 +260,15 @@ public final class WorldMeshBuilder {
                         }
                         primitiveCount++;
                     }
-                    if (physicalProp && square.sealedEdges() != 0) {
+                    if (wallConstrained && !wallBoundaries.isEmpty()) {
                         float[] original = java.util.Arrays.copyOfRange(batch.values, objectStart, batch.size);
                         float[] constrained = StructuralPropClip.clip(
-                                original, baseX, baseY, baseZ, square.sealedEdges());
+                                original, baseX, baseY, baseZ, wallBoundaries);
                         if (reportedPropConstraints < 8 && !java.util.Arrays.equals(original, constrained)) {
                             reportedPropConstraints++;
-                            System.out.printf("[PZFPS prop-boundary] sprite=%s chunk=%d,%d local=%d,%d,%d sealedEdges=%d triangles=%d->%d%n",
+                            System.out.printf("[PZFPS prop-boundary] sprite=%s chunk=%d,%d local=%d,%d,%d wallSegments=%d triangles=%d->%d%n",
                                     object.sprite(), chunk.worldX(), chunk.worldY(), square.localX(), square.localY(), square.z(),
-                                    square.sealedEdges(), original.length / (3 * TEXTURED_FLOATS_PER_VERTEX),
+                                    wallBoundaries.size(), original.length / (3 * TEXTURED_FLOATS_PER_VERTEX),
                                     constrained.length / (3 * TEXTURED_FLOATS_PER_VERTEX));
                         }
                         batch.size = objectStart;
@@ -330,7 +349,8 @@ public final class WorldMeshBuilder {
         for (Map.Entry<String, FloatBuilder> entry : textured.entrySet()) {
             if (entry.getValue().vertexCount() > 0) {
                 texturedBatches.add(new TexturedBatch(entry.getKey(), entry.getValue().toArray(),
-                        floorSprites.contains(entry.getKey()), wallSprites.contains(entry.getKey())));
+                        floorSprites.contains(entry.getKey()), wallSprites.contains(entry.getKey()),
+                        wallAttachmentSprites.contains(entry.getKey())));
             }
         }
         ArrayList<MaterialBatch> materialBatches = new ArrayList<>(materials.size());
@@ -465,6 +485,71 @@ public final class WorldMeshBuilder {
                 faceNormal, light, source);
         // The source-texture draw is two-sided. Do not duplicate coplanar reverse geometry:
         // that would submit both copies and darken translucent edges after disabling culling.
+    }
+
+    private static void addWallAttachment(
+            FloatBuilder output,
+            float baseX,
+            float baseY,
+            float baseZ,
+            WallAttachmentAssembly.Placement placement,
+            float[] light) {
+        float boundaryX = baseX + .5f;
+        float boundaryZ = baseZ + .5f;
+        float nx = 0, nz = 0;
+        switch (placement.edge()) {
+            case StructuralPropClip.NORTH -> { boundaryZ = baseZ; nz = 1; }
+            case StructuralPropClip.SOUTH -> { boundaryZ = baseZ + 1; nz = -1; }
+            case StructuralPropClip.WEST -> { boundaryX = baseX; nx = 1; }
+            case StructuralPropClip.EAST -> { boundaryX = baseX + 1; nx = -1; }
+            default -> throw new IllegalArgumentException("unknown attachment edge " + placement.edge());
+        }
+        float tx = nz == 0 ? 0 : 1;
+        float tz = nx == 0 ? 0 : 1;
+        float bottom = baseY + placement.bottom();
+        float top = bottom + placement.height();
+        float halfWidth = placement.width() * .5f;
+        float[][] front = attachmentFace(
+                boundaryX + nx * placement.depth(),
+                boundaryZ + nz * placement.depth(),
+                tx, tz, halfWidth, bottom, top);
+        float[][] back = attachmentFace(
+                boundaryX + nx * .002f,
+                boundaryZ + nz * .002f,
+                tx, tz, halfWidth, bottom, top);
+        float[][] uv = {{0,1},{1,1},{1,0},{0,0}};
+        addTexturedQuad(output, front[0], front[1], front[2], front[3],
+                new float[] {nx,0,nz}, light, uv);
+        addTexturedQuad(output, back[1], back[0], back[3], back[2],
+                new float[] {-nx,0,-nz}, light, new float[][] {uv[1],uv[0],uv[3],uv[2]});
+        addTexturedQuad(output, back[0], front[0], front[3], back[3],
+                new float[] {-tx,0,-tz}, light,
+                new float[][] {{0,1},{0,1},{0,0},{0,0}});
+        addTexturedQuad(output, front[1], back[1], back[2], front[2],
+                new float[] {tx,0,tz}, light,
+                new float[][] {{1,1},{1,1},{1,0},{1,0}});
+        addTexturedQuad(output, front[3], front[2], back[2], back[3],
+                new float[] {0,1,0}, light,
+                new float[][] {{0,0},{1,0},{1,0},{0,0}});
+        addTexturedQuad(output, back[0], back[1], front[1], front[0],
+                new float[] {0,-1,0}, light,
+                new float[][] {{0,1},{1,1},{1,1},{0,1}});
+    }
+
+    private static float[][] attachmentFace(
+            float centerX,
+            float centerZ,
+            float tangentX,
+            float tangentZ,
+            float halfWidth,
+            float bottom,
+            float top) {
+        return new float[][] {
+            {centerX - tangentX * halfWidth, bottom, centerZ - tangentZ * halfWidth},
+            {centerX + tangentX * halfWidth, bottom, centerZ + tangentZ * halfWidth},
+            {centerX + tangentX * halfWidth, top, centerZ + tangentZ * halfWidth},
+            {centerX - tangentX * halfWidth, top, centerZ - tangentZ * halfWidth}
+        };
     }
 
     private static Map<Long, WorldState.Square> squareIndex(
