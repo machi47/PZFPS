@@ -11,6 +11,7 @@ from pzfps.depth_surfaces import (
     depth_point,
     fit_planar_surface,
     fit_piecewise_planar_surfaces,
+    has_physical_roof_anchor,
     parse_depth_assignments,
     Plane3,
     point_on_implicit_plane,
@@ -35,6 +36,16 @@ def png_gray_alpha(width: int, height: int, pixels: list[tuple[int, int]]) -> by
 class DepthSurfaceTests(unittest.TestCase):
     def test_depth_helper_identity_resolves_without_tile_definition(self) -> None:
         self.assertEqual(split_tile_identity("preset_depthmaps_01_5"), ("preset_depthmaps_01", 5))
+
+    def test_plain_roof_overlay_requires_installed_anchor_semantics(self) -> None:
+        self.assertFalse(has_physical_roof_anchor(
+            "roofs_05_47", {"properties": {"RoofGroup": "10", "WestRoofT": ""}}))
+        self.assertTrue(has_physical_roof_anchor(
+            "roofs_05_34", {"properties": {"RoofGroup": "10", "BlockRain": ""}}))
+        self.assertTrue(has_physical_roof_anchor(
+            "roofs_accents_01_25", {"properties": {"attachedN": "", "isEave": ""}}))
+        self.assertTrue(has_physical_roof_anchor(
+            "walls_exterior_roofs_03_39", {"properties": {}}))
 
     def test_polygon_area_reports_convex_hull_coverage(self) -> None:
         self.assertEqual(polygon_area([(0, 0), (3, 0), (3, 2), (0, 2)]), 6)
@@ -92,8 +103,9 @@ class DepthSurfaceTests(unittest.TestCase):
             definitions.write_text(json.dumps({
                 "game_version": "42.20",
                 "tiles": {
-                    "roofs_color_0": {"tileset": "roofs_color", "xy": [0, 0], "properties": {"RoofGroup": "3"}},
+                    "roofs_color_0": {"tileset": "roofs_color", "xy": [0, 0], "properties": {"RoofGroup": "3", "BlockRain": ""}},
                     "roofs_depth_0": {"tileset": "roofs_depth", "xy": [0, 0], "properties": {"RoofGroup": "1"}},
+                    "roofs_overlay_0": {"tileset": "roofs_overlay", "xy": [0, 0], "properties": {"RoofGroup": "1"}},
                     "walls_exterior_roofs_color_0": {
                         "tileset": "walls_exterior_roofs_color", "xy": [0, 0], "properties": {}
                     },
@@ -124,6 +136,10 @@ class DepthSurfaceTests(unittest.TestCase):
             report = compile_planar_roof_surfaces(
                 definitions, assignments, depthmaps, output, game_version="42.20")
             self.assertIn("roofs_color_0", report["tiles"])
+            self.assertNotIn("roofs_overlay_0", report["tiles"])
+            # The explicit overlay and the unanchored depth-helper identity itself both
+            # remain absent; the anchored colour tile may still reuse the helper's evidence.
+            self.assertEqual(report["rejected"]["unanchored_roof_overlay"], 2)
             self.assertIn("walls_exterior_roofs_color_0", report["tiles"])
             self.assertEqual(
                 report["tiles"]["walls_exterior_roofs_color_0"]["properties"]["depth_target"],

@@ -50,6 +50,15 @@ def compile_planar_roof_surfaces(
     for identity, definition in sorted(tiles.items()):
         if category(identity) != "roof":
             continue
+        if not has_physical_roof_anchor(identity, definition):
+            # A depth assignment is an occlusion hint, not proof that the target sprite is
+            # itself a square-anchored surface. PZ places ridge/overlay art on upper squares
+            # (for example roofs_05_47) so it can extend down across lower roof sprites in the
+            # isometric compositor. Reusing the assigned plane as local 3D geometry instead
+            # produces the observed long strips suspended above the building. Fail closed
+            # until those identities have a topology-aware ridge/accent assembly.
+            _count(rejected, "unanchored_roof_overlay")
+            continue
         target = assignments.get(identity, identity)
         cached = target_cache.get(target)
         if isinstance(cached, str):
@@ -161,6 +170,30 @@ def compile_planar_roof_surfaces(
     document["audit"] = audit_roof_surfaces(document)
     write_json(output, document)
     return document
+
+
+def has_physical_roof_anchor(identity: str, definition: dict[str, Any]) -> bool:
+    """Whether installed semantics justify treating a depth map as local roof geometry.
+
+    Exterior-roof wall/fascia families have an explicit structural family identity. Plain
+    ``roofs_*`` art must carry a rain-blocking, eave, floor or attachment property; RoofGroup
+    and WestRoofT alone only identify compositing/style and do not locate an overlay in 3D.
+    """
+    if not identity.startswith("roofs_"):
+        return True
+    properties = definition.get("properties", {})
+    anchors = {
+        "BlockRain",
+        "isEave",
+        "diamondFloor",
+        "solidfloor",
+        "attachedN",
+        "attachedE",
+        "attachedS",
+        "attachedW",
+        "attachedFloor",
+    }
+    return any(anchor in properties for anchor in anchors)
 
 
 def parse_depth_assignments(path: Path) -> dict[str, str]:

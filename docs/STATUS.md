@@ -19,15 +19,17 @@ PZ simulation/update -> immutable authoritative snapshot
 PZ render thread     -> PZFPS perspective world -> PZ text/UI
 ```
 
-No isolated PZ process is currently running. PID 41825 was stopped at
-18 September 02:44:31 UTC after the depth-derived roof checkpoint loaded but
-failed to yield a capturable game window. The staged bridge JAR is
+No isolated PZ process is currently running. PID 43472 was stopped at
+18 September 03:22:56 UTC after a bounded exact-window retest of the
+roof-overlay filter. The staged bridge JAR is
 `d83584c3cced5b8a9e179ba5f2c35aee2ccf749ae359e3e73f498ee0906e2377` and the
 supplemental roof registry is
-`cf518011f16d35b726ea84eb11e5c0d7a5b8d5ca5a16c2297b6bce5c6d581c7b`.
-The load/cadence diagnostics passed, but the desktop-only screenshot is not
-visual roof evidence and the checkpoint is **not** accepted. No normal save,
-installed game binary or unrelated mod was changed.
+`c9641062c1770e34af690b263751a504d9b11aedd7ef6a2041aef05487eb496b`.
+The prior valid frame showed long detached roof-textured strips above the
+represented house roof. The matching retest after semantically rejecting
+unanchored overlays removes those strips while retaining the anchored roof
+planes. This is a narrow accepted regression removal, not broad roof acceptance.
+No normal save, installed game binary or unrelated mod was changed.
 
 ### Installed corpus ledger and depth-derived roof checkpoint
 
@@ -57,13 +59,14 @@ The joined audit exposes the scale of the roof gap: 4,569 roof-related
 identities are present and only 84 have installed authored source primitives.
 `bin/pzfps assets compile-roof-surfaces` now reconstructs conservative connected
 planar patches from PZ's installed depth atlases using the game's source
-projection/depth equations. The local supplemental registry contains 3,998
-identities and 38,372 triangles; 3,949 of those identities are roofs pending
-live acceptance. Authored geometry wins when both paths exist. The compiler
-rejects 8 entries with no depth image, 76 non-planar entries and 417 unsafe
-patch hulls, leaving 536 roof identities rejected/unsupported after authored
-precedence. This is a systemic identity-level representation path, not a
-per-house patch and not a visual acceptance claim.
+projection/depth equations. The local supplemental registry contains 3,894
+identities and 37,080 triangles; 3,845 of those identities are roofs pending
+broader live acceptance. Authored geometry wins when both paths exist. The
+compiler rejects 8 entries with no depth image, 72 non-planar entries, 413
+unsafe patch hulls and 112 unanchored roof-overlay entries, leaving 640 roof
+identities rejected/unsupported after authored precedence. This is a systemic
+identity-level representation path, not a per-house patch and not a broad
+visual acceptance claim.
 
 `bin/pzfps assets audit-scene` joins a runtime capture to that installed ledger.
 For `.local/reports/prop-boundary-scene.json`, the generated
@@ -74,16 +77,36 @@ geometry. The snapshot specifically includes `roofs_02_3/4/5/111`, the pictured
 `roofs_accents_01_*` pieces and `walls_exterior_roofs_06_*`/
 `walls_exterior_roofs_10_*` families.
 
-Python discovery passes 34 tests. The clean Gradle build passes 129 tests,
-including loading the installed supplemental registry, validating 3,998 entries
+Python discovery passes 35 tests. The clean Gradle build passes 129 tests,
+including loading the installed supplemental registry, validating 3,894 entries
 and rendering source-projected roof triangles. The Apple production-shader
 probe passes shader link, roof-adjacent material, transparency, fence, physical
 occlusion and wall-prop fixtures; its known far-depth residual remains 10,044
 wrong pixels beyond 16m and is not hidden by this checkpoint. PID 41825 loaded
 the staged registry and reported 59.91--60.08 completed callbacks/s, 4--15ms
-state age and zero dropped mesh requests. The attempted live capture
-`.local/captures/roof-depth-checkpoint-live.png` contains only the desktop, so
-the visual roof check is explicitly inconclusive and V-12 remains open.
+state age and zero dropped mesh requests. Its attempted capture contains only
+the desktop and is explicitly inconclusive. PID 42716 then loaded the same
+checkpoint; exact CoreGraphics window capture produced
+`.local/captures/roof-depth-live-window.png`, and a read-only 24-tile scene
+capture produced `.local/reports/roof-depth-live-scene.json` (169 received
+chunks, 3,537 squares and 690 roof instances). The frame shows the main roof
+substantially represented but also long detached roof-textured strips across
+the sky. That is valid negative evidence: V-12 remains open and this compiler
+checkpoint is rejected pending target-silhouette/assembly correction.
+
+The live scene made the failure identity-level rather than anecdotal: 21
+`roofs_05_47` instances sat on z=2 above the nearby anchored slope. That sprite
+has `RoofGroup`/`WestRoofT` compositing metadata but no rain-blocking, eave,
+floor or wall-attachment semantics. A depth assignment is valid evidence for
+PZ's isometric occlusion pass, but not sufficient proof of square-local 3D
+placement. `has_physical_roof_anchor` now rejects the whole analogous semantic
+class; 112 compiler entries fail closed. The 35-test Python suite and 129-test
+Java suite pass (two Java tests skipped, zero failures/errors). PID 43472 loaded
+registry SHA-256 `c9641062c1770e34af690b263751a504d9b11aedd7ef6a2041aef05487eb496b`.
+The same exact window/view at
+`.local/captures/roof-anchor-filter-live-window.png` retains the main anchored
+roof planes and no longer contains either detached strip. This accepts only the
+specific overlay regression removal; building-wide roof topology remains V-12.
 
 The indexed source properties retain `RoofGroup`, `BlockRain`, `attached*`,
 `isEave`, `diamondFloor` and `solidfloor` roles for later topology grouping.

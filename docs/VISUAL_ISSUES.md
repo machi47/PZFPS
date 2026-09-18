@@ -26,7 +26,7 @@ machine-readable installed-asset audit is
 | V-09 | Doors disappear when open, remain paper-thin, and need transparent panes plus coherent hinge motion | 17–19 | **Rejected**. Current renderer is a state-aware edge card, not a 3D door. | Closed/open states use one persistent volumetric asset, correct hinge/pivot and thickness; glass panes preserve transparency. |
 | V-10 | Rejected door experiment stretched one isometric crop across guessed box faces, creating stacked/distorted shapes and opaque glass | 33 | **Regression removed**. Never an accepted checkpoint. | The rejected six-face path remains absent; a future replacement must pass V-09 before deployment. |
 | V-11 | Short chain-link fence tiles/gates do not meet and alternate offsets; material/depth ordering is unstable | 09, 20 | **Partial, unaccepted**. Only `fencing_01_24..27` share a boundary-panel rule; gates and 1,210 other fence identities are not accepted. | Continuous endpoints, height and depth across straight runs, corners and gates in both viewing directions. |
-| V-12 | Roofs are missing huge sections, transparent from some sides, or assembled as disconnected/malformed cards | 21, 34 | **Systemic compiler implemented; live result not accepted**. Installed depth atlases now produce conservative source-projected surfaces for 3,949 roof identities; 84 more retain installed authored geometry and 536 remain rejected/unsupported. The captured problem scene's 91/91 roof instances resolve to one of those two geometry paths. Automated topology/projection checks pass, but the first isolated visual attempt captured no game window and is therefore inconclusive. | Watertight eaves, slopes, ridges, hips/valleys and undersides across representative one- and two-storey buildings, with no camera-side disappearance. |
+| V-12 | Roofs are missing huge sections, transparent from some sides, or assembled as disconnected/malformed cards | 21, 34, two live roof checkpoints | **Partial, rejected overall; one regression removed live**. Installed depth atlases now produce source-projected surfaces for 3,845 roof identities; 84 retain installed authored geometry and 640 remain rejected/unsupported. The first valid capture exposed detached strips from unanchored upper-storey overlays. A semantic fail-closed rule removed 112 compiler entries, including all 21 nearby `roofs_05_47` instances; the same exact view then retained the anchored roof planes with no suspended strips. Other buildings, motion, roof junctions and undersides remain unaccepted. | Watertight eaves, slopes, ridges, hips/valleys and undersides across representative one- and two-storey buildings, with no detached surfaces or camera-side disappearance. |
 | V-13 | Render distance is too short to read a substantial part of town | 09, 21 | **Open**. Projection far plane is 400m, but loaded/visible chunk range and asset correctness—not only the far plane—limit useful distance. | Measured chunk/mesh visibility at agreed town-scale distance without missing simulation state or unacceptable frame-time/memory regression. |
 | V-14 | Need a coherent skybox synchronized to authoritative time through pause and time acceleration | 34 | **Prototype rejected as insufficient**. Only a clock-driven two-color screen gradient exists; the pictured night result is effectively black. | Horizon, celestial/time progression and weather-aware sky remain synchronized to PZ time in pause/1x/fast-forward and are visibly credible. |
 | V-15 | Need robust lighting with semantic source types rather than arbitrary darkness | 01, 06–08, 34 | **Open**. Current pass samples raw square RGB with an exposure floor; it has no sun/sky/fixture semantic model, shadows or calibrated materials. | Directional sun/sky plus typed local emitters, stable exposure, occlusion and day/night transitions validated in the same route. |
@@ -52,11 +52,18 @@ Important category totals from the current audit:
 
 | Category | Identities | Honest renderer state |
 |---|---:|---|
-| Roof | 4,569 | 3,949 compiled from installed depth atlases pending live acceptance; 84 authored-geometry identities unaccepted; 536 rejected/unsupported |
+| Roof | 4,569 | 3,845 compiled from installed depth atlases pending broader live acceptance; 84 authored-geometry identities unaccepted; 640 rejected/unsupported |
 | Door | 166 | all rejected as non-volumetric |
 | Window | 648 | all rejected as non-physical |
 | Fence | 1,214 | four exact short-chain-link identities implemented but unaccepted; 1,210 unaccepted |
+| Gate | 134 | all unaccepted |
 | Furniture/fixture | 1,512 | two exact dresser identities implemented but unaccepted; 584 lack a static geometry path |
+| Lighting/attached fixture | 426 | six exact identities implemented but unaccepted; 291 lack a static geometry path |
+| Wall | 8,350 | all partial/unaccepted; identity presence does not establish a watertight assembled shell |
+| Floor | 643 | all partial/unaccepted |
+| Street | 1,876 | 69 direct identities unaccepted; 1,807 lack a static geometry path |
+| Vegetation | 3,271 | 216 direct identities unaccepted; 3,055 lack a static geometry path |
+| Other tile/sprite | 17,093 | six exact identities implemented but unaccepted; 13,984 lack a static geometry path |
 
 This is a corpus of installed tile/sprite definitions, named models and item
 scripts, not a claim that every runtime state combination is already known.
@@ -68,6 +75,51 @@ box can still be the wrong visible mesh, and a resolved native model can still
 be placed, lit or animated incorrectly. Runtime Java type, orientation, object
 state, multi-tile grouping and building topology must be joined before an asset
 can be accepted.
+
+## Screenshot evidence catalog
+
+The screenshot number references above resolve to these retained local files.
+This catalog is deliberately explicit so a report cannot disappear into chat
+history or be counted as fixed merely because a related code path exists.
+
+| Evidence | File | Primary observation |
+|---:|---|---|
+| 01 | `01-lighting-visibility.png` | visibility-driven blackness / lighting |
+| 02 | `02-window-flicker-a.png` | window/door depth flicker |
+| 03 | `03-window-flicker-b.png` | same surface changes while nearly stationary |
+| 04 | `04-wall-ground-seam.png` | curved-looking wall/ground join |
+| 05 | `05-bench-flicker.png` | line through bench and unstable depth |
+| 06 | `06-building-depth-a.png` | broad building surface instability |
+| 07 | `07-building-depth-b.png` | ceiling/wall fragments |
+| 08 | `08-building-depth-c.png` | shelving/crate depth errors |
+| 09 | `09-fence-material-order.png` | chain-link/material ordering |
+| 10 | `10-building-seams.png` | shell cracks and see-through seams |
+| 11 | `11-wire-outlines-furniture-leak.png` | alpha halos and interior leak |
+| 12 | `12-window-transparency-a.png` | window hides world behind it |
+| 13 | `13-window-transparency-b.png` | close transparent-surface failure |
+| 14 | `14-sink-and-wall-switch-a.png` | open sink/card geometry and wall fixture |
+| 15 | `15-wall-switch-b.png` | fixture clipping through both wall sides |
+| 16 | `16-wall-switch-c.png` | fixture placement/appearance |
+| 17 | `17-open-door-missing.png` | door disappears open |
+| 18 | `18-open-door-missing-duplicate.png` | second frame of missing open door |
+| 19 | `19-doorway-paper-thin.png` | paper-thin doorway/door |
+| 20 | `20-short-fence-misalignment.png` | alternating short-fence endpoints |
+| 21 | `21-roof-missing-section.png` | large missing roof section |
+| 22 | `22-interior-furniture-exterior-leak.png` | furniture visible through exterior wall |
+| 23 | `23-bed-dresser-gaps-a.png` | bed/dresser open faces |
+| 24 | `24-bed-dresser-gaps-b.png` | dresser missing side |
+| 25 | `25-floating-vent-a.png` | vent detached from wall |
+| 26 | `26-floating-vent-b.png` | edge view confirms fixture gap |
+| 27 | `27-horizontal-switch.png` | incorrect switch orientation |
+| 28 | `28-floating-radiator.png` | radiator/vent detached from wall |
+| 29 | `29-oversized-switch.png` | switch rendered as oversized slab |
+| 30 | `30-see-through-furniture.png` | large missing furniture faces |
+| 31 | `31-floating-vent-c.png` | another wall-fixture clearance failure |
+| 32 | `32-dresser-missing-side.png` | asymmetric dresser side coverage |
+| 33 | `33-rejected-door-regression.png` | rejected stacked/distorted door experiment |
+| 34 | `34-roof-system-regression.png` | roof missing/malformed across building |
+| live roof checkpoint | `.local/captures/roof-depth-live-window.png` | valid exact-window capture; detached roof strips reject the depth-compiler checkpoint |
+| roof overlay filter | `.local/captures/roof-anchor-filter-live-window.png` | same exact view after semantic filtering; detached strips absent, anchored slopes retained |
 
 The captured problem-house snapshot is also audited rather than inferred from
 the global inventory:
@@ -94,17 +146,31 @@ patches with at least 95% source-depth coverage, limits convex-hull fill to
 violations. Authored tile geometry has precedence over the supplemental
 registry.
 
-The current local output contains 3,998 supplemental identities and 38,372
-triangles. Of those identities, 3,949 are roof-category identities; the
+The current local output contains 3,894 supplemental identities and 37,080
+triangles. Of those identities, 3,845 are roof-category identities; the
 remainder are installed depth helpers used by the same deterministic path. The
-compiler rejected 8 entries with no depth image, 76 that did not meet the
-piecewise-planar constraint and 417 unsafe patch hulls. Java load/render tests
-validate the generated registry in addition to the Python geometry audit.
+compiler rejected 8 entries with no depth image, 72 that did not meet the
+piecewise-planar constraint, 413 unsafe patch hulls and 112 entries without
+installed physical anchoring semantics. Java load/render tests validate the
+generated registry in addition to the Python geometry audit.
 
-The isolated launch on 17 September loaded the staged registry and ran at
-59.91--60.08 completed callbacks/s with zero dropped mesh requests. However,
-the attempted screenshot contained only the desktop, not a PZ window. That
-attempt is recorded as **inconclusive**, and V-12 remains unaccepted.
+The first isolated launch on 17 September loaded the staged registry and ran at
+59.91--60.08 completed callbacks/s with zero dropped mesh requests, but its
+screenshot contained only the desktop and remains inconclusive. A later launch
+was captured by exact CoreGraphics window ID. That valid frame is a clear
+**rejection**: the visible house roof is more complete, but depth-derived roof
+strips are detached high above it. The matching read-only scene capture contains
+690 roof instances in a 24-tile radius and is retained at
+`.local/reports/roof-depth-live-scene.json` for identity-level diagnosis.
+
+The captured scene identified 21 nearby `roofs_05_47` instances. PZ gives that
+identity a depth assignment for isometric occlusion, but no `BlockRain`, eave,
+floor or attachment property that would justify treating the assigned plane as
+square-local 3D geometry. The compiler now fails closed for the whole analogous
+class instead of patching one identity. The same window/view was recaptured at
+`.local/captures/roof-anchor-filter-live-window.png`: the detached strips are
+absent and the anchored house roof remains. This accepts only that regression
+removal; V-12 remains open for broader building/motion coverage.
 
 ## Checkpoint rule
 
