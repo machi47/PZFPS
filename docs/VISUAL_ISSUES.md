@@ -26,7 +26,7 @@ machine-readable installed-asset audit is
 | V-09 | Doors disappear when open, remain paper-thin, and need transparent panes plus coherent hinge motion | 17–19 | **Rejected**. Current renderer is a state-aware edge card, not a 3D door. | Closed/open states use one persistent volumetric asset, correct hinge/pivot and thickness; glass panes preserve transparency. |
 | V-10 | Rejected door experiment stretched one isometric crop across guessed box faces, creating stacked/distorted shapes and opaque glass | 33 | **Regression removed**. Never an accepted checkpoint. | The rejected six-face path remains absent; a future replacement must pass V-09 before deployment. |
 | V-11 | Short chain-link fence tiles/gates do not meet and alternate offsets; material/depth ordering is unstable | 09, 20 | **Partial, unaccepted**. Only `fencing_01_24..27` share a boundary-panel rule; gates and 1,210 other fence identities are not accepted. | Continuous endpoints, height and depth across straight runs, corners and gates in both viewing directions. |
-| V-12 | Roofs are missing huge sections, transparent from some sides, or assembled as disconnected/malformed cards | 21, 34, three live roof checkpoints | **Partial, rejected overall; two narrow improvements visible live**. Installed source evidence now produces surfaces for 4,291 roof identities; 84 retain installed authored geometry, 158 remain rejected/unsupported and 36 are source-evidenced non-renderable placeholders. A strict-first quantisation retry recovered 72 compound roof identities while retaining the 0.012 RMS safety gate. Four atlas-only Muldraugh pieces in `walls_exterior_roofs_30_21` now inherit matching `30_19` surfaces only after installed-map reference and strict source-alpha-subset checks. The first valid capture exposed detached strips from unanchored upper-storey overlays. A semantic fail-closed rule removed 112 compiler entries, including all 21 nearby `roofs_05_47` instances. Exact alpha-mask meshing recovered the concave `roofs_30_02_*` identities in the captured scene. The latest stationary frame has continuous visible slopes on that building, but the later compiler passes have not been live-loaded. Motion, roof junctions, undersides and other buildings remain unaccepted. | Watertight eaves, slopes, ridges, hips/valleys and undersides across representative one- and two-storey buildings, with no detached surfaces or camera-side disappearance. |
+| V-12 | Roofs are missing huge sections, transparent from some sides, or assembled as disconnected/malformed cards | 21, 34, three live roof checkpoints | **Partial, rejected overall; latest assembly path is offline-tested only**. Installed source evidence produces unconditional surfaces for 4,291 roof identities; 80 more identities now have surfaces gated by exact neighbor relations from PZ's installed `seams.txt`; 84 retain installed authored geometry; 78 remain rejected/unsupported; and 36 are source-evidenced non-renderable placeholders. In the retained 690-roof scene, 30 of 31 contextual instances have their declared same-snapshot neighbor and one fails closed. The earlier stationary frame still proves only the narrow `roofs_30_02_*` improvement. No current live capture proves the contextual path, moving views, complete junctions, undersides or other buildings. | Watertight eaves, slopes, ridges, hips/valleys and undersides across representative one- and two-storey buildings, with no detached surfaces or camera-side disappearance. |
 | V-13 | Render distance is too short to read a substantial part of town | 09, 21 | **Open**. Projection far plane is 400m, but loaded/visible chunk range and asset correctness—not only the far plane—limit useful distance. | Measured chunk/mesh visibility at agreed town-scale distance without missing simulation state or unacceptable frame-time/memory regression. |
 | V-14 | Need a coherent skybox synchronized to authoritative time through pause and time acceleration | 34 | **Prototype rejected as insufficient**. Only a clock-driven two-color screen gradient exists; the pictured night result is effectively black. | Horizon, celestial/time progression and weather-aware sky remain synchronized to PZ time in pause/1x/fast-forward and are visibly credible. |
 | V-15 | Need robust lighting with semantic source types rather than arbitrary darkness | 01, 06–08, 34 | **Open**. Current pass samples raw square RGB with an exposure floor; it has no sun/sky/fixture semantic model, shadows or calibrated materials. | Directional sun/sky plus typed local emitters, stable exposure, occlusion and day/night transitions validated in the same route. |
@@ -56,7 +56,7 @@ Important category totals from the current audit:
 
 | Category | Identities | Honest renderer state |
 |---|---:|---|
-| Roof | 4,569 | 4,291 compiled from installed depth/alpha evidence pending broader live acceptance; 84 authored-geometry identities unaccepted; 158 rejected/unsupported; 36 source-evidenced non-renderable placeholders |
+| Roof | 4,569 | 4,291 unconditional depth/alpha surfaces pending broader live acceptance; 80 contextual surfaces gated by installed seam neighbors and pending first live acceptance; 84 authored-geometry identities unaccepted; 78 rejected/unsupported; 36 source-evidenced non-renderable placeholders |
 | Door | 166 | all rejected as non-volumetric |
 | Window | 648 | all rejected as non-physical |
 | Fence | 1,214 | four exact short-chain-link identities implemented but unaccepted; 1,210 unaccepted |
@@ -204,7 +204,11 @@ retain 92.86--97.46%; the evidence and source identity are recorded per asset.
 This is an offline deterministic recovery, not yet a live visual acceptance.
 
 The compiler rejects 11 targets that exceed the conservative tile-local
-envelope and 112 entries without installed physical anchoring semantics. Eight
+envelope. Of the 112 entries without direct physical anchoring semantics, 80
+now have a separate contextual surface backed by an exact neighbor relation in
+PZ's installed `seams.txt`; runtime emits those surfaces only if the immutable
+snapshot contains one of the declared neighboring canonical roof identities.
+The other 32 remain rejected as unanchored overlays. Eight
 former `missing_depth_image` entries are separately classified as source
 placeholders: six have no atlas sprite and two have only a 1x1 atlas entry, all
 eight have only a burnt-tile fallback property and no depth assignment. A
@@ -218,11 +222,11 @@ load/render tests validate the generated registry in addition to the Python
 geometry audit.
 
 For the 3,077 roof identities referenced by installed map headers, the current
-breakdown is 2,881 compiled, 81 authored/unaccepted, two source placeholders
-and 113 rejected/unsupported. All 113 unresolved identities now have an
-explicit reason: 106 are unanchored overlays requiring topology-aware assembly
-and seven violate the conservative local envelope. There is no remaining
-unexplained map-referenced roof identity in this static corpus.
+breakdown is 2,881 unconditional depth surfaces, 76 contextual seam-gated
+surfaces, 81 authored/unaccepted, two source placeholders and 37
+rejected/unsupported. Every unresolved identity has an explicit source-backed
+reason; there is no unexplained map-referenced roof identity in this static
+corpus.
 
 The first isolated launch on 17 September loaded the staged registry and ran at
 59.91--60.08 completed callbacks/s with zero dropped mesh requests, but its
@@ -237,10 +241,22 @@ The captured scene identified 21 nearby `roofs_05_47` instances. PZ gives that
 identity a depth assignment for isometric occlusion, but no `BlockRain`, eave,
 floor or attachment property that would justify treating the assigned plane as
 square-local 3D geometry. The compiler now fails closed for the whole analogous
-class instead of patching one identity. The same window/view was recaptured at
+class in isolation instead of patching one identity. The same window/view was recaptured at
 `.local/captures/roof-anchor-filter-live-window.png`: the detached strips are
 absent and the anchored house roof remains. This accepts only that regression
 removal; V-12 remains open for broader building/motion coverage.
+
+PZ's installed `seams.txt` provides stronger evidence for a subset of that
+class: it names exact east/south and lower-level roof neighbors used by the
+client's own roof joining logic. The new registry keeps those 80 identities out
+of unconditional geometry and records the exact allowed offset and canonical
+targets. The Java renderer checks the immutable chunk snapshot and emits a
+candidate only when one of those neighbors is present; missing or cross-chunk
+context fails closed. In the retained scene, `roofs_02_15` is eligible at all
+10 instances and `roofs_05_47` at 20 of 21; the remaining instance is blocked.
+This is a measured assembly candidate, not yet a visual fix: the recovered
+plane could still be placed incorrectly, and the old detached-strip regression
+must be explicitly checked before acceptance.
 
 The same captured scene also contained 135 `roofs_30_02_*` instances. Before
 mask-preserving meshing, 108 of them were rejected because a convex hull around
@@ -259,7 +275,9 @@ The macOS session was locked during this check, so the bounded input harness
 correctly refused to inject a camera sweep. This is stationary evidence only,
 and the process was stopped rather than left running. The later 72-identity
 quantisation recovery is offline-tested only and has not been used to claim a
-new live visual improvement.
+new live visual improvement. The most recent launch attempt loaded an earlier
+generated registry but never exposed an inspectable game window, so it proves
+registry loading only. It was stopped; no PZ process is running.
 
 ## Checkpoint rule
 

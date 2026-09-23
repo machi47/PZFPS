@@ -37,11 +37,29 @@ public final class TileGeometryRegistry {
         }
     }
 
+    /** A PZ-declared neighbouring roof identity that makes contextual geometry safe. */
+    public record RoofJoin(int dx, int dy, int dz, String relation, List<String> targets) {
+        public RoofJoin {
+            targets = List.copyOf(targets);
+        }
+    }
+
     private final Map<String, List<Primitive>> bySprite;
+    private final Map<String, List<Primitive>> contextualBySprite;
+    private final Map<String, List<RoofJoin>> roofJoinsBySprite;
+    private final Map<String, String> roofTargetBySprite;
     private final String sourceSha256;
 
-    private TileGeometryRegistry(Map<String, List<Primitive>> bySprite, String sourceSha256) {
+    private TileGeometryRegistry(
+            Map<String, List<Primitive>> bySprite,
+            Map<String, List<Primitive>> contextualBySprite,
+            Map<String, List<RoofJoin>> roofJoinsBySprite,
+            Map<String, String> roofTargetBySprite,
+            String sourceSha256) {
         this.bySprite = Map.copyOf(bySprite);
+        this.contextualBySprite = Map.copyOf(contextualBySprite);
+        this.roofJoinsBySprite = Map.copyOf(roofJoinsBySprite);
+        this.roofTargetBySprite = Map.copyOf(roofTargetBySprite);
         this.sourceSha256 = sourceSha256;
     }
 
@@ -51,6 +69,24 @@ public final class TileGeometryRegistry {
             throw new IOException("unsupported tile geometry schema in " + path);
         }
         JSONObject tiles = root.getJSONObject("tiles");
+        HashMap<String, List<Primitive>> parsed = parseTileGeometry(tiles);
+        HashMap<String, String> roofTargets = parseRoofTargets(tiles);
+        JSONObject contextualTiles = root.optJSONObject("contextual_tiles");
+        HashMap<String, List<Primitive>> contextual = contextualTiles == null
+                ? new HashMap<>() : parseTileGeometry(contextualTiles);
+        HashMap<String, List<RoofJoin>> roofJoins = contextualTiles == null
+                ? new HashMap<>() : parseRoofJoins(contextualTiles);
+        if (contextualTiles != null) roofTargets.putAll(parseRoofTargets(contextualTiles));
+        return new TileGeometryRegistry(
+                parsed,
+                contextual,
+                roofJoins,
+                roofTargets,
+                root.optString("source_sha256", ""));
+    }
+
+    private static HashMap<String, List<Primitive>> parseTileGeometry(JSONObject tiles)
+            throws IOException {
         HashMap<String, List<Primitive>> parsed = new HashMap<>(tiles.length() * 2);
         for (String sprite : tiles.keySet()) {
             JSONArray source = tiles.getJSONObject(sprite).optJSONArray("geometry");
@@ -134,7 +170,47 @@ public final class TileGeometryRegistry {
             }
             if (!primitives.isEmpty()) parsed.put(sprite, List.copyOf(primitives));
         }
-        return new TileGeometryRegistry(parsed, root.optString("source_sha256", ""));
+        return parsed;
+    }
+
+    private static HashMap<String, String> parseRoofTargets(JSONObject tiles) {
+        HashMap<String, String> result = new HashMap<>();
+        for (String sprite : tiles.keySet()) {
+            JSONObject properties = tiles.getJSONObject(sprite).optJSONObject("properties");
+            if (properties == null) continue;
+            String target = properties.optString("depth_target", "");
+            if (!target.isBlank()) result.put(sprite, target);
+        }
+        return result;
+    }
+
+    private static HashMap<String, List<RoofJoin>> parseRoofJoins(JSONObject tiles)
+            throws IOException {
+        HashMap<String, List<RoofJoin>> result = new HashMap<>();
+        for (String sprite : tiles.keySet()) {
+            JSONObject properties = tiles.getJSONObject(sprite).optJSONObject("properties");
+            if (properties == null) continue;
+            JSONArray source = properties.optJSONArray("context_joins");
+            if (source == null || source.isEmpty()) continue;
+            ArrayList<RoofJoin> joins = new ArrayList<>(source.length());
+            for (int index = 0; index < source.length(); index++) {
+                JSONObject value = source.getJSONObject(index);
+                JSONArray offset = value.getJSONArray("offset");
+                if (offset.length() != 3) {
+                    throw new IOException("roof context offset must be a 3-vector for " + sprite);
+                }
+                JSONArray targets = value.getJSONArray("targets");
+                ArrayList<String> parsedTargets = new ArrayList<>(targets.length());
+                for (int target = 0; target < targets.length(); target++) {
+                    parsedTargets.add(targets.getString(target));
+                }
+                joins.add(new RoofJoin(
+                        offset.getInt(0), offset.getInt(1), offset.getInt(2),
+                        value.optString("relation", ""), parsedTargets));
+            }
+            result.put(sprite, List.copyOf(joins));
+        }
+        return result;
     }
 
     /** Merge evidence-derived geometry only where the installed authored registry has no mesh. */
@@ -143,13 +219,38 @@ public final class TileGeometryRegistry {
         TileGeometryRegistry derived = load(supplemental);
         HashMap<String, List<Primitive>> merged = new HashMap<>(derived.bySprite);
         merged.putAll(authored.bySprite);
+        HashMap<String, List<Primitive>> contextual = new HashMap<>(derived.contextualBySprite);
+        contextual.putAll(authored.contextualBySprite);
+        HashMap<String, List<RoofJoin>> roofJoins = new HashMap<>(derived.roofJoinsBySprite);
+        roofJoins.putAll(authored.roofJoinsBySprite);
+        HashMap<String, String> roofTargets = new HashMap<>(derived.roofTargetBySprite);
+        roofTargets.putAll(authored.roofTargetBySprite);
         return new TileGeometryRegistry(
                 merged,
+                contextual,
+                roofJoins,
+                roofTargets,
                 authored.sourceSha256 + "+supplemental:" + derived.sourceSha256);
     }
 
     public List<Primitive> geometry(String sprite) {
         return bySprite.getOrDefault(sprite, List.of());
+    }
+
+    public List<Primitive> contextualGeometry(String sprite) {
+        return contextualBySprite.getOrDefault(sprite, List.of());
+    }
+
+    public List<RoofJoin> roofJoins(String sprite) {
+        return roofJoinsBySprite.getOrDefault(sprite, List.of());
+    }
+
+    public String roofTarget(String sprite) {
+        return roofTargetBySprite.getOrDefault(sprite, sprite);
+    }
+
+    public int contextualTileCount() {
+        return contextualBySprite.size();
     }
 
     public int tileCount() {

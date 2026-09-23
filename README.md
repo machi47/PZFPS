@@ -38,6 +38,15 @@ onto the actual object instances in a retained runtime snapshot. Scope
 membership is a work queue, not an assertion that every identity visibly
 reproduces the example defect or has passed live acceptance.
 
+Roof recovery is likewise corpus-wide rather than house-specific. The current
+installed audit has 4,291 unconditional depth/alpha-derived roof identities and
+80 additional contextual identities. Contextual faces are never emitted from a
+depth assignment alone: the registry records exact neighbor relations parsed
+from PZ's installed `seams.txt`, and the renderer requires the named canonical
+roof neighbor in the immutable chunk snapshot. Missing context fails closed.
+This path is tested and staged but remains pending its first moving-view live
+acceptance; it must not be read as proof that the remaining roofs look correct.
+
 `pzcanonical from-pz` directly reads the actual B42 geometry registry and sprite extraction manifest formats, including primitive rotations, tapered cylinders and concave polygons. It fits the source image anchor by silhouette overlap and refuses bad matches rather than warping known geometry. This connects the new compiler to the published asset indexers without a manual schema rewrite.
 
 **Validation:** the canonical CPU suite has 25 passing tests and a complete offline orbit. See [the measured result](evidence/canonical-validation.json). Its original calibration fixture is not a PZ asset. Learned inference has not been executed with model weights in the Chat environment. The existing game's runtime diagnostics are in `docs/STATUS.md`; no CPU fixture establishes accepted gameplay, multiplayer correctness, photorealistic quality or Mac GPU performance.

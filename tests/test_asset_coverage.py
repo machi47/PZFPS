@@ -215,6 +215,51 @@ class AssetCoverageTests(unittest.TestCase):
             self.assertEqual(roof["depth_surface_target"], "roofs_02_3")
             self.assertEqual(roof["visual_issue_scope_ids"], ["V-12"])
 
+    def test_scene_report_evaluates_contextual_roof_neighbours(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            coverage = root / "coverage.json"
+            coverage.write_text(json.dumps({
+                "game_version": "42.20",
+                "tile_texture_identities": [
+                    {
+                        "identity": "roofs_overlay_0",
+                        "category": "roof",
+                        "coverage_state": "implemented_contextual_pending_live_acceptance",
+                        "renderer_rule": "installed_seam_contextual_roof_surface",
+                        "visual_issue_scope_ids": ["V-12"],
+                        "depth_surface_target": "roofs_shape_1",
+                        "contextual_depth_surface_joins": [{
+                            "offset": [0, 1, 0],
+                            "targets": ["roofs_shape_0"],
+                        }],
+                    },
+                    {
+                        "identity": "roofs_colour_0",
+                        "category": "roof",
+                        "coverage_state": "implemented_pending_live_acceptance",
+                        "renderer_rule": "installed_depth_planar_surface",
+                        "visual_issue_scope_ids": ["V-12"],
+                        "depth_surface_target": "roofs_shape_0",
+                    },
+                ],
+            }))
+            scene = root / "scene.json"
+            scene.write_text(json.dumps({"squares": [
+                {"position": [10, 20, 2], "objects": [{"sprite": "roofs_overlay_0"}]},
+                {"position": [10, 21, 2], "objects": [{"sprite": "roofs_colour_0"}]},
+                {"position": [20, 20, 2], "objects": [{"sprite": "roofs_overlay_0"}]},
+            ]}))
+            report = build_scene_coverage(scene, coverage)
+            self.assertEqual(report["summary"]["contextual_roof_instances_eligible"], 1)
+            self.assertEqual(report["summary"]["contextual_roof_instances_blocked"], 1)
+            overlay = next(
+                item for item in report["identities"]
+                if item["identity"] == "roofs_overlay_0"
+            )
+            self.assertEqual(overlay["contextually_eligible_instances"], 1)
+            self.assertEqual(overlay["contextually_blocked_instances"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

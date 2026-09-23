@@ -406,22 +406,27 @@ def command_assets_compile_roof_surfaces(args: argparse.Namespace) -> int:
     map_usage = args.map_usage or LOCAL / "assets" / f"pz-{version}" / "map-header-usage.json"
     assignments = media / "tileDepthTextureAssignments.txt"
     depthmaps = media / "depthmaps"
+    seams = media / "seams.txt"
     output = args.output or LOCAL / "assets" / f"pz-{version}" / "roof-depth-surfaces.json"
     for label, path in (("tile-definition index", definitions), ("texture index", textures),
                         ("map-header usage", map_usage),
                         ("depth assignments", assignments),
-                        ("depth-map directory", depthmaps)):
+                        ("depth-map directory", depthmaps),
+                        ("roof seam topology", seams)):
         if not path.exists():
             raise UserError(f"{label} is absent: {path}")
     document = compile_planar_roof_surfaces(
         definitions, assignments, depthmaps, output,
-        game_version=version, textures_path=textures, map_usage_path=map_usage)
+        game_version=version, textures_path=textures, map_usage_path=map_usage,
+        seams_path=seams)
     _print_json({
         "schema_version": document["schema_version"],
         "game_version": document["game_version"],
         "method": document["method"],
         "tile_count": document["tile_count"],
         "triangle_count": document["triangle_count"],
+        "contextual_tile_count": document["contextual_tile_count"],
+        "contextual_triangle_count": document["contextual_triangle_count"],
         "source_equivalent_alias_count": document["source_equivalent_alias_count"],
         "rejected": document["rejected"],
         "skipped": document["skipped"],

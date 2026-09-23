@@ -89,6 +89,7 @@ def renderer_rule(
     name: str,
     geometry_count: int,
     depth_surface_count: int = 0,
+    contextual_depth_surface_count: int = 0,
     *,
     source_placeholder: bool = False,
 ) -> tuple[str, str]:
@@ -107,6 +108,11 @@ def renderer_rule(
         return "installed_authored_geometry", "implemented_unaccepted"
     if kind == "roof" and depth_surface_count:
         return "installed_depth_planar_surface", "implemented_pending_live_acceptance"
+    if kind == "roof" and contextual_depth_surface_count:
+        return (
+            "installed_seam_contextual_roof_surface",
+            "implemented_contextual_pending_live_acceptance",
+        )
     if kind == "roof":
         return "no_roof_family_assembly", "rejected_or_unsupported"
     if kind == "door":
@@ -174,6 +180,7 @@ def build_coverage(
     texture_records = textures.get("textures", {})
     definition_records = definitions.get("tiles", {})
     depth_surface_records = depth_surfaces.get("tiles", {})
+    contextual_depth_surface_records = depth_surfaces.get("contextual_tiles", {})
     depth_surface_rejections = depth_surfaces.get("rejected_identities", {})
     depth_surface_skips = depth_surfaces.get("skipped_identities", {})
     map_usage_records = map_usage.get("identities", {})
@@ -182,6 +189,7 @@ def build_coverage(
         | set(texture_records)
         | set(definition_records)
         | set(depth_surface_records)
+        | set(contextual_depth_surface_records)
         | set(depth_surface_rejections)
         | set(depth_surface_skips)
         | set(map_usage_records)
@@ -194,6 +202,12 @@ def build_coverage(
         record = tile_records.get(identity, {})
         primitives = record.get("geometry", [])
         depth_primitives = depth_surface_records.get(identity, {}).get("geometry", [])
+        contextual_depth_primitives = contextual_depth_surface_records.get(
+            identity, {}
+        ).get("geometry", [])
+        contextual_properties = contextual_depth_surface_records.get(
+            identity, {}
+        ).get("properties", {})
         depth_rejection = depth_surface_rejections.get(identity, {})
         depth_skip = depth_surface_skips.get(identity, {})
         map_record = map_usage_records.get(identity, {})
@@ -201,6 +215,7 @@ def build_coverage(
             identity,
             len(primitives),
             len(depth_primitives),
+            len(contextual_depth_primitives),
             source_placeholder=bool(depth_skip),
         )
         kind = category(identity)
@@ -220,13 +235,25 @@ def build_coverage(
             "depth_surface_primitive_kinds": dict(sorted(
                 Counter(value.get("kind", "unknown") for value in depth_primitives).items()
             )),
+            "contextual_depth_surface_primitive_count": len(contextual_depth_primitives),
+            "contextual_depth_surface_primitive_kinds": dict(sorted(
+                Counter(value.get("kind", "unknown") for value in contextual_depth_primitives).items()
+            )),
+            "contextual_depth_surface_joins": contextual_properties.get(
+                "context_joins", []
+            ),
             "depth_surface_rejection_reason": depth_rejection.get("reason", ""),
             "depth_surface_rejection_detail": depth_rejection.get("detail", ""),
             "depth_surface_skip_reason": depth_skip.get("reason", ""),
             "depth_surface_skip_evidence": depth_skip.get("evidence", ""),
             "depth_surface_target": depth_rejection.get(
                 "depth_target",
-                depth_surface_records.get(identity, {}).get("properties", {}).get("depth_target", ""),
+                depth_surface_records.get(identity, {}).get("properties", {}).get(
+                    "depth_target",
+                    contextual_depth_surface_records.get(identity, {}).get(
+                        "properties", {}
+                    ).get("depth_target", ""),
+                ),
             ),
             "renderer_rule": rule,
             "coverage_state": state,
@@ -298,6 +325,9 @@ def build_coverage(
             "identities_with_source_geometry": sum(row["primitive_count"] > 0 for row in rows),
             "identities_with_depth_surfaces": sum(
                 row["depth_surface_primitive_count"] > 0 for row in rows
+            ),
+            "identities_with_contextual_depth_surfaces": sum(
+                row["contextual_depth_surface_primitive_count"] > 0 for row in rows
             ),
             "model_identities": len(model_rows),
             "item_identities": len(item_rows),
@@ -406,6 +436,13 @@ def build_scene_coverage(scene_path: Path, coverage_path: Path) -> dict[str, Any
     issue_counts: Counter[str] = Counter()
     depth_rejection_counts: Counter[str] = Counter()
     object_count = 0
+    square_index = {
+        tuple(square.get("position", [])): square
+        for square in scene.get("squares", [])
+        if len(square.get("position", [])) == 3
+    }
+    contextual_eligible = 0
+    contextual_blocked = 0
     for square in scene.get("squares", []):
         position = square.get("position", [])
         for obj in square.get("objects", []):
@@ -424,6 +461,34 @@ def build_scene_coverage(scene_path: Path, coverage_path: Path) -> dict[str, Any
                 issue_counts[issue_id] += 1
             if row and row.get("depth_surface_rejection_reason"):
                 depth_rejection_counts[row["depth_surface_rejection_reason"]] += 1
+            joins = row.get("contextual_depth_surface_joins", []) if row else []
+            context_matches = False
+            if joins and len(position) == 3:
+                for join in joins:
+                    offset = join.get("offset", [])
+                    if len(offset) != 3:
+                        continue
+                    neighbour = square_index.get(tuple(
+                        int(position[index]) + int(offset[index]) for index in range(3)
+                    ))
+                    if neighbour is None:
+                        continue
+                    targets = set(join.get("targets", []))
+                    for neighbour_object in neighbour.get("objects", []):
+                        neighbour_identity = str(neighbour_object.get("sprite", "")).strip()
+                        neighbour_row = indexed.get(neighbour_identity, {})
+                        neighbour_target = neighbour_row.get(
+                            "depth_surface_target", neighbour_identity
+                        ) or neighbour_identity
+                        if neighbour_target in targets:
+                            context_matches = True
+                            break
+                    if context_matches:
+                        break
+                if context_matches:
+                    contextual_eligible += 1
+                else:
+                    contextual_blocked += 1
             item = identities.setdefault(identity, {
                 "identity": identity,
                 "category": kind,
@@ -438,11 +503,19 @@ def build_scene_coverage(scene_path: Path, coverage_path: Path) -> dict[str, Any
                 ),
                 "depth_surface_target": row.get("depth_surface_target", "") if row else "",
                 "instances": 0,
+                "contextually_eligible_instances": 0,
+                "contextually_blocked_instances": 0,
                 "sample_positions": [],
                 "java_types": set(),
                 "object_kinds": set(),
             })
             item["instances"] += 1
+            if joins:
+                key = (
+                    "contextually_eligible_instances"
+                    if context_matches else "contextually_blocked_instances"
+                )
+                item[key] += 1
             if len(item["sample_positions"]) < 8 and len(position) == 3:
                 item["sample_positions"].append(position)
             item["java_types"].add(str(obj.get("java", "")))
@@ -470,6 +543,8 @@ def build_scene_coverage(scene_path: Path, coverage_path: Path) -> dict[str, Any
             "depth_surface_rejected_instances_by_reason": dict(
                 sorted(depth_rejection_counts.items())
             ),
+            "contextual_roof_instances_eligible": contextual_eligible,
+            "contextual_roof_instances_blocked": contextual_blocked,
             "identities_absent_from_installed_corpus": sum(
                 item["coverage_state"] == "absent_from_installed_corpus" for item in rows
             ),

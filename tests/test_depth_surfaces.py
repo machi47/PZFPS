@@ -19,6 +19,7 @@ from pzfps.depth_surfaces import (
     has_physical_roof_anchor,
     opaque_rectangles,
     parse_depth_assignments,
+    parse_roof_seams,
     Plane3,
     PlanarPatch,
     point_on_implicit_plane,
@@ -259,6 +260,7 @@ class DepthSurfaceTests(unittest.TestCase):
             assignments.write_text(
                 "tileDepthTextureAssignments\n{\nVERSION = 1,\n"
                 "roofs_color_0 = roofs_depth_0,\n"
+                "roofs_overlay_0 = roofs_depth_0,\n"
                 "walls_exterior_roofs_color_0 = preset_depthmaps_01_0,\n}\n"
             )
             pixels = []
@@ -288,7 +290,7 @@ class DepthSurfaceTests(unittest.TestCase):
             self.assertEqual(report["rejected"]["unanchored_roof_overlay"], 2)
             self.assertEqual(report["rejected_identities"]["roofs_overlay_0"], {
                 "reason": "unanchored_roof_overlay",
-                "depth_target": "roofs_overlay_0",
+                "depth_target": "roofs_depth_0",
             })
             self.assertIn("walls_exterior_roofs_color_0", report["tiles"])
             self.assertEqual(report["skipped"], {"empty_source_placeholder": 1})
@@ -303,6 +305,41 @@ class DepthSurfaceTests(unittest.TestCase):
             self.assertEqual(parse_depth_assignments(assignments)["roofs_color_0"], "roofs_depth_0")
             self.assertGreater(report["audit"]["finite_points"], 0)
             self.assertEqual(audit_roof_surfaces(report), report["audit"])
+
+            seams = root / "seams.txt"
+            seams.write_text("""
+                seams
+                {
+                    VERSION = 1,
+                    tileset
+                    {
+                        name = roofs_depth,
+                        tile
+                        {
+                            xy = 0x0,
+                            south
+                            {
+                                roofs_depth_1 =,
+                            }
+                        }
+                    }
+                }
+            """)
+            seam_records = parse_roof_seams(seams)
+            self.assertEqual(seam_records["roofs_depth_0"]["south"], ["roofs_depth_1"])
+            contextual_output = root / "contextual-surfaces.json"
+            contextual = compile_planar_roof_surfaces(
+                definitions, assignments, depthmaps, contextual_output,
+                game_version="42.20", textures_path=textures, seams_path=seams)
+            self.assertIn("roofs_overlay_0", contextual["contextual_tiles"])
+            candidate = contextual["contextual_tiles"]["roofs_overlay_0"]
+            self.assertEqual(candidate["properties"]["depth_target"], "roofs_depth_0")
+            self.assertEqual(candidate["properties"]["context_joins"], [{
+                "relation": "south",
+                "offset": [0, 1, 0],
+                "targets": ["roofs_depth_1"],
+            }])
+            self.assertNotIn("roofs_overlay_0", contextual["rejected_identities"])
 
 
 if __name__ == "__main__":

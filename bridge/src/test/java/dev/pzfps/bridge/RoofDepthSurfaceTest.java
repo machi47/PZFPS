@@ -60,6 +60,57 @@ final class RoofDepthSurfaceTest {
         assertEquals(0, mesh.coverage().structuralFallbackObjects());
     }
 
+    @Test
+    void contextualRoofSurfaceRequiresDeclaredNeighbourFromSnapshot() throws Exception {
+        Path authored = temporary.resolve("authored-context.json");
+        Path derived = temporary.resolve("derived-context.json");
+        Files.writeString(authored, """
+                {"schema_version":1,"source_sha256":"authored","tiles":{}}
+                """);
+        Files.writeString(derived, """
+                {"schema_version":1,"source_sha256":"depth","tiles":{
+                  "roofs_colour_0":{"geometry":[],"properties":{"depth_target":"roofs_shape_0"}}
+                },"contextual_tiles":{
+                  "roofs_overlay_0":{
+                    "geometry":[{"kind":"triangle","points":[[-.5,0,-.5],[.5,0,-.5],[.5,1,.5]]}],
+                    "properties":{
+                      "depth_target":"roofs_shape_1",
+                      "context_joins":[{
+                        "relation":"south","offset":[0,1,0],"targets":["roofs_shape_0"]
+                      }]
+                    }
+                  }
+                }}
+                """);
+        TileGeometryRegistry registry = TileGeometryRegistry.load(authored, derived);
+        assertEquals(1, registry.contextualTileCount());
+
+        WorldState.TileObject overlay = new WorldState.TileObject(
+                0, "IsoObject", "WestRoofT", "roofs_overlay_0",
+                false, false, false, false, false, false, false);
+        WorldState.Square source = new WorldState.Square(
+                0, 0, 1, -1, 0, 255, 255, 255,
+                false, true, false, false, false, false, List.of(overlay));
+        WorldMeshBuilder.MeshData isolated = new WorldMeshBuilder(registry)
+                .build(new WorldState.Chunk(0, 0, 1, 1, List.of(source)));
+        assertEquals(0, isolated.coverage().contextualRoofObjects());
+        assertEquals(1, isolated.coverage().unsupportedObjects());
+
+        WorldState.TileObject neighbour = new WorldState.TileObject(
+                0, "IsoObject", "WestRoofT", "roofs_colour_0",
+                false, false, false, false, false, false, false);
+        WorldState.Square south = new WorldState.Square(
+                0, 1, 1, -1, 0, 255, 255, 255,
+                false, true, false, false, false, false, List.of(neighbour));
+        WorldMeshBuilder.MeshData joined = new WorldMeshBuilder(registry)
+                .build(new WorldState.Chunk(0, 0, 1, 1, List.of(source, south)));
+        assertEquals(1, joined.coverage().contextualRoofObjects());
+        assertEquals(1, joined.coverage().authoredGeometryObjects());
+        assertEquals(3, joined.texturedBatches().stream()
+                .filter(batch -> batch.sprite().equals("roofs_overlay_0"))
+                .findFirst().orElseThrow().vertexCount());
+    }
+
     /** Opt-in parser/load audit for the local proprietary-derived registry. */
     @Test
     void installedCompiledRoofRegistryWhenExplicitlyProvided() throws Exception {

@@ -210,8 +210,9 @@ public final class InProcessWorldRenderer {
             WorldMeshBuilder builder = new WorldMeshBuilder(registry);
             ASSETS_READY.set(true);
             System.out.printf(
-                    "[PZFPS] in-process geometry ready tiles=%d sha256=%s queue=%d%n",
-                    registry.tileCount(), registry.sourceSha256(), MAX_PENDING_CHUNKS);
+                    "[PZFPS] in-process geometry ready tiles=%d contextualRoofs=%d sha256=%s queue=%d%n",
+                    registry.tileCount(), registry.contextualTileCount(),
+                    registry.sourceSha256(), MAX_PENDING_CHUNKS);
             while (!Thread.currentThread().isInterrupted()) {
                 WorldState.Chunk chunk = PENDING.take();
                 MESHES.put(chunk.key(), builder.build(chunk));
@@ -250,7 +251,7 @@ public final class InProcessWorldRenderer {
                 CullingCounts culling = state.lastCulling;
                 WorldMeshBuilder.Coverage coverage = state.lastCoverage;
                 System.out.printf(
-                        "[PZFPS renderer] completedFrames=%d enqueuedFrames=%d completedCallbackHz=%s meshes=%d visible=%d empty=%d distanceCulled=%d frustumCulled=%d built=%d dropped=%d stateAgeMs=%d sourceFloors=%d flatFloors=%d stairOpenings=%d indexedObjects=%d structuralFallbacks=%d mirroredStructuralFaces=%d completedInteriorCeilings=%d nativeItems=%d unsupportedObjects=%d collisionHoles=%d truncatedChunks=%d%n",
+                        "[PZFPS renderer] completedFrames=%d enqueuedFrames=%d completedCallbackHz=%s meshes=%d visible=%d empty=%d distanceCulled=%d frustumCulled=%d built=%d dropped=%d stateAgeMs=%d sourceFloors=%d flatFloors=%d stairOpenings=%d indexedObjects=%d contextualRoofs=%d structuralFallbacks=%d mirroredStructuralFaces=%d completedInteriorCeilings=%d nativeItems=%d unsupportedObjects=%d collisionHoles=%d truncatedChunks=%d%n",
                         completed,
                         ENQUEUED_FRAMES.get(),
                         Double.isFinite(completedHz)
@@ -268,6 +269,7 @@ public final class InProcessWorldRenderer {
                         coverage.flatFallbackFloors(),
                         coverage.stairFloorOpenings(),
                         coverage.authoredGeometryObjects(),
+                        coverage.contextualRoofObjects(),
                         coverage.structuralFallbackObjects(),
                         coverage.mirroredStructuralFaces(),
                         coverage.completedInteriorCeilings(),

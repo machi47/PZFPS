@@ -57,6 +57,7 @@ public final class WorldMeshBuilder {
             int flatFallbackFloors,
             int stairFloorOpenings,
             int authoredGeometryObjects,
+            int contextualRoofObjects,
             int structuralFallbackObjects,
             int mirroredStructuralFaces,
             int completedInteriorCeilings,
@@ -65,7 +66,7 @@ public final class WorldMeshBuilder {
             int collisionCriticalUnsupportedObjects,
             int truncatedChunks) {
         public static Coverage none() {
-            return new Coverage(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+            return new Coverage(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
         }
 
         public Coverage plus(Coverage other) {
@@ -74,6 +75,7 @@ public final class WorldMeshBuilder {
                     flatFallbackFloors + other.flatFallbackFloors,
                     stairFloorOpenings + other.stairFloorOpenings,
                     authoredGeometryObjects + other.authoredGeometryObjects,
+                    contextualRoofObjects + other.contextualRoofObjects,
                     structuralFallbackObjects + other.structuralFallbackObjects,
                     mirroredStructuralFaces + other.mirroredStructuralFaces,
                     completedInteriorCeilings + other.completedInteriorCeilings,
@@ -126,6 +128,7 @@ public final class WorldMeshBuilder {
         int flatFallbackFloors = 0;
         int stairFloorOpenings = 0;
         int authoredGeometryObjects = 0;
+        int contextualRoofObjects = 0;
         int structuralFallbackObjects = 0;
         int mirroredStructuralFaces = 0;
         int completedInteriorCeilings = 0;
@@ -223,6 +226,12 @@ public final class WorldMeshBuilder {
                     continue;
                 }
                 List<TileGeometryRegistry.Primitive> geometry = registry.geometry(object.sprite());
+                boolean contextualRoof = false;
+                if (geometry.isEmpty()
+                        && hasJoinedRoofContext(object, square, squaresByPosition)) {
+                    geometry = registry.contextualGeometry(object.sprite());
+                    contextualRoof = !geometry.isEmpty();
+                }
                 var wallAttachment = WallAttachmentAssembly.placement(
                         object, geometry, square.sealedEdges());
                 if (FenceAssembly.shortChainLink(object)) {
@@ -250,6 +259,7 @@ public final class WorldMeshBuilder {
                     primitiveCount++;
                 } else if (!geometry.isEmpty()) {
                     authoredGeometryObjects++;
+                    if (contextualRoof) contextualRoofObjects++;
                     FloatBuilder batch = textured.computeIfAbsent(
                             object.sprite(),
                             ignored -> new FloatBuilder(512, TEXTURED_FLOATS_PER_VERTEX));
@@ -385,6 +395,7 @@ public final class WorldMeshBuilder {
                         flatFallbackFloors,
                         stairFloorOpenings,
                         authoredGeometryObjects,
+                        contextualRoofObjects,
                         structuralFallbackObjects,
                         mirroredStructuralFaces,
                         completedInteriorCeilings,
@@ -400,6 +411,31 @@ public final class WorldMeshBuilder {
                 bounds[3],
                 bounds[4],
                 bounds[5]);
+    }
+
+    /**
+     * Contextual roof faces are emitted only when the immutable chunk snapshot contains a
+     * neighbour named by PZ's installed roof seam graph. Missing cross-chunk context fails
+     * closed; it never recreates the detached roof strips this path replaced.
+     */
+    private boolean hasJoinedRoofContext(
+            WorldState.TileObject object,
+            WorldState.Square square,
+            Map<Long, WorldState.Square> squaresByPosition) {
+        if (registry.contextualGeometry(object.sprite()).isEmpty()) return false;
+        for (TileGeometryRegistry.RoofJoin join : registry.roofJoins(object.sprite())) {
+            WorldState.Square neighbour = squaresByPosition.get(squarePositionKey(
+                    square.localX() + join.dx(),
+                    square.localY() + join.dy(),
+                    square.z() + join.dz()));
+            if (neighbour == null) continue;
+            for (WorldState.TileObject neighbourObject : neighbour.objects()) {
+                if (join.targets().contains(registry.roofTarget(neighbourObject.sprite()))) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private static String floorSprite(WorldState.Square square) {

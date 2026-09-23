@@ -38,6 +38,7 @@ def compile_planar_roof_surfaces(
     game_version: str,
     textures_path: Path | None = None,
     map_usage_path: Path | None = None,
+    seams_path: Path | None = None,
 ) -> dict[str, Any]:
     """Recover planar roof patches from PZ's own per-pixel depth evidence."""
     definitions = json.loads(definitions_path.read_text(encoding="utf-8"))
@@ -55,6 +56,7 @@ def compile_planar_roof_surfaces(
     )
     if map_usage_path is not None and map_usage.get("game_version") != game_version:
         raise DepthSurfaceError("map usage index describes a different game version")
+    roof_seams = parse_roof_seams(seams_path) if seams_path is not None else {}
     assignments = parse_depth_assignments(assignments_path)
     tiles: dict[str, Any] = definitions.get("tiles", {})
     texture_records: dict[str, Any] = textures.get("textures", {})
@@ -62,6 +64,7 @@ def compile_planar_roof_surfaces(
     target_cache: dict[str, tuple[list[dict[str, Any]], dict[str, Any]] | str] = {}
     target_error_details: dict[str, str] = {}
     compiled: dict[str, dict[str, Any]] = {}
+    contextual: dict[str, dict[str, Any]] = {}
     rejected: dict[str, int] = {}
     rejected_identities: dict[str, dict[str, str]] = {}
     skipped: dict[str, int] = {}
@@ -194,6 +197,42 @@ def compile_planar_roof_surfaces(
             "properties": properties,
         }
 
+    # A plain roofs_* sprite without a physical anchor cannot safely be emitted on its
+    # square in isolation: several of these are compositor overlays and previously became
+    # detached strips.  PZ's installed seams graph does, however, identify the exact roof
+    # neighbours that make some of those pieces part of a continuous assembly.  Promote
+    # only candidates whose canonical depth target has both a fitted surface and at least
+    # one declared neighbour relation.  Runtime still has to prove such a neighbour exists.
+    for identity, rejection in list(rejected_identities.items()):
+        if rejection.get("reason") != "unanchored_roof_overlay":
+            continue
+        target = str(rejection.get("depth_target", ""))
+        cached = target_cache.get(target)
+        target_surface = compiled.get(target)
+        if target_surface is not None:
+            geometry = target_surface["geometry"]
+            properties = target_surface.get("properties", {})
+        elif isinstance(cached, tuple):
+            geometry, properties = cached
+        else:
+            continue
+        topology = roof_seams.get(target, {})
+        joins = roof_context_joins(topology)
+        if not joins:
+            continue
+        contextual[identity] = {
+            "geometry": geometry,
+            "properties": dict(properties) | {
+                "depth_target": target,
+                "contextual_rule": "installed_roof_seam_neighbour",
+                "context_joins": joins,
+            },
+        }
+        rejected_identities.pop(identity)
+        rejected["unanchored_roof_overlay"] -= 1
+        if rejected["unanchored_roof_overlay"] == 0:
+            rejected.pop("unanchored_roof_overlay")
+
     source_equivalent_aliases = compile_source_equivalent_roof_aliases(
         compiled,
         texture_records,
@@ -228,6 +267,8 @@ def compile_planar_roof_surfaces(
         source_hashes["texture_index"] = sha256_file(textures_path)
     if map_usage_path is not None:
         source_hashes["map_usage"] = sha256_file(map_usage_path)
+    if seams_path is not None:
+        source_hashes["roof_seams"] = sha256_file(seams_path)
     document = {
         "schema_version": 1,
         "generated_at": now_utc(),
@@ -238,6 +279,7 @@ def compile_planar_roof_surfaces(
             "depthmaps": str(depthmaps),
             "texture_index": str(textures_path) if textures_path is not None else "not supplied",
             "map_usage": str(map_usage_path) if map_usage_path is not None else "not supplied",
+            "roof_seams": str(seams_path) if seams_path is not None else "not supplied",
         },
         "source_sha256": _stable_hash(source_hashes),
         "source_hashes": source_hashes,
@@ -245,15 +287,117 @@ def compile_planar_roof_surfaces(
         "source_equivalent_alias_count": len(source_equivalent_aliases),
         "tile_count": len(compiled),
         "triangle_count": sum(len(value["geometry"]) for value in compiled.values()),
+        "contextual_tile_count": len(contextual),
+        "contextual_triangle_count": sum(
+            len(value["geometry"]) for value in contextual.values()
+        ),
         "rejected": dict(sorted(rejected.items())),
         "rejected_identities": dict(sorted(rejected_identities.items())),
         "skipped": dict(sorted(skipped.items())),
         "skipped_identities": dict(sorted(skipped_identities.items())),
         "tiles": compiled,
+        "contextual_tiles": contextual,
     }
     document["audit"] = audit_roof_surfaces(document)
     write_json(output, document)
     return document
+
+
+def parse_roof_seams(path: Path) -> dict[str, dict[str, Any]]:
+    """Parse the installed seams.txt subset used by PZ's roof join renderer.
+
+    Tile coordinates are converted exactly as the client does: ``column + row * 8``.
+    The parser intentionally retains only identity joins and the optional master identity;
+    it does not copy or reinterpret unrelated installed seam data.
+    """
+    text = path.read_text(encoding="utf-8")
+    import re
+
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+    stack: list[str] = []
+    pending = ""
+    tileset = ""
+    tile: dict[str, Any] | None = None
+    result: dict[str, dict[str, Any]] = {}
+    join_names = {
+        "east": "east",
+        "south": "south",
+        "belowEast": "below_east",
+        "belowSouth": "below_south",
+    }
+    block_names = {"seams", "tileset", "tile", "east", "south", "belowEast", "belowSouth", "properties"}
+
+    for line_number, raw in enumerate(text.splitlines(), 1):
+        line = raw.split("//", 1)[0].strip()
+        if not line:
+            continue
+        if line in block_names:
+            pending = line
+            continue
+        if line == "{":
+            if not pending:
+                raise DepthSurfaceError(f"seams line {line_number}: unexpected opening brace")
+            stack.append(pending)
+            if pending == "tile":
+                if not tileset or tile is not None:
+                    raise DepthSurfaceError(f"seams line {line_number}: invalid tile nesting")
+                tile = {"master": "", "east": [], "south": [], "below_east": [], "below_south": []}
+            pending = ""
+            continue
+        if line == "}":
+            if pending or not stack:
+                raise DepthSurfaceError(f"seams line {line_number}: unexpected closing brace")
+            block = stack.pop()
+            if block == "tile":
+                if tile is None or "xy" not in tile:
+                    raise DepthSurfaceError(f"seams line {line_number}: tile missing xy")
+                column, row = tile.pop("xy")
+                result[f"{tileset}_{column + row * 8}"] = tile
+                tile = None
+            elif block == "tileset":
+                tileset = ""
+            continue
+        if "=" not in line:
+            raise DepthSurfaceError(f"seams line {line_number}: malformed statement {line!r}")
+        key, value = (part.strip().rstrip(",") for part in line.split("=", 1))
+        block = stack[-1] if stack else ""
+        if block == "tileset" and key == "name":
+            tileset = value
+        elif block == "tile" and key == "xy":
+            try:
+                column, row = (int(part) for part in value.split("x", 1))
+            except ValueError as error:
+                raise DepthSurfaceError(
+                    f"seams line {line_number}: invalid tile coordinate {value!r}"
+                ) from error
+            assert tile is not None
+            tile["xy"] = (column, row)
+        elif block in join_names:
+            assert tile is not None
+            tile[join_names[block]].append(key)
+        elif block == "properties" and key == "master":
+            assert tile is not None
+            tile["master"] = value
+        # VERSION and future properties are deliberately ignored.
+
+    if stack or pending or tile is not None:
+        raise DepthSurfaceError("unterminated seams.txt block")
+    return result
+
+
+def roof_context_joins(topology: dict[str, Any]) -> list[dict[str, Any]]:
+    """Translate PZ's four roof-neighbour relations into runtime square offsets."""
+    relations = (
+        ("east", 1, 0, 0),
+        ("south", 0, 1, 0),
+        ("below_east", 1, 0, -1),
+        ("below_south", 0, 1, -1),
+    )
+    return [
+        {"relation": relation, "offset": [dx, dy, dz], "targets": list(targets)}
+        for relation, dx, dy, dz in relations
+        if (targets := topology.get(relation, []))
+    ]
 
 
 def compile_source_equivalent_roof_aliases(
@@ -783,45 +927,59 @@ def audit_roof_surfaces(document: dict[str, Any]) -> dict[str, Any]:
     """Fail closed when compiled vertices cannot reproduce their source-tile footprint."""
     tile_count = 0
     triangle_count = 0
+    contextual_tile_count = 0
+    contextual_triangle_count = 0
     points: list[list[float]] = []
     minimum_triangle_area = math.inf
     maximum_hull_fill_ratio = 0.0
-    for identity, record in document.get("tiles", {}).items():
-        geometry = record.get("geometry", [])
-        if not geometry:
-            raise DepthSurfaceError(f"compiled roof has no geometry: {identity}")
-        tile_count += 1
-        maximum_hull_fill_ratio = max(
-            maximum_hull_fill_ratio,
-            float(record.get("properties", {}).get("opaque_hull_fill_ratio", 0.0)),
-        )
-        for primitive in geometry:
-            if primitive.get("kind") != "triangle" or len(primitive.get("points", [])) != 3:
-                raise DepthSurfaceError(f"compiled roof contains a non-triangle: {identity}")
-            triangle = primitive["points"]
-            if not all(len(point) == 3 for point in triangle):
-                raise DepthSurfaceError(f"compiled roof contains a malformed point: {identity}")
-            if not all(math.isfinite(float(value)) for point in triangle for value in point):
-                raise DepthSurfaceError(f"compiled roof contains a non-finite point: {identity}")
-            area = triangle_area_3d(triangle)
-            if area <= 1e-8:
-                raise DepthSurfaceError(f"compiled roof contains a degenerate triangle: {identity}")
-            minimum_triangle_area = min(minimum_triangle_area, area)
-            for point in triangle:
-                u, v = source_pixel(point)
-                if not (-1e-3 <= u <= _TILE_WIDTH + 1e-3
-                        and -1e-3 <= v <= _TILE_HEIGHT + 1e-3):
-                    raise DepthSurfaceError(
-                        f"compiled roof projects outside its source tile: {identity} ({u}, {v})"
-                    )
-                points.append(point)
-            triangle_count += 1
+    for section_name in ("tiles", "contextual_tiles"):
+        for identity, record in document.get(section_name, {}).items():
+            geometry = record.get("geometry", [])
+            if not geometry:
+                raise DepthSurfaceError(f"compiled roof has no geometry: {identity}")
+            if section_name == "tiles":
+                tile_count += 1
+            else:
+                contextual_tile_count += 1
+            maximum_hull_fill_ratio = max(
+                maximum_hull_fill_ratio,
+                float(record.get("properties", {}).get("opaque_hull_fill_ratio", 0.0)),
+            )
+            for primitive in geometry:
+                if primitive.get("kind") != "triangle" or len(primitive.get("points", [])) != 3:
+                    raise DepthSurfaceError(f"compiled roof contains a non-triangle: {identity}")
+                triangle = primitive["points"]
+                if not all(len(point) == 3 for point in triangle):
+                    raise DepthSurfaceError(f"compiled roof contains a malformed point: {identity}")
+                if not all(math.isfinite(float(value)) for point in triangle for value in point):
+                    raise DepthSurfaceError(f"compiled roof contains a non-finite point: {identity}")
+                area = triangle_area_3d(triangle)
+                if area <= 1e-8:
+                    raise DepthSurfaceError(f"compiled roof contains a degenerate triangle: {identity}")
+                minimum_triangle_area = min(minimum_triangle_area, area)
+                for point in triangle:
+                    u, v = source_pixel(point)
+                    if not (-1e-3 <= u <= _TILE_WIDTH + 1e-3
+                            and -1e-3 <= v <= _TILE_HEIGHT + 1e-3):
+                        raise DepthSurfaceError(
+                            f"compiled roof projects outside its source tile: {identity} ({u}, {v})"
+                        )
+                    points.append(point)
+                if section_name == "tiles":
+                    triangle_count += 1
+                else:
+                    contextual_triangle_count += 1
     if tile_count != document.get("tile_count") or triangle_count != document.get("triangle_count"):
         raise DepthSurfaceError("compiled roof summary counts do not match emitted geometry")
+    if (contextual_tile_count != document.get("contextual_tile_count", 0)
+            or contextual_triangle_count != document.get("contextual_triangle_count", 0)):
+        raise DepthSurfaceError("contextual roof summary counts do not match emitted geometry")
     if not points:
         raise DepthSurfaceError("compiled roof document is empty")
     return {
         "finite_points": len(points),
+        "contextual_tiles": contextual_tile_count,
+        "contextual_triangles": contextual_triangle_count,
         "minimum_triangle_area": round(minimum_triangle_area, 9),
         "maximum_hull_fill_ratio": round(maximum_hull_fill_ratio, 7),
         "authored_bounds": {
