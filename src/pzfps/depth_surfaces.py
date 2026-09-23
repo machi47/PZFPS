@@ -20,6 +20,9 @@ _TILE_WIDTH = 128
 _TILE_HEIGHT = 256
 _SOURCE_Y_SCALE = 64.0 * math.sqrt(1.5)
 _DEPTH_Y_SCALE = 1.0 / (2.0 * math.sqrt(6.0))
+_STRICT_PATCH_DISTANCE = 0.018
+_QUANTISED_PATCH_DISTANCE = 0.025
+_MAXIMUM_PATCH_RMS = 0.012
 
 
 def compile_planar_roof_surfaces(
@@ -29,25 +32,29 @@ def compile_planar_roof_surfaces(
     output: Path,
     *,
     game_version: str,
+    textures_path: Path | None = None,
 ) -> dict[str, Any]:
-    """Recover strictly planar roof faces from PZ's own per-pixel depth evidence.
-
-    This is deliberately narrower than a generic sprite extrusion. A roof is emitted only
-    when one plane explains at least 97% of its valid depth pixels after quantisation-noise
-    trimming. Compound hips, ridges and eaves remain explicit holes until a multi-plane
-    compiler exists.
-    """
+    """Recover planar roof patches from PZ's own per-pixel depth evidence."""
     definitions = json.loads(definitions_path.read_text(encoding="utf-8"))
     if definitions.get("game_version") != game_version:
         raise DepthSurfaceError("tile definitions describe a different game version")
+    textures = (
+        json.loads(textures_path.read_text(encoding="utf-8"))
+        if textures_path is not None else {"textures": {}}
+    )
+    if textures_path is not None and textures.get("game_version") != game_version:
+        raise DepthSurfaceError("texture index describes a different game version")
     assignments = parse_depth_assignments(assignments_path)
     tiles: dict[str, Any] = definitions.get("tiles", {})
+    texture_records: dict[str, Any] = textures.get("textures", {})
     images: dict[Path, PngPixels] = {}
     target_cache: dict[str, tuple[list[dict[str, Any]], dict[str, Any]] | str] = {}
     target_error_details: dict[str, str] = {}
     compiled: dict[str, dict[str, Any]] = {}
     rejected: dict[str, int] = {}
     rejected_identities: dict[str, dict[str, str]] = {}
+    skipped: dict[str, int] = {}
+    skipped_identities: dict[str, dict[str, str]] = {}
 
     def reject(identity: str, reason: str, target: str, detail: str = "") -> None:
         _count(rejected, reason)
@@ -60,6 +67,20 @@ def compile_planar_roof_surfaces(
 
     for identity, definition in sorted(tiles.items()):
         if category(identity) != "roof":
+            continue
+        placeholder_evidence = empty_source_placeholder_evidence(
+            identity,
+            definition,
+            assignments,
+            texture_records,
+            texture_index_available=textures_path is not None,
+        )
+        if placeholder_evidence:
+            _count(skipped, "empty_source_placeholder")
+            skipped_identities[identity] = {
+                "reason": "empty_source_placeholder",
+                "evidence": placeholder_evidence,
+            }
             continue
         target = assignments.get(identity, identity)
         if not has_physical_roof_anchor(identity, definition):
@@ -129,9 +150,9 @@ def compile_planar_roof_surfaces(
                 samples,
             )]
             surface_method = "single_plane"
+            fit_inlier_distance_threshold = 0.03
         else:
-            patches = fit_piecewise_planar_surfaces(samples)
-            surface_method = "piecewise_planar"
+            patches, surface_method, fit_inlier_distance_threshold = fit_roof_planar_patches(samples)
         if not patches:
             target_cache[target] = "not_planar_surface"
             reject(identity, "not_planar_surface", target)
@@ -153,6 +174,7 @@ def compile_planar_roof_surfaces(
             "depth_target": target,
             "depth_image": depth_path.name,
             "surface_method": surface_method,
+            "fit_inlier_distance_threshold": fit_inlier_distance_threshold,
             **patch_properties,
         }
         target_cache[target] = (triangles, properties)
@@ -168,6 +190,8 @@ def compile_planar_roof_surfaces(
             path.name: sha256_file(path) for path in sorted(images)
         },
     }
+    if textures_path is not None:
+        source_hashes["texture_index"] = sha256_file(textures_path)
     document = {
         "schema_version": 1,
         "generated_at": now_utc(),
@@ -176,6 +200,7 @@ def compile_planar_roof_surfaces(
             "tile_definitions": str(definitions_path),
             "depth_assignments": str(assignments_path),
             "depthmaps": str(depthmaps),
+            "texture_index": str(textures_path) if textures_path is not None else "not supplied",
         },
         "source_sha256": _stable_hash(source_hashes),
         "source_hashes": source_hashes,
@@ -184,11 +209,40 @@ def compile_planar_roof_surfaces(
         "triangle_count": sum(len(value["geometry"]) for value in compiled.values()),
         "rejected": dict(sorted(rejected.items())),
         "rejected_identities": dict(sorted(rejected_identities.items())),
+        "skipped": dict(sorted(skipped.items())),
+        "skipped_identities": dict(sorted(skipped_identities.items())),
         "tiles": compiled,
     }
     document["audit"] = audit_roof_surfaces(document)
     write_json(output, document)
     return document
+
+
+def empty_source_placeholder_evidence(
+    identity: str,
+    definition: dict[str, Any],
+    assignments: dict[str, str],
+    texture_records: dict[str, Any],
+    *,
+    texture_index_available: bool,
+) -> str:
+    """Identify intentionally empty exterior-roof slots from installed-source evidence.
+
+    Build 42.20 contains eight ``walls_exterior_roofs_05`` definition slots whose only
+    property is a burnt-tile fallback. They have no depth assignment and are either absent
+    from the texture atlas or represented by a 1x1 placeholder. Treating those slots as
+    missing geometry inflates the unresolved roof count and invites fabricated surfaces.
+    """
+    if not texture_index_available or not identity.startswith("walls_exterior_roofs_"):
+        return ""
+    if set(definition.get("properties", {})) != {"BurntTile"} or identity in assignments:
+        return ""
+    texture = texture_records.get(identity)
+    if texture is None:
+        return "absent_from_texture_atlas; burnt_fallback_only; no_depth_assignment"
+    if int(texture.get("width", 0)) <= 1 and int(texture.get("height", 0)) <= 1:
+        return "one_pixel_texture_placeholder; burnt_fallback_only; no_depth_assignment"
+    return ""
 
 
 def has_physical_roof_anchor(identity: str, definition: dict[str, Any]) -> bool:
@@ -730,6 +784,33 @@ def fit_piecewise_planar_surfaces(
     if captured / len(samples) < minimum_coverage:
         return []
     return patches
+
+
+def fit_roof_planar_patches(
+    samples: list[tuple[float, float, float]],
+) -> tuple[list[PlanarPatch], str, float]:
+    """Fit quantised installed roof depth without silently accepting coarse geometry.
+
+    Most installed depth tiles meet the strict 0.018-unit residual threshold. A small set of
+    compound hips, fascia and preset structural depths land just outside that threshold after
+    their 8-bit depth quantisation. Retry those at 0.025, but retain the same 95% coverage gate
+    and reject any fitted patch whose RMS error exceeds the single-plane compiler's 0.012-unit
+    limit. The output records which path was used, so relaxed evidence remains auditable per
+    identity rather than becoming an invisible global tolerance change.
+    """
+    patches = fit_piecewise_planar_surfaces(
+        samples,
+        distance_threshold=_STRICT_PATCH_DISTANCE,
+    )
+    if patches:
+        return patches, "piecewise_planar", _STRICT_PATCH_DISTANCE
+    patches = fit_piecewise_planar_surfaces(
+        samples,
+        distance_threshold=_QUANTISED_PATCH_DISTANCE,
+    )
+    if not patches or any(patch.plane.rms > _MAXIMUM_PATCH_RMS for patch in patches):
+        return [], "", _QUANTISED_PATCH_DISTANCE
+    return patches, "piecewise_planar_quantised", _QUANTISED_PATCH_DISTANCE
 
 
 def _plane_from_three(

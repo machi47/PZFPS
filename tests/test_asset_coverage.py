@@ -49,6 +49,12 @@ class AssetCoverageTests(unittest.TestCase):
                         "detail": "fixture diagnostic",
                     },
                 },
+                "skipped_identities": {
+                    "walls_exterior_roofs_05_18": {
+                        "reason": "empty_source_placeholder",
+                        "evidence": "one_pixel_texture_placeholder",
+                    },
+                },
                 "tiles": {"roofs_02_3": {"geometry": [{"kind": "triangle"}]}},
             }))
             items = root / "items.json"
@@ -95,12 +101,23 @@ class AssetCoverageTests(unittest.TestCase):
                 "fixture diagnostic",
             )
             self.assertEqual(rows["roofs_02_3"]["source_properties"]["RoofGroup"], "3")
+            self.assertEqual(
+                rows["walls_exterior_roofs_05_18"]["coverage_state"],
+                "not_applicable_source_placeholder",
+            )
+            self.assertEqual(
+                rows["walls_exterior_roofs_05_18"]["depth_surface_skip_reason"],
+                "empty_source_placeholder",
+            )
             self.assertEqual(rows["furniture_storage_02_36"]["coverage_state"], "implemented_unaccepted")
             self.assertEqual(rows["texture_only_0"]["coverage_state"], "unsupported_unless_native_runtime_path")
             self.assertEqual(report["summary"]["model_states"], {"native_model_resolved": 1})
             self.assertEqual(report["summary"]["identities_with_depth_surfaces"], 1)
             self.assertEqual(report["summary"]["depth_surface_rejection_reasons"], {
                 "not_planar_surface": 1,
+            })
+            self.assertEqual(report["summary"]["depth_surface_skip_reasons"], {
+                "empty_source_placeholder": 1,
             })
             self.assertEqual(report["summary"]["item_identities"], 2)
             self.assertEqual(report["summary"]["item_states"], {

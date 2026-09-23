@@ -2,6 +2,7 @@ import json
 import struct
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 import zlib
 
@@ -9,8 +10,10 @@ from pzfps.depth_surfaces import (
     compile_planar_roof_surfaces,
     audit_roof_surfaces,
     depth_point,
+    empty_source_placeholder_evidence,
     fit_planar_surface,
     fit_piecewise_planar_surfaces,
+    fit_roof_planar_patches,
     has_physical_roof_anchor,
     opaque_rectangles,
     parse_depth_assignments,
@@ -37,6 +40,24 @@ def png_gray_alpha(width: int, height: int, pixels: list[tuple[int, int]]) -> by
 
 
 class DepthSurfaceTests(unittest.TestCase):
+    def test_empty_roof_slot_requires_atlas_and_semantic_evidence(self) -> None:
+        definition = {"properties": {"BurntTile": "walls_burnt_roofs_01_18"}}
+        identity = "walls_exterior_roofs_05_18"
+        self.assertIn("one_pixel_texture_placeholder", empty_source_placeholder_evidence(
+            identity, definition, {}, {identity: {"width": 1, "height": 1}},
+            texture_index_available=True,
+        ))
+        self.assertIn("absent_from_texture_atlas", empty_source_placeholder_evidence(
+            identity, definition, {}, {}, texture_index_available=True,
+        ))
+        self.assertEqual(empty_source_placeholder_evidence(
+            identity, definition, {identity: "preset_depthmaps_01_0"}, {},
+            texture_index_available=True,
+        ), "")
+        self.assertEqual(empty_source_placeholder_evidence(
+            identity, definition, {}, {}, texture_index_available=False,
+        ), "")
+
     def test_depth_helper_identity_resolves_without_tile_definition(self) -> None:
         self.assertEqual(split_tile_identity("preset_depthmaps_01_5"), ("preset_depthmaps_01", 5))
 
@@ -113,10 +134,45 @@ class DepthSurfaceTests(unittest.TestCase):
         self.assertGreaterEqual(len(patches), 2)
         self.assertGreaterEqual(sum(len(patch.samples) for patch in patches), len(samples) * 0.95)
 
+    def test_roof_fit_retries_quantised_depth_but_keeps_rms_gate(self) -> None:
+        samples = [(float(index), 0.0, 0.0) for index in range(64)]
+        strict = [PlanarPatch(Plane3((0.0, 1.0, 0.0), 0.0, 1.0, 0.004), samples)]
+        relaxed = [PlanarPatch(Plane3((0.0, 1.0, 0.0), 0.0, 1.0, 0.011), samples)]
+        with mock.patch(
+            "pzfps.depth_surfaces.fit_piecewise_planar_surfaces",
+            side_effect=[[], relaxed],
+        ) as fit:
+            patches, method, threshold = fit_roof_planar_patches(samples)
+        self.assertEqual(patches, relaxed)
+        self.assertEqual(method, "piecewise_planar_quantised")
+        self.assertEqual(threshold, 0.025)
+        self.assertEqual(fit.call_count, 2)
+
+        with mock.patch(
+            "pzfps.depth_surfaces.fit_piecewise_planar_surfaces",
+            return_value=strict,
+        ) as fit:
+            patches, method, threshold = fit_roof_planar_patches(samples)
+        self.assertEqual(patches, strict)
+        self.assertEqual(method, "piecewise_planar")
+        self.assertEqual(threshold, 0.018)
+        fit.assert_called_once()
+
+        too_coarse = [PlanarPatch(Plane3((0.0, 1.0, 0.0), 0.0, 1.0, 0.0121), samples)]
+        with mock.patch(
+            "pzfps.depth_surfaces.fit_piecewise_planar_surfaces",
+            side_effect=[[], too_coarse],
+        ):
+            patches, method, threshold = fit_roof_planar_patches(samples)
+        self.assertEqual(patches, [])
+        self.assertEqual(method, "")
+        self.assertEqual(threshold, 0.025)
+
     def test_compiles_only_planar_roof_depth_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             definitions = root / "definitions.json"
+            textures = root / "textures.json"
             assignments = root / "assignments.txt"
             depthmaps = root / "depthmaps"
             depthmaps.mkdir()
@@ -129,6 +185,17 @@ class DepthSurfaceTests(unittest.TestCase):
                     "walls_exterior_roofs_color_0": {
                         "tileset": "walls_exterior_roofs_color", "xy": [0, 0], "properties": {}
                     },
+                    "walls_exterior_roofs_empty_0": {
+                        "tileset": "walls_exterior_roofs_empty",
+                        "xy": [0, 0],
+                        "properties": {"BurntTile": "walls_burnt_roofs_01_18"},
+                    },
+                },
+            }))
+            textures.write_text(json.dumps({
+                "game_version": "42.20",
+                "textures": {
+                    "walls_exterior_roofs_empty_0": {"width": 1, "height": 1},
                 },
             }))
             assignments.write_text(
@@ -154,7 +221,8 @@ class DepthSurfaceTests(unittest.TestCase):
             )
             output = root / "surfaces.json"
             report = compile_planar_roof_surfaces(
-                definitions, assignments, depthmaps, output, game_version="42.20")
+                definitions, assignments, depthmaps, output,
+                game_version="42.20", textures_path=textures)
             self.assertIn("roofs_color_0", report["tiles"])
             self.assertNotIn("roofs_overlay_0", report["tiles"])
             # The explicit overlay and the unanchored depth-helper identity itself both
@@ -165,6 +233,10 @@ class DepthSurfaceTests(unittest.TestCase):
                 "depth_target": "roofs_overlay_0",
             })
             self.assertIn("walls_exterior_roofs_color_0", report["tiles"])
+            self.assertEqual(report["skipped"], {"empty_source_placeholder": 1})
+            self.assertIn("one_pixel_texture_placeholder", report["skipped_identities"][
+                "walls_exterior_roofs_empty_0"
+            ]["evidence"])
             self.assertEqual(
                 report["tiles"]["walls_exterior_roofs_color_0"]["properties"]["depth_target"],
                 "preset_depthmaps_01_0",

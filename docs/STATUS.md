@@ -1,6 +1,6 @@
 # Project status
 
-Recorded 17 September 2026 (America/Denver).
+Recorded 23 September 2026 (America/Denver).
 
 ## Current phase
 
@@ -29,10 +29,11 @@ The current stationary capture shows the formerly rejected `roofs_30_02`
 surfaces present on the nearby building without the earlier detached strips.
 The macOS session was locked, so safe input refused to run and no moving-view
 acceptance is claimed. This is a narrow visible improvement, not broad roof acceptance.
-The subsequently regenerated local file is
-`8239a5e636be9bd5fb60b497206fcba771fcdd97278032569f287d75c5481d71`;
-only rejection metadata naming changed after the live run, so it was not used to
-justify another game reload.
+The subsequently regenerated local registry is
+`7b66178406b5e65c8b3d646200c725758b41873532401fb3cd07d3c4b4288c2a`.
+It contains a new offline-validated quantised-depth recovery described below;
+it has not been live-loaded because `loginwindow` is foreground, so it is not
+used to claim another visible improvement or to justify an untestable reload.
 No normal save, installed game binary or unrelated mod was changed.
 
 ### Installed corpus ledger and depth-derived roof checkpoint
@@ -65,12 +66,16 @@ identities are present and only 84 have installed authored source primitives.
 planar patches from PZ's installed depth atlases using the game's source
 projection/depth equations. Concave source silhouettes use an exact alpha-mask
 rectangle decomposition instead of an unsafe convex hull. The local supplemental
-registry contains 4,296 identities and 86,009 triangles; 4,218 roof identities
+registry contains 4,368 identities and 87,191 triangles; 4,287 roof identities
 are pending broader live acceptance. Authored geometry wins when both paths
-exist. The compiler rejects 8 entries with no depth image, 72 non-planar entries,
-11 unsafe tile-local surfaces and 112 unanchored roof-overlay entries, leaving
-267 roof identities rejected/unsupported after authored precedence. Each
-rejected identity now records its reason, detail and depth target. This is a systemic
+exist. A strict-first 0.025 retry recovers 72 compound identities whose
+quantised source depth narrowly missed the 0.018 inlier threshold; every patch
+still passes 95% source coverage and a 0.012 RMS gate, with a measured maximum
+of 0.0116119. The compiler rejects 11 unsafe tile-local surfaces and 112
+unanchored roof-overlay entries, leaving 190 roof identities
+rejected/unsupported after authored precedence. It separately records eight
+confirmed empty source placeholders rather than misreporting them as missing
+geometry. Each rejected or skipped identity records its reason and evidence. This is a systemic
 identity-level representation path, not a per-house patch and not a broad
 visual acceptance claim.
 
@@ -132,6 +137,21 @@ not gameplay FPS or GPU frame time. State age rose while authoritative updates
 were paused/stalled. Because `loginwindow` was foreground, the bounded input
 harness refused to move the camera; the process was stopped and V-12 remains
 open for a moving two-sided sweep.
+
+The current offline pass then retested the 72 remaining `not_planar_surface`
+identities against the installed 8-bit depth evidence. A 0.025 inlier tolerance
+recovers all 72 while the independent 0.012 RMS gate rejects a coarse fit; the
+compiler records `piecewise_planar_quantised` and its threshold per identity.
+The retained 690-roof scene therefore moves from 566 to 568 compiled instances,
+with 84 authored and 38 rejected/unsupported. The eight former missing-depth
+entries were audited against both definitions and atlas metadata: six have no
+sprite, two are 1x1 placeholders, and all eight expose only a burnt-tile
+fallback with no depth assignment. They are now `not_applicable_source_placeholder`,
+not fabricated geometry. Python discovery passes 38 tests. The clean Gradle
+build passes 129 tests with one unrelated opt-in test skipped and explicitly
+loads the 4,368-entry generated registry. An initial targeted Python run exposed
+a Python 3.14 `unittest.mock` import assumption; the import was corrected before
+the passing full suite. No game process was started for this pass.
 
 The indexed source properties retain `RoofGroup`, `BlockRain`, `attached*`,
 `isEave`, `diamondFloor` and `solidfloor` roles for later topology grouping.

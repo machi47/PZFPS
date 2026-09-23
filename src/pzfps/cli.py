@@ -401,15 +401,18 @@ def command_assets_compile_roof_surfaces(args: argparse.Namespace) -> int:
     version = report["game"]["version"]
     media = Path(install) / "Project Zomboid.app" / "Contents" / "Java" / "media"
     definitions = args.definitions or LOCAL / "assets" / f"pz-{version}" / "tile-definitions.json"
+    textures = args.textures or LOCAL / "assets" / f"pz-{version}" / "Tiles2x-texture-index.json"
     assignments = media / "tileDepthTextureAssignments.txt"
     depthmaps = media / "depthmaps"
     output = args.output or LOCAL / "assets" / f"pz-{version}" / "roof-depth-surfaces.json"
-    for label, path in (("tile-definition index", definitions), ("depth assignments", assignments),
+    for label, path in (("tile-definition index", definitions), ("texture index", textures),
+                        ("depth assignments", assignments),
                         ("depth-map directory", depthmaps)):
         if not path.exists():
             raise UserError(f"{label} is absent: {path}")
     document = compile_planar_roof_surfaces(
-        definitions, assignments, depthmaps, output, game_version=version)
+        definitions, assignments, depthmaps, output,
+        game_version=version, textures_path=textures)
     _print_json({
         "schema_version": document["schema_version"],
         "game_version": document["game_version"],
@@ -417,6 +420,7 @@ def command_assets_compile_roof_surfaces(args: argparse.Namespace) -> int:
         "tile_count": document["tile_count"],
         "triangle_count": document["triangle_count"],
         "rejected": document["rejected"],
+        "skipped": document["skipped"],
         "output": str(output),
     })
     return 0
@@ -712,6 +716,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="derive strict planar roof faces from installed PZ depth textures",
     )
     roof_surfaces.add_argument("--definitions", type=Path)
+    roof_surfaces.add_argument("--textures", type=Path)
     roof_surfaces.add_argument("--output", type=Path)
     roof_surfaces.set_defaults(func=command_assets_compile_roof_surfaces)
     textures = asset_commands.add_parser(

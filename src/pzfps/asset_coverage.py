@@ -54,7 +54,15 @@ def category(name: str) -> str:
     return "other"
 
 
-def renderer_rule(name: str, geometry_count: int, depth_surface_count: int = 0) -> tuple[str, str]:
+def renderer_rule(
+    name: str,
+    geometry_count: int,
+    depth_surface_count: int = 0,
+    *,
+    source_placeholder: bool = False,
+) -> tuple[str, str]:
+    if source_placeholder:
+        return "empty_installed_source_placeholder", "not_applicable_source_placeholder"
     exact = EXACT_RULES.get(name)
     if exact:
         return exact
@@ -130,12 +138,14 @@ def build_coverage(
     definition_records = definitions.get("tiles", {})
     depth_surface_records = depth_surfaces.get("tiles", {})
     depth_surface_rejections = depth_surfaces.get("rejected_identities", {})
+    depth_surface_skips = depth_surfaces.get("skipped_identities", {})
     identities = sorted(
         set(tile_records)
         | set(texture_records)
         | set(definition_records)
         | set(depth_surface_records)
         | set(depth_surface_rejections)
+        | set(depth_surface_skips)
     )
     rows: list[dict[str, Any]] = []
     by_category: dict[str, Counter[str]] = defaultdict(Counter)
@@ -144,7 +154,13 @@ def build_coverage(
         primitives = record.get("geometry", [])
         depth_primitives = depth_surface_records.get(identity, {}).get("geometry", [])
         depth_rejection = depth_surface_rejections.get(identity, {})
-        rule, state = renderer_rule(identity, len(primitives), len(depth_primitives))
+        depth_skip = depth_surface_skips.get(identity, {})
+        rule, state = renderer_rule(
+            identity,
+            len(primitives),
+            len(depth_primitives),
+            source_placeholder=bool(depth_skip),
+        )
         item = {
             "identity": identity,
             "category": category(identity),
@@ -159,6 +175,8 @@ def build_coverage(
             )),
             "depth_surface_rejection_reason": depth_rejection.get("reason", ""),
             "depth_surface_rejection_detail": depth_rejection.get("detail", ""),
+            "depth_surface_skip_reason": depth_skip.get("reason", ""),
+            "depth_surface_skip_evidence": depth_skip.get("evidence", ""),
             "depth_surface_target": depth_rejection.get(
                 "depth_target",
                 depth_surface_records.get(identity, {}).get("properties", {}).get("depth_target", ""),
@@ -236,6 +254,10 @@ def build_coverage(
             "depth_surface_rejection_reasons": dict(sorted(Counter(
                 row["depth_surface_rejection_reason"] for row in rows
                 if row["depth_surface_rejection_reason"]
+            ).items())),
+            "depth_surface_skip_reasons": dict(sorted(Counter(
+                row["depth_surface_skip_reason"] for row in rows
+                if row["depth_surface_skip_reason"]
             ).items())),
             "by_category": {
                 key: {"total": sum(value.values()), "states": dict(sorted(value.items()))}

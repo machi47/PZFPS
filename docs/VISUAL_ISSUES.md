@@ -26,7 +26,7 @@ machine-readable installed-asset audit is
 | V-09 | Doors disappear when open, remain paper-thin, and need transparent panes plus coherent hinge motion | 17–19 | **Rejected**. Current renderer is a state-aware edge card, not a 3D door. | Closed/open states use one persistent volumetric asset, correct hinge/pivot and thickness; glass panes preserve transparency. |
 | V-10 | Rejected door experiment stretched one isometric crop across guessed box faces, creating stacked/distorted shapes and opaque glass | 33 | **Regression removed**. Never an accepted checkpoint. | The rejected six-face path remains absent; a future replacement must pass V-09 before deployment. |
 | V-11 | Short chain-link fence tiles/gates do not meet and alternate offsets; material/depth ordering is unstable | 09, 20 | **Partial, unaccepted**. Only `fencing_01_24..27` share a boundary-panel rule; gates and 1,210 other fence identities are not accepted. | Continuous endpoints, height and depth across straight runs, corners and gates in both viewing directions. |
-| V-12 | Roofs are missing huge sections, transparent from some sides, or assembled as disconnected/malformed cards | 21, 34, three live roof checkpoints | **Partial, rejected overall; two narrow improvements visible live**. Installed depth atlases now produce source-projected surfaces for 4,218 roof identities; 84 retain installed authored geometry and 267 remain rejected/unsupported. The first valid capture exposed detached strips from unanchored upper-storey overlays. A semantic fail-closed rule removed 112 compiler entries, including all 21 nearby `roofs_05_47` instances. Exact alpha-mask meshing then recovered 402 concave identities previously rejected by a convex-hull check, including every `roofs_30_02_*` identity in the captured scene. The latest stationary frame has continuous visible slopes on that building. Motion, roof junctions, undersides and other buildings remain unaccepted. | Watertight eaves, slopes, ridges, hips/valleys and undersides across representative one- and two-storey buildings, with no detached surfaces or camera-side disappearance. |
+| V-12 | Roofs are missing huge sections, transparent from some sides, or assembled as disconnected/malformed cards | 21, 34, three live roof checkpoints | **Partial, rejected overall; two narrow improvements visible live**. Installed depth atlases now produce source-projected surfaces for 4,287 roof identities; 84 retain installed authored geometry, 190 remain rejected/unsupported and 8 are proven empty source placeholders. A strict-first quantisation retry recovered 72 compound roof identities while retaining the 0.012 RMS safety gate. The first valid capture exposed detached strips from unanchored upper-storey overlays. A semantic fail-closed rule removed 112 compiler entries, including all 21 nearby `roofs_05_47` instances. Exact alpha-mask meshing recovered the concave `roofs_30_02_*` identities in the captured scene. The latest stationary frame has continuous visible slopes on that building, but the new 72-identity compiler pass has not been live-loaded because the desktop is locked. Motion, roof junctions, undersides and other buildings remain unaccepted. | Watertight eaves, slopes, ridges, hips/valleys and undersides across representative one- and two-storey buildings, with no detached surfaces or camera-side disappearance. |
 | V-13 | Render distance is too short to read a substantial part of town | 09, 21 | **Open**. Projection far plane is 400m, but loaded/visible chunk range and asset correctness—not only the far plane—limit useful distance. | Measured chunk/mesh visibility at agreed town-scale distance without missing simulation state or unacceptable frame-time/memory regression. |
 | V-14 | Need a coherent skybox synchronized to authoritative time through pause and time acceleration | 34 | **Prototype rejected as insufficient**. Only a clock-driven two-color screen gradient exists; the pictured night result is effectively black. | Horizon, celestial/time progression and weather-aware sky remain synchronized to PZ time in pause/1x/fast-forward and are visibly credible. |
 | V-15 | Need robust lighting with semantic source types rather than arbitrary darkness | 01, 06–08, 34 | **Open**. Current pass samples raw square RGB with an exposure floor; it has no sun/sky/fixture semantic model, shadows or calibrated materials. | Directional sun/sky plus typed local emitters, stable exposure, occlusion and day/night transitions validated in the same route. |
@@ -52,7 +52,7 @@ Important category totals from the current audit:
 
 | Category | Identities | Honest renderer state |
 |---|---:|---|
-| Roof | 4,569 | 4,218 compiled from installed depth atlases pending broader live acceptance; 84 authored-geometry identities unaccepted; 267 rejected/unsupported |
+| Roof | 4,569 | 4,287 compiled from installed depth atlases pending broader live acceptance; 84 authored-geometry identities unaccepted; 190 rejected/unsupported; 8 proven empty source placeholders |
 | Door | 166 | all rejected as non-volumetric |
 | Window | 648 | all rejected as non-physical |
 | Fence | 1,214 | four exact short-chain-link identities implemented but unaccepted; 1,210 unaccepted |
@@ -148,17 +148,25 @@ scanline rectangles that exactly cover its alpha mask. Non-finite, degenerate,
 out-of-bounds or source-projection violations still fail closed. Authored tile
 geometry has precedence over the supplemental registry.
 
-The current local output contains 4,296 supplemental identities and 86,009
-triangles. Of those identities, 4,218 are roof-category identities; the
+The current local output contains 4,368 supplemental identities and 87,191
+triangles. Of those identities, 4,287 are roof-category identities; the
 remainder are installed depth helpers used by the same deterministic path. Of
-the emitted identities, 402 use exact alpha-mask rectangle decomposition (21,633
-rectangles). The compiler now rejects 8 entries with no depth image, 72 that do
-not meet the piecewise-planar constraint, 11 that still exceed the conservative
-tile-local envelope and 112 entries without installed physical anchoring
-semantics. Every rejected identity records its reason, diagnostic detail and
-depth target in `roof-depth-surfaces.json`; those fields flow into both global
-and captured-scene coverage reports. Java load/render tests validate the
-generated registry in addition to the Python geometry audit.
+the emitted identities, 414 use exact alpha-mask rectangle decomposition (21,810
+rectangles). Seventy-two compound roof identities that narrowly missed the
+strict 0.018 inlier threshold now use an auditable 0.025 quantisation retry.
+Every accepted patch still passes the existing 95% source-depth coverage rule
+and 0.012 maximum RMS gate; the measured corpus maximum is 0.0116119.
+
+The compiler rejects 11 targets that exceed the conservative tile-local
+envelope and 112 entries without installed physical anchoring semantics. Eight
+former `missing_depth_image` entries are now separately classified as source
+placeholders: six have no atlas sprite and two have only a 1x1 atlas entry, all
+eight have only a burnt-tile fallback property and no depth assignment. They
+are not counted as missing renderable roofs. Every rejected or skipped identity
+records its reason and source evidence in `roof-depth-surfaces.json`; those
+fields flow into both global and captured-scene coverage reports. Java
+load/render tests validate the generated registry in addition to the Python
+geometry audit.
 
 The first isolated launch on 17 September loaded the staged registry and ran at
 59.91--60.08 completed callbacks/s with zero dropped mesh requests, but its
@@ -182,15 +190,20 @@ The same captured scene also contained 135 `roofs_30_02_*` instances. Before
 mask-preserving meshing, 108 of them were rejected because a convex hull around
 their concave source silhouettes would invent opaque roof over transparent
 pixels. All 135 now resolve to compiled geometry. Across the entire 690-roof
-scene, compiled instances rose from 458 to 566 and rejected/unsupported
-instances fell from 148 to 40; the remaining 84 use authored geometry. PID
+scene, the current offline compiler resolves 568 instances, 84 use authored
+geometry and 38 remain rejected/unsupported. The supplemental rejection audit
+still lists 39 unanchored-overlay instances and one unsafe-envelope instance;
+two of those also have authored geometry, which takes precedence in the final
+coverage state. PID
 44309 loaded supplemental registry SHA-256
 `78fec525c09663f93648beb90dbc5dcec680d85bc0b16cbd17842cb6b213a4e7`.
 The exact-window capture at `.local/captures/roof-mask-live-window.png` shows the
 target building's visible slopes present without the earlier detached strips.
 The macOS session was locked during this check, so the bounded input harness
 correctly refused to inject a camera sweep. This is stationary evidence only,
-and the process was stopped rather than left running.
+and the process was stopped rather than left running. The later 72-identity
+quantisation recovery is offline-tested only and has not been used to claim a
+new live visual improvement.
 
 ## Checkpoint rule
 
