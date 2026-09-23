@@ -250,9 +250,11 @@ PZ's installed `seams.txt` provides stronger evidence for a subset of that
 class: it names exact east/south and lower-level roof neighbors used by the
 client's own roof joining logic. The new registry keeps those 80 identities out
 of unconditional geometry and records the exact allowed offset and canonical
-targets. The Java renderer checks the immutable chunk snapshot and emits a
-candidate only when one of those neighbors is present; missing or cross-chunk
-context fails closed. In the retained scene, `roofs_02_15` is eligible at all
+targets. The Java renderer checks an immutable snapshot neighborhood and emits
+a candidate only when one of those neighbors is present. Loaded east/south
+neighboring chunks participate; an unavailable neighbor fails closed, and a
+target update/removal rebuilds the dependent west/north mesh. In the retained
+scene, `roofs_02_15` is eligible at all
 10 instances and `roofs_05_47` at 20 of 21; the remaining instance is blocked.
 This is a measured assembly candidate, not yet a visual fix: the recovered
 plane could still be placed incorrectly, and the old detached-strip regression

@@ -24,7 +24,7 @@ No isolated PZ process is currently running. PID 65845 was stopped at
 inspectable CoreGraphics game window appeared. Its log proved only that an
 earlier generated registry loaded; it is not visual evidence. The current
 staged bridge JAR is
-`df69adb58c15a4fa1189383ad4913d030b647ae81d35620e4ed4c6315bcef0d8` and the
+`e60e0cf64e758e26a3dfc2ca8363cdbb254702dccbb6b7a26213fe1c626f0c2a` and the
 current staged supplemental roof registry is
 `e63c520cd2506e6738973c81e0cb784ee7c0ec1c378e4bb4301c9d3d7a881b18`.
 The latest code adds a source-backed contextual roof assembly path described
@@ -112,10 +112,16 @@ The retained 690-roof scene now also audits contextual assembly rather than
 counting every source-assigned plane as safe. Thirty contextual instances have
 their declared neighbor in the same immutable snapshot and one is blocked.
 `roofs_02_15` is eligible at 10/10 instances; `roofs_05_47` is eligible at
-20/21. Missing cross-chunk context deliberately fails closed. This is useful
-topology evidence, but not proof that the reconstructed plane has correct 3D
-placement: the prior detached-strip regression must still be rejected or
-accepted in a moving live view.
+20/21. The mesh worker now supplies immutable east/south neighboring chunks,
+and target changes or unloads enqueue dependent west/north meshes. Context
+that is not loaded still fails closed. Stale work is discarded if a newer
+snapshot arrives or the source unloads. Context eligibility is folded into the
+mesh revision, so a blocked-to-joined transition cannot be hidden by the GPU
+cache merely because the source chunk's PZ fingerprint stayed unchanged. This
+is useful topology evidence, but
+not proof that the reconstructed plane has correct 3D placement: the prior
+detached-strip regression must still be rejected or accepted in a moving live
+view.
 
 At the initial depth-surface checkpoint, Python discovery passed 35 tests and
 the clean Gradle build passed 129 tests, including loading that supplemental registry, validating 3,894 entries
@@ -1512,7 +1518,7 @@ Most recent test results:
 - Disposable save:
   `.local/pz-runtime/user-cache/Zomboid/Saves/Top Of The World/46507890207760758489`.
 - Latest staged bridge JAR SHA-256:
-  `df69adb58c15a4fa1189383ad4913d030b647ae81d35620e4ed4c6315bcef0d8`.
+  `e60e0cf64e758e26a3dfc2ca8363cdbb254702dccbb6b7a26213fe1c626f0c2a`.
 - Last live-loaded supplemental roof registry SHA-256:
   `78fec525c09663f93648beb90dbc5dcec680d85bc0b16cbd17842cb6b213a4e7`.
 - Current local supplemental roof registry SHA-256:

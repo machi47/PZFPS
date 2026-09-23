@@ -50,6 +50,9 @@ public final class InProcessWorldRenderer {
     private static final AtomicReference<TimeOfDaySky> SKY = new AtomicReference<>(
             TimeOfDaySky.from(12, 6, 20, 0));
     private static final ChunkLighting.Store LIGHTING = new ChunkLighting.Store(4096);
+    /** Latest accepted immutable snapshots; workers never dereference live PZ objects. */
+    private static final ConcurrentHashMap<Long, WorldState.Chunk> CHUNKS =
+            new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<Long, WorldMeshBuilder.MeshData> MESHES =
             new ConcurrentHashMap<>();
     private static final ChunkQueue PENDING = new ChunkQueue(MAX_PENDING_CHUNKS);
@@ -91,7 +94,18 @@ public final class InProcessWorldRenderer {
     public static void submitChunk(WorldState.Chunk chunk) {
         if (!ENABLED) return;
         LIGHTING.put(chunk.key(), ChunkLighting.fromChunk(chunk));
-        if (!PENDING.offer(chunk)) DROPPED_CHUNKS.incrementAndGet();
+        WorldState.Chunk previous = CHUNKS.put(chunk.key(), chunk);
+        enqueue(chunk);
+        // Contextual roof pieces only point east/south. A changed target may therefore
+        // change eligibility in the immutable chunk immediately west or north of it. Compare
+        // roof identities on just those target edges so routine revisions do not triple mesh
+        // traffic across the whole loaded window.
+        if (roofContextEdgeChanged(previous, chunk, true)) {
+            enqueueIfPresent(chunk.worldX() - 1, chunk.worldY());
+        }
+        if (roofContextEdgeChanged(previous, chunk, false)) {
+            enqueueIfPresent(chunk.worldX(), chunk.worldY() - 1);
+        }
     }
 
     static void acceptLighting(long key, ChunkLighting lighting) {
@@ -100,8 +114,23 @@ public final class InProcessWorldRenderer {
 
     public static void removeChunk(long key) {
         PENDING.remove(key);
+        WorldState.Chunk removed = CHUNKS.remove(key);
         MESHES.remove(key);
         LIGHTING.remove(key);
+        if (removed != null) {
+            // Rebuild dependents so a contextual surface cannot survive after its target unloads.
+            enqueueIfPresent(removed.worldX() - 1, removed.worldY());
+            enqueueIfPresent(removed.worldX(), removed.worldY() - 1);
+        }
+    }
+
+    private static void enqueue(WorldState.Chunk chunk) {
+        if (!PENDING.offer(chunk)) DROPPED_CHUNKS.incrementAndGet();
+    }
+
+    private static void enqueueIfPresent(int worldX, int worldY) {
+        WorldState.Chunk chunk = CHUNKS.get(chunkKey(worldX, worldY));
+        if (chunk != null) enqueue(chunk);
     }
 
     /** Called by advice on the game/render-state producer thread. */
@@ -215,7 +244,10 @@ public final class InProcessWorldRenderer {
                     registry.sourceSha256(), MAX_PENDING_CHUNKS);
             while (!Thread.currentThread().isInterrupted()) {
                 WorldState.Chunk chunk = PENDING.take();
-                MESHES.put(chunk.key(), builder.build(chunk));
+                WorldMeshBuilder.MeshData mesh = builder.build(chunk, roofContext(chunk, CHUNKS));
+                // A remove or newer accepted revision may race bounded mesh work. Never publish
+                // an obsolete mesh after either event; the current revision is already queued.
+                if (CHUNKS.get(chunk.key()) == chunk) MESHES.put(chunk.key(), mesh);
                 BUILT_CHUNKS.incrementAndGet();
             }
         } catch (InterruptedException error) {
@@ -224,6 +256,50 @@ public final class InProcessWorldRenderer {
             RENDER_FAILED.set(true);
             System.err.printf("[PZFPS] in-process renderer asset failure: %s%n", error);
         }
+    }
+
+    static List<WorldState.Chunk> roofContext(
+            WorldState.Chunk source, Map<Long, WorldState.Chunk> snapshots) {
+        ArrayList<WorldState.Chunk> result = new ArrayList<>(3);
+        addSnapshot(result, snapshots, source.worldX(), source.worldY());
+        addSnapshot(result, snapshots, source.worldX() + 1, source.worldY());
+        addSnapshot(result, snapshots, source.worldX(), source.worldY() + 1);
+        return List.copyOf(result);
+    }
+
+    private static void addSnapshot(
+            List<WorldState.Chunk> output,
+            Map<Long, WorldState.Chunk> snapshots,
+            int worldX,
+            int worldY) {
+        WorldState.Chunk chunk = snapshots.get(chunkKey(worldX, worldY));
+        if (chunk != null) output.add(chunk);
+    }
+
+    private static long chunkKey(int worldX, int worldY) {
+        return ((long) worldX << 32) ^ (worldY & 0xffff_ffffL);
+    }
+
+    static boolean roofContextEdgeChanged(
+            WorldState.Chunk previous, WorldState.Chunk current, boolean westEdge) {
+        return previous == null
+                ? !roofContextEdge(current, westEdge).isEmpty()
+                : !roofContextEdge(previous, westEdge).equals(roofContextEdge(current, westEdge));
+    }
+
+    private static List<String> roofContextEdge(WorldState.Chunk chunk, boolean westEdge) {
+        ArrayList<String> result = new ArrayList<>();
+        for (WorldState.Square square : chunk.squares()) {
+            if (westEdge ? square.localX() != 0 : square.localY() != 0) continue;
+            for (WorldState.TileObject object : square.objects()) {
+                String sprite = object.sprite();
+                if (!sprite.contains("roof")) continue;
+                result.add(square.localX() + ":" + square.localY() + ":" + square.z()
+                        + ":" + sprite);
+            }
+        }
+        result.sort(String::compareTo);
+        return List.copyOf(result);
     }
 
     private static void render(RenderSnapshot snapshot) {

@@ -13,6 +13,7 @@ public final class WorldMeshBuilder {
     public static final int FLOATS_PER_VERTEX = 10;
     public static final int TEXTURED_FLOATS_PER_VERTEX = 13;
     private static final float LEVEL_HEIGHT = 3.0f;
+    private static final int CHUNK_SIZE = zombie.iso.IsoChunkMap.CHUNK_SIZE_IN_SQUARES;
     // PZ's tile-depth scene uses 2*sqrt(1.5) authored units per floor, not 3.
     static final float AUTHORED_HEIGHT_TO_WORLD = (float) Math.sqrt(1.5);
     private static final int CYLINDER_SEGMENTS = 10;
@@ -117,6 +118,16 @@ public final class WorldMeshBuilder {
     }
 
     public MeshData build(WorldState.Chunk chunk) {
+        return build(chunk, List.of(chunk));
+    }
+
+    /**
+     * Builds one chunk while consulting only immutable neighboring snapshots for roof joins.
+     * Geometry still belongs exclusively to {@code chunk}; context chunks are never duplicated
+     * into its mesh.
+     */
+    public MeshData build(
+            WorldState.Chunk chunk, List<WorldState.Chunk> roofContextChunks) {
         FloatBuilder output = new FloatBuilder(16_384, FLOATS_PER_VERTEX);
         Map<String, FloatBuilder> textured = new LinkedHashMap<>();
         Set<String> floorSprites = new HashSet<>();
@@ -129,6 +140,8 @@ public final class WorldMeshBuilder {
         int stairFloorOpenings = 0;
         int authoredGeometryObjects = 0;
         int contextualRoofObjects = 0;
+        int contextualRoofCandidates = 0;
+        long contextualRoofState = 0xcbf29ce484222325L;
         int structuralFallbackObjects = 0;
         int mirroredStructuralFaces = 0;
         int completedInteriorCeilings = 0;
@@ -139,6 +152,8 @@ public final class WorldMeshBuilder {
         Map<String, Integer> unsupportedCollisionSprites = new HashMap<>();
         boolean truncated = false;
         Map<Long, WorldState.Square> squaresByPosition = squareIndex(chunk.squares());
+        Map<GlobalSquarePosition, WorldState.Square> roofSquaresByPosition =
+                globalSquareIndex(roofContextChunks);
         List<StructuralPropClip.Boundary> wallBoundaries = StructuralPropClip.boundaries(chunk.squares());
         for (WorldState.Square square : chunk.squares()) {
             float baseX = square.localX();
@@ -227,10 +242,15 @@ public final class WorldMeshBuilder {
                 }
                 List<TileGeometryRegistry.Primitive> geometry = registry.geometry(object.sprite());
                 boolean contextualRoof = false;
-                if (geometry.isEmpty()
-                        && hasJoinedRoofContext(object, square, squaresByPosition)) {
-                    geometry = registry.contextualGeometry(object.sprite());
-                    contextualRoof = !geometry.isEmpty();
+                List<TileGeometryRegistry.Primitive> contextualGeometry =
+                        registry.contextualGeometry(object.sprite());
+                if (geometry.isEmpty() && !contextualGeometry.isEmpty()) {
+                    contextualRoofCandidates++;
+                    contextualRoof = hasJoinedRoofContext(
+                            object, chunk, square, roofSquaresByPosition);
+                    contextualRoofState ^= contextualRoof ? 1 : 0;
+                    contextualRoofState *= 0x100000001b3L;
+                    if (contextualRoof) geometry = contextualGeometry;
                 }
                 var wallAttachment = WallAttachmentAssembly.placement(
                         object, geometry, square.sealedEdges());
@@ -385,7 +405,8 @@ public final class WorldMeshBuilder {
         float[] bounds = chunkBounds(chunk, vertices, texturedBatches, materialBatches);
         return new MeshData(
                 chunk.key(),
-                chunk.fingerprint(),
+                meshFingerprint(
+                        chunk.fingerprint(), contextualRoofState, contextualRoofCandidates),
                 vertices,
                 texturedBatches,
                 materialBatches,
@@ -413,21 +434,30 @@ public final class WorldMeshBuilder {
                 bounds[5]);
     }
 
+    /** GPU cache revision: source state plus only the context decisions that change geometry. */
+    private static long meshFingerprint(
+            long sourceFingerprint, long contextualState, int contextualCandidates) {
+        if (contextualCandidates == 0) return sourceFingerprint;
+        long mixed = sourceFingerprint ^ Long.rotateLeft(contextualState, 23);
+        mixed ^= (long) contextualCandidates * 0x9e3779b97f4a7c15L;
+        return mixed;
+    }
+
     /**
-     * Contextual roof faces are emitted only when the immutable chunk snapshot contains a
-     * neighbour named by PZ's installed roof seam graph. Missing cross-chunk context fails
+     * Contextual roof faces are emitted only when the supplied immutable snapshot neighborhood
+     * contains a neighbour named by PZ's installed roof seam graph. Unavailable context fails
      * closed; it never recreates the detached roof strips this path replaced.
      */
     private boolean hasJoinedRoofContext(
             WorldState.TileObject object,
+            WorldState.Chunk chunk,
             WorldState.Square square,
-            Map<Long, WorldState.Square> squaresByPosition) {
-        if (registry.contextualGeometry(object.sprite()).isEmpty()) return false;
+            Map<GlobalSquarePosition, WorldState.Square> squaresByPosition) {
+        int sourceX = chunk.worldX() * CHUNK_SIZE + square.localX();
+        int sourceY = chunk.worldY() * CHUNK_SIZE + square.localY();
         for (TileGeometryRegistry.RoofJoin join : registry.roofJoins(object.sprite())) {
-            WorldState.Square neighbour = squaresByPosition.get(squarePositionKey(
-                    square.localX() + join.dx(),
-                    square.localY() + join.dy(),
-                    square.z() + join.dz()));
+            WorldState.Square neighbour = squaresByPosition.get(new GlobalSquarePosition(
+                    sourceX + join.dx(), sourceY + join.dy(), square.z() + join.dz()));
             if (neighbour == null) continue;
             for (WorldState.TileObject neighbourObject : neighbour.objects()) {
                 if (join.targets().contains(registry.roofTarget(neighbourObject.sprite()))) {
@@ -618,6 +648,25 @@ public final class WorldMeshBuilder {
         }
         return result;
     }
+
+    private static Map<GlobalSquarePosition, WorldState.Square> globalSquareIndex(
+            List<WorldState.Chunk> chunks) {
+        int squareCount = chunks.stream().mapToInt(chunk -> chunk.squares().size()).sum();
+        Map<GlobalSquarePosition, WorldState.Square> result = new HashMap<>(squareCount);
+        for (WorldState.Chunk chunk : chunks) {
+            int originX = chunk.worldX() * CHUNK_SIZE;
+            int originY = chunk.worldY() * CHUNK_SIZE;
+            for (WorldState.Square square : chunk.squares()) {
+                result.put(new GlobalSquarePosition(
+                        originX + square.localX(),
+                        originY + square.localY(),
+                        square.z()), square);
+            }
+        }
+        return result;
+    }
+
+    private record GlobalSquarePosition(int x, int y, int z) {}
 
     private static long squarePositionKey(int localX, int localY, int z) {
         return ((long) (z & 0xffff) << 32)

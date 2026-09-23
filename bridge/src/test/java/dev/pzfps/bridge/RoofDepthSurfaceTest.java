@@ -2,9 +2,12 @@ package dev.pzfps.bridge;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.List;
 import org.json.JSONObject;
 import org.junit.jupiter.api.Test;
@@ -109,6 +112,38 @@ final class RoofDepthSurfaceTest {
         assertEquals(3, joined.texturedBatches().stream()
                 .filter(batch -> batch.sprite().equals("roofs_overlay_0"))
                 .findFirst().orElseThrow().vertexCount());
+
+        WorldState.Square boundarySource = new WorldState.Square(
+                0, 7, 1, -1, 0, 255, 255, 255,
+                false, true, false, false, false, false, List.of(overlay));
+        WorldState.Chunk northChunk = new WorldState.Chunk(
+                4, 7, 2, 2, List.of(boundarySource));
+        WorldState.Square boundaryTarget = new WorldState.Square(
+                0, 0, 1, -1, 0, 255, 255, 255,
+                false, true, false, false, false, false, List.of(neighbour));
+        WorldState.Chunk southChunk = new WorldState.Chunk(
+                4, 8, 3, 3, List.of(boundaryTarget));
+        WorldMeshBuilder.MeshData crossChunk = new WorldMeshBuilder(registry)
+                .build(northChunk, List.of(northChunk, southChunk));
+        assertEquals(1, crossChunk.coverage().contextualRoofObjects());
+        WorldMeshBuilder.MeshData blockedCrossChunk = new WorldMeshBuilder(registry)
+                .build(northChunk, List.of(northChunk));
+        assertEquals(0, blockedCrossChunk.coverage().contextualRoofObjects());
+        assertNotEquals(blockedCrossChunk.fingerprint(), crossChunk.fingerprint(),
+                "a changed context decision must invalidate the GPU mesh cache");
+
+        HashMap<Long, WorldState.Chunk> snapshots = new HashMap<>();
+        WorldState.Chunk eastChunk = new WorldState.Chunk(5, 7, 4, 4, List.of());
+        WorldState.Chunk diagonalChunk = new WorldState.Chunk(5, 8, 5, 5, List.of());
+        snapshots.put(northChunk.key(), northChunk);
+        snapshots.put(eastChunk.key(), eastChunk);
+        snapshots.put(southChunk.key(), southChunk);
+        snapshots.put(diagonalChunk.key(), diagonalChunk);
+        assertEquals(List.of(northChunk, eastChunk, southChunk),
+                InProcessWorldRenderer.roofContext(northChunk, snapshots));
+        assertFalse(InProcessWorldRenderer.roofContextEdgeChanged(
+                null, northChunk, false));
+        assertTrue(InProcessWorldRenderer.roofContextEdgeChanged(null, southChunk, false));
     }
 
     /** Opt-in parser/load audit for the local proprietary-derived registry. */

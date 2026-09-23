@@ -43,7 +43,9 @@ installed audit has 4,291 unconditional depth/alpha-derived roof identities and
 80 additional contextual identities. Contextual faces are never emitted from a
 depth assignment alone: the registry records exact neighbor relations parsed
 from PZ's installed `seams.txt`, and the renderer requires the named canonical
-roof neighbor in the immutable chunk snapshot. Missing context fails closed.
+roof neighbor in an immutable snapshot neighborhood. Available east/south
+neighboring chunks participate without duplicating their geometry; an unloaded
+or absent neighbor fails closed.
 This path is tested and staged but remains pending its first moving-view live
 acceptance; it must not be read as proof that the remaining roofs look correct.
 
