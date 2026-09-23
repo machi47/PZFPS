@@ -70,10 +70,10 @@ public final class InProcessWorldRenderer {
 
     private InProcessWorldRenderer() {}
 
-    public static void start(Path registryPath, Path supplementalRegistryPath) {
+    public static void start(Path registryPath, List<Path> supplementalRegistryPaths) {
         if (!ENABLED || !STARTED.compareAndSet(false, true)) return;
         Thread worker = new Thread(
-                () -> meshWorker(registryPath, supplementalRegistryPath),
+                () -> meshWorker(registryPath, supplementalRegistryPaths),
                 "PZFPS-mesh-builder");
         worker.setDaemon(true);
         worker.start();
@@ -231,11 +231,11 @@ public final class InProcessWorldRenderer {
         return sprite.startsWith("fencing_") || sprite.startsWith("fixtures_doors_fences_");
     }
 
-    private static void meshWorker(Path registryPath, Path supplementalRegistryPath) {
+    private static void meshWorker(Path registryPath, List<Path> supplementalRegistryPaths) {
         try {
-            TileGeometryRegistry registry = supplementalRegistryPath == null
+            TileGeometryRegistry registry = supplementalRegistryPaths.isEmpty()
                     ? TileGeometryRegistry.load(registryPath)
-                    : TileGeometryRegistry.load(registryPath, supplementalRegistryPath);
+                    : TileGeometryRegistry.load(registryPath, supplementalRegistryPaths);
             WorldMeshBuilder builder = new WorldMeshBuilder(registry);
             ASSETS_READY.set(true);
             System.out.printf(

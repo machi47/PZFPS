@@ -21,8 +21,8 @@ machine-readable installed-asset audit is
 | V-04 | Interior furniture/fixtures leak through exterior walls | 11, 22 | **Partial, rejected live**. Canonical wall clipping exists but does not cover all ownership/multi-tile cases. | Exterior orbit of the fixture set shows zero interior pixels except through intentional openings. |
 | V-05 | Windows, door panes and other transparent objects hide or mishandle the world behind them | 12–13 | **Partial, rejected live**. Opaque/translucent GPU passes work synthetically; broad live result is not accepted. | World, entities and nested transparent surfaces remain visible in correct depth order from both sides while moving. |
 | V-06 | Wire-like alpha outlines around windows, grates, fences and AC/fixture sprites | 09, 11 | **Open**. Texture-edge/mip work did not remove the broad live artifact. | No dark/bright halo beyond the authored silhouette at near or far viewing distances. |
-| V-07 | Furniture and fixtures are cards/open fragments: sinks, benches, beds, dressers, tables and cabinets have missing faces or large holes | 05, 14, 23–24, 30, 32 | **Open**, except two exact dresser identities and six exact crate/tool-cabinet identities are implemented but unaccepted. | Each family has closed or intentionally open topology, correct footprint, no view-dependent disappearance, and consistent reuse across houses. |
-| V-08 | Switches, vents/radiators and wall fixtures float, rotate incorrectly, clip through walls or appear outside | 14–16, 25–29, 31 | **Rejected/under correction**. An over-broad wall-attachment rule produced the pictured slabs; routing is now limited to `lighting_indoor_01_0..3`, but not live-accepted. | Exact identity/orientation attaches flush to the owning wall, remains visible only on its intended side and retains recognizable source appearance. |
+| V-07 | Furniture and fixtures are cards/open fragments: sinks, benches, beds, dressers, tables and cabinets have missing faces or large holes | 05, 14, 23–24, 30, 32 | **Systemic replacement implemented offline, not live-accepted and not complete 3D**. Exact source-alpha/depth surfaces now replace collision/support boxes for 840 furniture identities (835 map-referenced). Another 671 furniture identities remain on unaccepted or unsupported paths. The accepted geometry preserves the known source-facing surface; unseen backs/interiors remain unresolved. | Each family has closed or intentionally open topology, correct footprint, no view-dependent disappearance, and consistent reuse across houses. |
+| V-08 | Switches, vents/radiators and wall fixtures float, rotate incorrectly, clip through walls or appear outside | 14–16, 25–29, 31 | **Systemic visible-surface replacement implemented offline, not live-accepted**. Exact source-alpha/depth surfaces now cover 148 lighting identities (146 map-referenced), including the reported `lighting_indoor_01_1` switch as 288 source pixels rather than its 13,088-pixel depth support mask. Owning-wall placement and one-sided visibility are still unaccepted. | Exact identity/orientation attaches flush to the owning wall, remains visible only on its intended side and retains recognizable source appearance. |
 | V-09 | Doors disappear when open, remain paper-thin, and need transparent panes plus coherent hinge motion | 17–19 | **Rejected**. Current renderer is a state-aware edge card, not a 3D door. | Closed/open states use one persistent volumetric asset, correct hinge/pivot and thickness; glass panes preserve transparency. |
 | V-10 | Rejected door experiment stretched one isometric crop across guessed box faces, creating stacked/distorted shapes and opaque glass | 33 | **Regression removed**. Never an accepted checkpoint. | The rejected six-face path remains absent; a future replacement must pass V-09 before deployment. |
 | V-11 | Short chain-link fence tiles/gates do not meet and alternate offsets; material/depth ordering is unstable | 09, 20 | **Partial, unaccepted**. Only `fencing_01_24..27` share a boundary-panel rule; gates and 1,210 other fence identities are not accepted. | Continuous endpoints, height and depth across straight runs, corners and gates in both viewing directions. |
@@ -61,8 +61,8 @@ Important category totals from the current audit:
 | Window | 648 | all rejected as non-physical |
 | Fence | 1,214 | four exact short-chain-link identities implemented but unaccepted; 1,210 unaccepted |
 | Gate | 134 | all unaccepted |
-| Furniture/fixture | 1,512 | two exact dresser identities implemented but unaccepted; 584 lack a static geometry path |
-| Lighting/attached fixture | 426 | six exact identities implemented but unaccepted; 291 lack a static geometry path |
+| Furniture/fixture | 1,512 | 840 source-alpha/depth visible surfaces pending live acceptance; one older exact rule unaccepted; 376 other direct paths unaccepted; 295 lack a static geometry path |
+| Lighting/attached fixture | 426 | 148 source-alpha/depth visible surfaces pending live acceptance; two older exact rules unaccepted; 59 other direct paths unaccepted; 217 lack a static geometry path |
 | Wall | 8,350 | all partial/unaccepted; identity presence does not establish a watertight assembled shell |
 | Floor | 643 | all partial/unaccepted |
 | Street | 1,876 | 69 direct identities unaccepted; 1,807 lack a static geometry path |
@@ -111,6 +111,52 @@ box can still be the wrong visible mesh, and a resolved native model can still
 be placed, lit or animated incorrectly. Runtime Java type, orientation, object
 state, multi-tile grouping and building topology must be joined before an asset
 can be accepted.
+
+## Furniture and fixture reconstruction checkpoint
+
+`bin/pzfps assets compile-prop-surfaces` now evaluates every installed
+furniture/lighting identity that has both a tile definition and atlas sprite.
+It examined 1,556 candidates and accepted 988 identities: 840 furniture/fixture
+and 148 lighting/attached-fixture identities. The accepted registry contains
+177,709 exact mask rectangles expanded by Java to 355,418 triangles. Of the
+1,513 furniture/lighting identities referenced by installed map headers, 981
+now use this source-backed path (835 furniture and 146 lighting).
+
+The compiler does not treat PZ's `tileGeometry` boxes as visible object meshes.
+Those boxes often describe interaction/collision support and caused the open
+dressers, malformed sinks and oversized switches in evidence 14, 23–24, 29–32.
+Instead, each depth sample is intersected with the exact installed sprite alpha
+mask, fitted to bounded planar patches, and decomposed into exact opaque-mask
+rectangles. An identity is allowed to replace authored support geometry only
+after at least 98% of its actual source pixels survive the final fit, every
+patch stays within a conservative tile-local envelope, and all emitted
+triangles are finite, nondegenerate and project back inside the source tile.
+
+The other 568 candidates fail closed with recorded reasons: 259 are not safely
+piecewise planar, 196 lack 98% source-mask depth coverage, 110 lose too much
+source coverage during fitting and three have empty/tiny source art. The
+reported examples `furniture_storage_01_12`, `furniture_storage_02_36`,
+`furniture_bedding_01_52`, `fixtures_sinks_01_5`, `fixtures_sinks_01_9`,
+`fixtures_counters_01_154` and `lighting_indoor_01_1` all pass. Their final
+source coverage ranges from 98.136% to 100%; the exact result and rejection
+reason for every identity are joined into
+`.local/reports/asset-coverage-pz-42.20.json`.
+
+The packaged live client subsequently loaded the authored registry plus both
+the roof and prop supplemental registries and reported 9,812 resolved geometry
+identities. Its GLFW window appeared only as an inaccessible off-screen
+174x158 surface, so this is a successful live-load check, not visual
+acceptance. The client was stopped after the bounded check. Its observed memory
+footprint has no controlled pre-registry baseline, so no performance conclusion
+is claimed from that launch.
+
+This is persistent identity-level visible-surface reconstruction, not a claim
+that a single isometric sprite reveals an object's unseen back, interior or
+state variants. It should remove the unsupported box faces and oversized masks
+systemically wherever the same identity is reused across houses. It does not
+by itself solve multi-tile ownership, exterior-wall clipping, doors, windows,
+fences, roofs, animation states or truly unknown reverse-side geometry. Those
+remain separate ledger entries and live acceptance requirements.
 
 ## Screenshot evidence catalog
 
@@ -277,9 +323,9 @@ The macOS session was locked during this check, so the bounded input harness
 correctly refused to inject a camera sweep. This is stationary evidence only,
 and the process was stopped rather than left running. The later 72-identity
 quantisation recovery is offline-tested only and has not been used to claim a
-new live visual improvement. The most recent launch attempt loaded an earlier
-generated registry but never exposed an inspectable game window, so it proves
-registry loading only. It was stopped; no PZ process is running.
+new live visual improvement. The most recent launch loaded the current roof and
+prop supplemental registries but never exposed an inspectable game window, so
+it proves registry loading only. It was stopped; no PZ process is running.
 
 ## Checkpoint rule
 

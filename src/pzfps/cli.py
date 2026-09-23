@@ -20,6 +20,7 @@ from .map_usage import index_map_header_usage
 from .texture_packs import extract_sprite_page, index_texture_pack
 from .tile_definitions import compile_tile_definitions
 from .depth_surfaces import compile_planar_roof_surfaces
+from .prop_surfaces import compile_planar_prop_surfaces
 from .common import LOCAL, ROOT, command, load_config, now_utc, parse_version_prefix, sha256_file, timestamp_id, write_json
 from .deployment import cleanup as deployment_cleanup
 from .deployment import record_before, record_installed
@@ -435,6 +436,53 @@ def command_assets_compile_roof_surfaces(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_assets_compile_prop_surfaces(args: argparse.Namespace) -> int:
+    report = inspect()
+    install = report["game"]["install_path"]
+    if not report["game"]["installed"] or not install:
+        raise UserError("Project Zomboid is not installed")
+    version = report["game"]["version"]
+    media = Path(install) / "Project Zomboid.app" / "Contents" / "Java" / "media"
+    root = LOCAL / "assets" / f"pz-{version}"
+    definitions = args.definitions or root / "tile-definitions.json"
+    textures = args.textures or root / "Tiles2x-texture-index.json"
+    map_usage = args.map_usage or root / "map-header-usage.json"
+    assignments = media / "tileDepthTextureAssignments.txt"
+    depthmaps = media / "depthmaps"
+    output = args.output or root / "prop-depth-surfaces.json"
+    for label, path in (
+        ("tile-definition index", definitions),
+        ("texture index", textures),
+        ("map-header usage", map_usage),
+        ("depth assignments", assignments),
+        ("depth-map directory", depthmaps),
+    ):
+        if not path.exists():
+            raise UserError(f"{label} is absent: {path}")
+    document = compile_planar_prop_surfaces(
+        definitions,
+        assignments,
+        depthmaps,
+        textures,
+        map_usage,
+        output,
+        game_version=version,
+        map_referenced_only=args.map_referenced_only,
+    )
+    _print_json({
+        "schema_version": document["schema_version"],
+        "game_version": document["game_version"],
+        "method": document["method"],
+        "scope": document["scope"],
+        "candidate_count": document["candidate_count"],
+        "tile_count": document["tile_count"],
+        "triangle_count": document["triangle_count"],
+        "rejected": document["rejected"],
+        "output": str(output),
+    })
+    return 0
+
+
 def command_assets_index_textures(args: argparse.Namespace) -> int:
     report = inspect()
     install = report["game"]["install_path"]
@@ -582,16 +630,27 @@ def command_assets_audit_coverage(args: argparse.Namespace) -> int:
     models = args.models or root / "model-index.json"
     definitions = args.definitions or root / "tile-definitions.json"
     depth_surfaces = args.depth_surfaces or root / "roof-depth-surfaces.json"
+    prop_surfaces = args.prop_surfaces or root / "prop-depth-surfaces.json"
     items = args.items or root / "item-definitions.json"
     map_usage = args.map_usage or root / "map-header-usage.json"
     output = args.output or LOCAL / "reports" / f"asset-coverage-pz-{version}.json"
     for label, path in (("geometry", geometry), ("texture", textures), ("model", models),
                         ("tile-definition", definitions), ("roof depth-surface", depth_surfaces),
+                        ("prop depth-surface", prop_surfaces),
                         ("item-definition", items), ("map-header usage", map_usage)):
         if not path.is_file():
             raise UserError(f"{label} index is absent: {path}")
     document = write_coverage(
-        geometry, textures, models, output, definitions, depth_surfaces, items, map_usage)
+        geometry,
+        textures,
+        models,
+        output,
+        definitions,
+        depth_surfaces,
+        items,
+        map_usage,
+        prop_surfaces,
+    )
     _print_json(document["summary"] | {"output": str(output)})
     return 0
 
@@ -760,6 +819,16 @@ def build_parser() -> argparse.ArgumentParser:
     roof_surfaces.add_argument("--map-usage", type=Path)
     roof_surfaces.add_argument("--output", type=Path)
     roof_surfaces.set_defaults(func=command_assets_compile_roof_surfaces)
+    prop_surfaces = asset_commands.add_parser(
+        "compile-prop-surfaces",
+        help="derive source-alpha-masked furniture and fixture surfaces from installed depth textures",
+    )
+    prop_surfaces.add_argument("--definitions", type=Path)
+    prop_surfaces.add_argument("--textures", type=Path)
+    prop_surfaces.add_argument("--map-usage", type=Path)
+    prop_surfaces.add_argument("--output", type=Path)
+    prop_surfaces.add_argument("--map-referenced-only", action="store_true")
+    prop_surfaces.set_defaults(func=command_assets_compile_prop_surfaces)
     textures = asset_commands.add_parser(
         "index-textures",
         help="index installed PZ texture-pack metadata without extracting all game art",
@@ -797,6 +866,7 @@ def build_parser() -> argparse.ArgumentParser:
     coverage.add_argument("--models", type=Path)
     coverage.add_argument("--definitions", type=Path)
     coverage.add_argument("--depth-surfaces", type=Path)
+    coverage.add_argument("--prop-surfaces", type=Path)
     coverage.add_argument("--items", type=Path)
     coverage.add_argument("--map-usage", type=Path)
     coverage.add_argument("--output", type=Path)

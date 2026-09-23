@@ -193,6 +193,18 @@ class DepthSurfaceTests(unittest.TestCase):
         self.assertGreaterEqual(len(patches), 2)
         self.assertGreaterEqual(sum(len(patch.samples) for patch in patches), len(samples) * 0.95)
 
+    def test_piecewise_fit_can_bound_candidates_by_repeated_local_support(self) -> None:
+        horizontal = Plane3((0.0, 1.0, 0.0), -0.8, 0.0, 0.0)
+        samples = []
+        for v in range(48, 209):
+            for u in range(8, 121):
+                x, y, z = point_on_implicit_plane(u + 0.5, v + 0.5, horizontal)
+                depth = 0.75 - 0.25 * (x + z) - y / (2 * (6 ** 0.5))
+                samples.append((u + 0.5, v + 0.5, depth))
+        patches = fit_piecewise_planar_surfaces(samples, maximum_candidates=1)
+        self.assertEqual(len(patches), 1)
+        self.assertGreaterEqual(len(patches[0].samples), len(samples) * 0.95)
+
     def test_roof_fit_retries_quantised_depth_but_keeps_rms_gate(self) -> None:
         samples = [(float(index), 0.0, 0.0) for index in range(64)]
         strict = [PlanarPatch(Plane3((0.0, 1.0, 0.0), 0.0, 1.0, 0.004), samples)]

@@ -95,8 +95,37 @@ class AssetCoverageTests(unittest.TestCase):
                     },
                 },
             }))
+            prop_surfaces = root / "prop-surfaces.json"
+            prop_surfaces.write_text(json.dumps({
+                "schema_version": 1,
+                "game_version": "42.20",
+                "rejected_identities": {
+                    "lighting_indoor_01_2": {
+                        "reason": "not_piecewise_planar_prop_surface",
+                        "depth_target": "lighting_indoor_01_2",
+                    },
+                },
+                "tiles": {
+                    "furniture_storage_02_36": {
+                        "geometry": [{"kind": "triangle"}],
+                        "properties": {
+                            "replace_authored_geometry": True,
+                            "fitted_source_coverage": 0.992,
+                            "depth_target": "furniture_storage_02_36",
+                        },
+                    },
+                },
+            }))
             report = build_coverage(
-                geometry, textures, models, definitions, depth_surfaces, items, map_usage)
+                geometry,
+                textures,
+                models,
+                definitions,
+                depth_surfaces,
+                items,
+                map_usage,
+                prop_surfaces,
+            )
             rows = {row["identity"]: row for row in report["tile_texture_identities"]}
             self.assertEqual(
                 rows["roofs_02_3"]["coverage_state"],
@@ -127,12 +156,27 @@ class AssetCoverageTests(unittest.TestCase):
                 rows["walls_exterior_roofs_05_18"]["depth_surface_skip_reason"],
                 "empty_source_placeholder",
             )
-            self.assertEqual(rows["furniture_storage_02_36"]["coverage_state"], "implemented_unaccepted")
+            self.assertEqual(
+                rows["furniture_storage_02_36"]["coverage_state"],
+                "implemented_visible_surface_pending_live_acceptance",
+            )
+            self.assertEqual(
+                rows["furniture_storage_02_36"]["renderer_rule"],
+                "installed_source_masked_depth_surface",
+            )
+            self.assertEqual(rows["furniture_storage_02_36"]["prop_surface_primitive_count"], 1)
+            self.assertTrue(rows["furniture_storage_02_36"]["prop_surface_replacement"])
+            self.assertEqual(rows["lighting_indoor_01_2"]["prop_surface_rejection_reason"],
+                             "not_piecewise_planar_prop_surface")
             self.assertEqual(rows["texture_only_0"]["coverage_state"], "unsupported_unless_native_runtime_path")
             self.assertTrue(rows["texture_only_0"]["in_installed_map_headers"])
             self.assertEqual(rows["texture_only_0"]["installed_map_header_count"], 2)
             self.assertEqual(report["summary"]["model_states"], {"native_model_resolved": 1})
             self.assertEqual(report["summary"]["identities_with_depth_surfaces"], 1)
+            self.assertEqual(report["summary"]["identities_with_prop_surfaces"], 1)
+            self.assertEqual(report["summary"]["prop_surface_rejection_reasons"], {
+                "not_piecewise_planar_prop_surface": 1,
+            })
             self.assertEqual(report["summary"]["depth_surface_rejection_reasons"], {
                 "not_planar_surface": 1,
             })

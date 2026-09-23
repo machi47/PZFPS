@@ -822,6 +822,8 @@ public final class WorldMeshBuilder {
             case "polygon" -> addTexturedPolygon(output, baseX, baseY, baseZ, primitive, light);
             case "triangle" -> addTexturedSourceTriangle(
                     output, baseX, baseY, baseZ, primitive, light);
+            case "quad" -> addTexturedSourceQuad(
+                    output, baseX, baseY, baseZ, primitive, light);
             default -> {
                 // Unknown source primitives are deliberately omitted by the registry loader.
             }
@@ -853,6 +855,35 @@ public final class WorldMeshBuilder {
                 sourcePixel(transformed[0]),
                 sourcePixel(transformed[second]),
                 sourcePixel(transformed[third]));
+    }
+
+    private static void addTexturedSourceQuad(
+            FloatBuilder output,
+            float baseX,
+            float baseY,
+            float baseZ,
+            TileGeometryRegistry.Primitive quad,
+            float[] light) {
+        if (quad.points().size() != 4) return;
+        float[][] transformed = transformedLocal(quad, quad.points().toArray(float[][]::new));
+        float[][] world = worldPoints(baseX, baseY, baseZ, transformed);
+        int[] order = {0, 1, 2, 3};
+        float[] faceNormal = normal(world[0], world[1], world[2]);
+        if (sourceFacing(faceNormal) < 0) {
+            order = new int[] {0, 3, 2, 1};
+            faceNormal = new float[] {-faceNormal[0], -faceNormal[1], -faceNormal[2]};
+        }
+        addTexturedQuad(
+                output,
+                world[order[0]], world[order[1]], world[order[2]], world[order[3]],
+                faceNormal,
+                light,
+                new float[][] {
+                    sourcePixel(transformed[order[0]]),
+                    sourcePixel(transformed[order[1]]),
+                    sourcePixel(transformed[order[2]]),
+                    sourcePixel(transformed[order[3]])
+                });
     }
 
     /**
@@ -1116,6 +1147,8 @@ public final class WorldMeshBuilder {
             case "polygon" -> addPolygon(output, baseX, baseY, baseZ, primitive, color);
             case "triangle" -> addSourceTriangle(
                     output, baseX, baseY, baseZ, primitive, color);
+            case "quad" -> addSourceQuad(
+                    output, baseX, baseY, baseZ, primitive, color);
             default -> {
                 // Unknown source primitives are deliberately omitted by the registry loader.
             }
@@ -1135,6 +1168,21 @@ public final class WorldMeshBuilder {
         float[][] world = worldPoints(baseX, baseY, baseZ, transformed);
         addTriangle(output, world[0], world[1], world[2],
                 normal(world[0], world[1], world[2]), color);
+    }
+
+    private static void addSourceQuad(
+            FloatBuilder output,
+            float baseX,
+            float baseY,
+            float baseZ,
+            TileGeometryRegistry.Primitive quad,
+            float[] color) {
+        if (quad.points().size() != 4) return;
+        float[][] transformed = transformedLocal(quad, quad.points().toArray(float[][]::new));
+        float[][] world = worldPoints(baseX, baseY, baseZ, transformed);
+        float[] faceNormal = normal(world[0], world[1], world[2]);
+        addTriangle(output, world[0], world[1], world[2], faceNormal, color);
+        addTriangle(output, world[0], world[2], world[3], faceNormal, color);
     }
 
     private static void addFallback(

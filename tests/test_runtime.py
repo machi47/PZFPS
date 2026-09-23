@@ -26,6 +26,46 @@ class RuntimeProcessTests(unittest.TestCase):
         )
         self.assertEqual([value["pid"] for value in runtime.pz_processes()], [101, 202])
 
+    @patch("pzfps.runtime.pz_processes")
+    def test_filters_project_isolated_clients(self, processes) -> None:
+        processes.return_value = [
+            {
+                "pid": 101,
+                "command": f"java -Ddeployment.user.cachedir={runtime.PZ_CACHE_PARENT} main",
+            },
+            {
+                "pid": 202,
+                "command": "/project/.local/pz-runtime/PZFPS Isolated.app/Contents/"
+                "MacOS/JavaAppLauncher",
+            },
+            {
+                "pid": 303,
+                "command": "/game/ProjectZomboid/Project Zomboid.app/Contents/JavaAppLauncher",
+            },
+        ]
+        self.assertEqual(
+            [value["pid"] for value in runtime.isolated_pz_processes()], [101, 202]
+        )
+
+    @patch("pzfps.runtime.write_json")
+    @patch("pzfps.runtime.time.sleep")
+    @patch("pzfps.runtime.os.kill")
+    @patch("pzfps.runtime.isolated_pz_processes")
+    @patch("pzfps.runtime.process_state")
+    def test_stop_terminates_unrecorded_packaged_client(
+        self, process_state, isolated_processes, kill, _sleep, write_json
+    ) -> None:
+        process_state.return_value = {"pid": 101, "running": False}
+        isolated_processes.side_effect = [
+            [{"pid": 202, "command": "PZFPS Isolated.app/Contents/MacOS/JavaAppLauncher"}],
+            [],
+        ]
+        result = runtime.stop()
+        kill.assert_called_once_with(202, runtime.signal.SIGTERM)
+        self.assertEqual(result["stopped_pids"], [202])
+        self.assertFalse(result["running"])
+        write_json.assert_called_once()
+
     def test_project_local_guard_rejects_external_path(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             with self.assertRaisesRegex(runtime.RuntimeError, "non-project"):

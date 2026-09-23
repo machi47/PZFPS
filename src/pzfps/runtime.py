@@ -27,6 +27,7 @@ STATE = LOCAL / "state" / "isolated-game.json"
 LAUNCH_APP = RUNTIME_ROOT / "PZFPS Isolated.app"
 ASSET_REGISTRY = LOCAL / "assets" / "pz-42.20" / "tile-geometry.json"
 SUPPLEMENTAL_ASSET_REGISTRY = LOCAL / "assets" / "pz-42.20" / "roof-depth-surfaces.json"
+PROP_SURFACE_REGISTRY = LOCAL / "assets" / "pz-42.20" / "prop-depth-surfaces.json"
 
 
 def stage(install: Path) -> dict[str, Any]:
@@ -42,6 +43,7 @@ def stage(install: Path) -> dict[str, Any]:
         bridge_jar,
         ASSET_REGISTRY,
         SUPPLEMENTAL_ASSET_REGISTRY,
+        PROP_SURFACE_REGISTRY,
     ):
         if not required.is_file():
             raise RuntimeError(f"required runtime artifact is absent: {required}")
@@ -126,6 +128,8 @@ def stage(install: Path) -> dict[str, Any]:
             "asset_registry_sha256": sha256_file(ASSET_REGISTRY),
             "supplemental_asset_registry": str(SUPPLEMENTAL_ASSET_REGISTRY),
             "supplemental_asset_registry_sha256": sha256_file(SUPPLEMENTAL_ASSET_REGISTRY),
+            "prop_surface_registry": str(PROP_SURFACE_REGISTRY),
+            "prop_surface_registry_sha256": sha256_file(PROP_SURFACE_REGISTRY),
         },
         "launch_app": str(LAUNCH_APP),
     }
@@ -174,6 +178,7 @@ def launch(install: Path) -> dict[str, Any]:
         "-Dpzfps.autoContinue=true",
         f"-Dpzfps.assetRegistry={ASSET_REGISTRY}",
         f"-Dpzfps.supplementalAssetRegistry={SUPPLEMENTAL_ASSET_REGISTRY}",
+        f"-Dpzfps.propSurfaceRegistry={PROP_SURFACE_REGISTRY}",
         f"-Dpzfps.bridgeJar={bridge}",
         "-Xmx3072m",
         "-XX:+UseZGC",
@@ -294,20 +299,41 @@ def pz_processes() -> list[dict[str, Any]]:
     return processes
 
 
+def isolated_pz_processes() -> list[dict[str, Any]]:
+    """Return only clients that use the project-local disposable runtime."""
+    cache_option = f"-Ddeployment.user.cachedir={PZ_CACHE_PARENT}"
+    isolated_launcher = "PZFPS Isolated.app/Contents/MacOS/JavaAppLauncher"
+    return [
+        process
+        for process in pz_processes()
+        if cache_option in process["command"] or isolated_launcher in process["command"]
+    ]
+
+
 def stop() -> dict[str, Any]:
     state = process_state()
-    if not state.get("running"):
+    targets = {process["pid"] for process in isolated_pz_processes()}
+    if state.get("running"):
+        targets.add(int(state["pid"]))
+    if not targets:
         return state
-    pid = int(state["pid"])
-    os.kill(pid, signal.SIGTERM)
+    for pid in sorted(targets):
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
     for _ in range(100):
         time.sleep(0.1)
-        if not process_state().get("running"):
+        remaining = {
+            process["pid"] for process in isolated_pz_processes() if process["pid"] in targets
+        }
+        if not remaining:
             state["running"] = False
             state["stopped_at"] = now_utc()
+            state["stopped_pids"] = sorted(targets)
             write_json(STATE, state)
             return state
-    raise RuntimeError("isolated PZ process did not exit after SIGTERM")
+    raise RuntimeError(f"isolated PZ processes did not exit after SIGTERM: {sorted(remaining)}")
 
 
 def _java_root(install: Path) -> Path:
@@ -361,6 +387,7 @@ def _build_launch_app(install: Path, agent: Path) -> None:
             "-Dpzfps.autoContinue=true",
             f"-Dpzfps.assetRegistry={ASSET_REGISTRY}",
             f"-Dpzfps.supplementalAssetRegistry={SUPPLEMENTAL_ASSET_REGISTRY}",
+            f"-Dpzfps.propSurfaceRegistry={PROP_SURFACE_REGISTRY}",
             f"-Dpzfps.bridgeJar={bridge}",
             _agent_option(agent, bridge),
         ]

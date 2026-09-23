@@ -92,13 +92,19 @@ def renderer_rule(
     contextual_depth_surface_count: int = 0,
     *,
     source_placeholder: bool = False,
+    prop_surface_count: int = 0,
 ) -> tuple[str, str]:
     if source_placeholder:
         return "empty_installed_source_placeholder", "not_applicable_source_placeholder"
+    kind = category(name)
+    if prop_surface_count and kind in _PROP_SURFACE_CATEGORIES:
+        return (
+            "installed_source_masked_depth_surface",
+            "implemented_visible_surface_pending_live_acceptance",
+        )
     exact = EXACT_RULES.get(name)
     if exact:
         return exact
-    kind = category(name)
     suffix = _suffix(name)
     if name.startswith("lighting_indoor_01_") and suffix is not None and 0 <= suffix <= 3:
         return "shallow_wall_attachment", "implemented_unaccepted"
@@ -136,6 +142,9 @@ def renderer_rule(
     return "no_static_geometry_path", "unsupported_unless_native_runtime_path"
 
 
+_PROP_SURFACE_CATEGORIES = {"furniture_fixture", "lighting_fixture"}
+
+
 def build_coverage(
     geometry_path: Path,
     texture_path: Path,
@@ -144,6 +153,7 @@ def build_coverage(
     depth_surfaces_path: Path | None = None,
     items_path: Path | None = None,
     map_usage_path: Path | None = None,
+    prop_surfaces_path: Path | None = None,
 ) -> dict[str, Any]:
     geometry = json.loads(geometry_path.read_text(encoding="utf-8"))
     textures = json.loads(texture_path.read_text(encoding="utf-8"))
@@ -155,6 +165,11 @@ def build_coverage(
     depth_surfaces = (
         json.loads(depth_surfaces_path.read_text(encoding="utf-8"))
         if depth_surfaces_path is not None else {"game_version": geometry.get("game_version"), "tiles": {}}
+    )
+    prop_surfaces = (
+        json.loads(prop_surfaces_path.read_text(encoding="utf-8"))
+        if prop_surfaces_path is not None
+        else {"game_version": geometry.get("game_version"), "tiles": {}}
     )
     items = (
         json.loads(items_path.read_text(encoding="utf-8"))
@@ -170,6 +185,7 @@ def build_coverage(
         str(models.get("game_version", "")),
         str(definitions.get("game_version", "")),
         str(depth_surfaces.get("game_version", "")),
+        str(prop_surfaces.get("game_version", "")),
         str(items.get("game_version", "")),
         str(map_usage.get("game_version", "")),
     }
@@ -183,6 +199,8 @@ def build_coverage(
     contextual_depth_surface_records = depth_surfaces.get("contextual_tiles", {})
     depth_surface_rejections = depth_surfaces.get("rejected_identities", {})
     depth_surface_skips = depth_surfaces.get("skipped_identities", {})
+    prop_surface_records = prop_surfaces.get("tiles", {})
+    prop_surface_rejections = prop_surfaces.get("rejected_identities", {})
     map_usage_records = map_usage.get("identities", {})
     identities = sorted(
         set(tile_records)
@@ -192,6 +210,8 @@ def build_coverage(
         | set(contextual_depth_surface_records)
         | set(depth_surface_rejections)
         | set(depth_surface_skips)
+        | set(prop_surface_records)
+        | set(prop_surface_rejections)
         | set(map_usage_records)
     )
     rows: list[dict[str, Any]] = []
@@ -210,6 +230,10 @@ def build_coverage(
         ).get("properties", {})
         depth_rejection = depth_surface_rejections.get(identity, {})
         depth_skip = depth_surface_skips.get(identity, {})
+        prop_record = prop_surface_records.get(identity, {})
+        prop_primitives = prop_record.get("geometry", [])
+        prop_properties = prop_record.get("properties", {})
+        prop_rejection = prop_surface_rejections.get(identity, {})
         map_record = map_usage_records.get(identity, {})
         rule, state = renderer_rule(
             identity,
@@ -217,6 +241,7 @@ def build_coverage(
             len(depth_primitives),
             len(contextual_depth_primitives),
             source_placeholder=bool(depth_skip),
+            prop_surface_count=len(prop_primitives),
         )
         kind = category(identity)
         issue_ids = visual_issue_ids(kind)
@@ -242,17 +267,35 @@ def build_coverage(
             "contextual_depth_surface_joins": contextual_properties.get(
                 "context_joins", []
             ),
+            "prop_surface_primitive_count": len(prop_primitives),
+            "prop_surface_primitive_kinds": dict(sorted(
+                Counter(value.get("kind", "unknown") for value in prop_primitives).items()
+            )),
+            "prop_surface_source_coverage": prop_properties.get(
+                "fitted_source_coverage", 0.0
+            ),
+            "prop_surface_replacement": bool(
+                prop_properties.get("replace_authored_geometry", False)
+            ),
+            "prop_surface_rejection_reason": prop_rejection.get("reason", ""),
+            "prop_surface_rejection_detail": prop_rejection.get("detail", ""),
             "depth_surface_rejection_reason": depth_rejection.get("reason", ""),
             "depth_surface_rejection_detail": depth_rejection.get("detail", ""),
             "depth_surface_skip_reason": depth_skip.get("reason", ""),
             "depth_surface_skip_evidence": depth_skip.get("evidence", ""),
-            "depth_surface_target": depth_rejection.get(
+            "depth_surface_target": prop_properties.get(
+                "depth_target",
+                prop_rejection.get(
+                    "depth_target",
+                    depth_rejection.get(
                 "depth_target",
                 depth_surface_records.get(identity, {}).get("properties", {}).get(
                     "depth_target",
                     contextual_depth_surface_records.get(identity, {}).get(
                         "properties", {}
                     ).get("depth_target", ""),
+                ),
+                    ),
                 ),
             ),
             "renderer_rule": rule,
@@ -314,6 +357,7 @@ def build_coverage(
             "models": str(model_path.resolve()),
             "tile_definitions": str(definitions_path.resolve()) if definitions_path is not None else "not supplied",
             "depth_surfaces": str(depth_surfaces_path.resolve()) if depth_surfaces_path is not None else "not supplied",
+            "prop_surfaces": str(prop_surfaces_path.resolve()) if prop_surfaces_path is not None else "not supplied",
             "items": str(items_path.resolve()) if items_path is not None else "not supplied",
             "map_usage": str(map_usage_path.resolve()) if map_usage_path is not None else "not supplied",
         },
@@ -328,6 +372,9 @@ def build_coverage(
             ),
             "identities_with_contextual_depth_surfaces": sum(
                 row["contextual_depth_surface_primitive_count"] > 0 for row in rows
+            ),
+            "identities_with_prop_surfaces": sum(
+                row["prop_surface_primitive_count"] > 0 for row in rows
             ),
             "model_identities": len(model_rows),
             "item_identities": len(item_rows),
@@ -376,6 +423,10 @@ def build_coverage(
                 row["depth_surface_skip_reason"] for row in rows
                 if row["depth_surface_skip_reason"]
             ).items())),
+            "prop_surface_rejection_reasons": dict(sorted(Counter(
+                row["prop_surface_rejection_reason"] for row in rows
+                if row["prop_surface_rejection_reason"]
+            ).items())),
             "by_category": {
                 key: {"total": sum(value.values()), "states": dict(sorted(value.items()))}
                 for key, value in sorted(by_category.items())
@@ -410,6 +461,7 @@ def write_coverage(
     depth_surfaces_path: Path | None = None,
     items_path: Path | None = None,
     map_usage_path: Path | None = None,
+    prop_surfaces_path: Path | None = None,
 ) -> dict[str, Any]:
     report = build_coverage(
         geometry_path,
@@ -419,6 +471,7 @@ def write_coverage(
         depth_surfaces_path,
         items_path,
         map_usage_path,
+        prop_surfaces_path,
     )
     write_json(output, report)
     return report

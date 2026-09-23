@@ -47,9 +47,13 @@ public final class BridgeRuntime {
             String assetRegistry = System.getProperty("pzfps.assetRegistry", "").trim();
             if (!assetRegistry.isEmpty()) {
                 String supplemental = System.getProperty("pzfps.supplementalAssetRegistry", "").trim();
+                String propSurfaces = System.getProperty("pzfps.propSurfaceRegistry", "").trim();
+                java.util.ArrayList<Path> supplementalPaths = new java.util.ArrayList<>(2);
+                if (!supplemental.isEmpty()) supplementalPaths.add(Path.of(supplemental));
+                if (!propSurfaces.isEmpty()) supplementalPaths.add(Path.of(propSurfaces));
                 InProcessWorldRenderer.start(
                         Path.of(assetRegistry),
-                        supplemental.isEmpty() ? null : Path.of(supplemental));
+                        List.copyOf(supplementalPaths));
             } else if (Boolean.getBoolean("pzfps.renderer.enabled")) {
                 System.err.println(
                         "[PZFPS] in-process renderer disabled: pzfps.assetRegistry is absent");

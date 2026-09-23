@@ -45,6 +45,60 @@ final class RoofDepthSurfaceTest {
     }
 
     @Test
+    void explicitInstalledDepthEvidenceMayReplaceSupportBoxButOrdinarySupplementDoesNot()
+            throws Exception {
+        Path authored = temporary.resolve("authored-prop.json");
+        Path fillOnly = temporary.resolve("fill-only.json");
+        Path replacement = temporary.resolve("replacement.json");
+        Files.writeString(authored, """
+                {"schema_version":1,"source_sha256":"authored","tiles":{"furniture_storage_0":{
+                  "geometry":[{"kind":"box","min":[-.5,0,-.5],"max":[.5,1,.5]}]
+                }}}
+                """);
+        Files.writeString(fillOnly, """
+                {"schema_version":1,"source_sha256":"fill","tiles":{"furniture_storage_0":{
+                  "geometry":[{"kind":"triangle","points":[[0,0,0],[1,0,0],[0,1,0]]}]
+                }}}
+                """);
+        Files.writeString(replacement, """
+                {"schema_version":1,"source_sha256":"depth","tiles":{"furniture_storage_0":{
+                  "geometry":[{"kind":"triangle","points":[[0,0,0],[1,0,0],[0,1,0]]}],
+                  "properties":{"replace_authored_geometry":true}
+                }}}
+                """);
+        assertEquals("box", TileGeometryRegistry.load(authored, fillOnly)
+                .geometry("furniture_storage_0").getFirst().kind());
+        TileGeometryRegistry overridden = TileGeometryRegistry.load(
+                authored, List.of(fillOnly, replacement));
+        assertEquals(1, overridden.geometry("furniture_storage_0").size());
+        assertEquals("triangle", overridden.geometry("furniture_storage_0").getFirst().kind());
+        assertEquals("authored+supplemental:fill+supplemental:depth",
+                overridden.sourceSha256());
+    }
+
+    @Test
+    void sourceSurfaceQuadExpandsToTwoTexturedTriangles() throws Exception {
+        Path registryPath = temporary.resolve("quad.json");
+        Files.writeString(registryPath, """
+                {"schema_version":1,"source_sha256":"quad","tiles":{"fixture_0":{
+                  "geometry":[{"kind":"quad","points":[
+                    [-.5,0,-.5],[.5,0,-.5],[.5,0,.5],[-.5,0,.5]
+                  ]}]
+                }}}
+                """);
+        TileGeometryRegistry registry = TileGeometryRegistry.load(registryPath);
+        WorldState.TileObject fixture = new WorldState.TileObject(
+                0, "IsoObject", "normal", "fixture_0",
+                false, false, false, false, false, false, false);
+        WorldState.Square square = new WorldState.Square(
+                0, 0, 0, 0, 0, 255, 255, 255,
+                false, false, false, false, false, false, List.of(fixture));
+        WorldMeshBuilder.MeshData mesh = new WorldMeshBuilder(registry)
+                .build(new WorldState.Chunk(0, 0, 1, 1, List.of(square)));
+        assertEquals(6, mesh.texturedBatches().getFirst().vertexCount());
+    }
+
+    @Test
     void roofWallFamilyWithoutEvidenceIsNotTurnedIntoVerticalWall() throws Exception {
         Path authored = temporary.resolve("empty.json");
         Files.writeString(authored, """
@@ -161,5 +215,24 @@ final class RoofDepthSurfaceTest {
         assertFalse(registry.geometry("roofs_30_02_28").isEmpty());
         assertFalse(registry.geometry("walls_exterior_roofs_10_5").isEmpty());
         assertFalse(registry.geometry("walls_exterior_roofs_30_21_16").isEmpty());
+    }
+
+    /** Opt-in parser/load audit for source-alpha-masked installed prop surfaces. */
+    @Test
+    void installedCompiledPropRegistryWhenExplicitlyProvided() throws Exception {
+        String path = System.getenv("PZFPS_PROP_SURFACE_AUDIT");
+        org.junit.jupiter.api.Assumptions.assumeTrue(
+                path != null, "Installed-data audit requires PZFPS_PROP_SURFACE_AUDIT");
+        TileGeometryRegistry registry = TileGeometryRegistry.load(Path.of(path));
+        assertTrue(registry.tileCount() >= 900);
+        assertEquals(190, registry.geometry("furniture_storage_01_12").size());
+        assertEquals(335, registry.geometry("furniture_storage_02_36").size());
+        assertEquals(203, registry.geometry("furniture_bedding_01_52").size());
+        assertEquals(71, registry.geometry("fixtures_sinks_01_5").size());
+        assertEquals(78, registry.geometry("fixtures_sinks_01_9").size());
+        assertEquals(150, registry.geometry("fixtures_counters_01_154").size());
+        assertEquals(9, registry.geometry("lighting_indoor_01_1").size());
+        assertTrue(registry.geometry("lighting_indoor_01_1").stream()
+                .allMatch(primitive -> primitive.kind().equals("quad")));
     }
 }

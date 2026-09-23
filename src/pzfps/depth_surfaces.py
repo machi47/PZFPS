@@ -1038,6 +1038,7 @@ def fit_piecewise_planar_surfaces(
     distance_threshold: float = 0.018,
     minimum_coverage: float = 0.95,
     maximum_planes: int = 10,
+    maximum_candidates: int | None = None,
 ) -> list[PlanarPatch]:
     """Split an installed depth tile into conservative connected planar patches.
 
@@ -1052,8 +1053,7 @@ def fit_piecewise_planar_surfaces(
         (int(sample[0] - 0.5), int(sample[1] - 0.5)): index
         for index, sample in enumerate(samples)
     }
-    candidates: list[Plane3] = []
-    candidate_keys: set[tuple[int, int, int, int]] = set()
+    candidate_records: dict[tuple[int, int, int, int], tuple[Plane3, int]] = {}
     stride = 4
     for y in range(0, _TILE_HEIGHT - stride, stride):
         for x in range(0, _TILE_WIDTH - stride, stride):
@@ -1068,10 +1068,21 @@ def fit_piecewise_planar_surfaces(
             if candidate is None:
                 continue
             key = tuple(round(value * 40) for value in (*candidate.normal, candidate.d))
-            if key in candidate_keys:
-                continue
-            candidate_keys.add(key)
-            candidates.append(candidate)
+            previous = candidate_records.get(key)
+            candidate_records[key] = (
+                candidate if previous is None else previous[0],
+                1 if previous is None else previous[1] + 1,
+            )
+    candidates = [
+        candidate
+        for candidate, _support in sorted(
+            candidate_records.values(),
+            key=lambda record: record[1],
+            reverse=True,
+        )[:maximum_candidates]
+    ] if maximum_candidates is not None else [
+        candidate for candidate, _support in candidate_records.values()
+    ]
     if not candidates:
         return []
 
@@ -1183,7 +1194,15 @@ def _normalise_plane(
 
 
 def _plane_distance(plane: Plane3, point: tuple[float, float, float]) -> float:
-    return abs(sum(plane.normal[index] * point[index] for index in range(3)) + plane.d)
+    # This is the inner loop of piecewise fitting. Spell out the three-term dot product;
+    # allocating a generator and calling sum for every candidate/pixel dominates full-corpus
+    # prop compilation without changing any fitting semantics.
+    return abs(
+        plane.normal[0] * point[0]
+        + plane.normal[1] * point[1]
+        + plane.normal[2] * point[2]
+        + plane.d
+    )
 
 
 def _refine_plane(points: list[tuple[float, float, float]], seed: Plane3) -> Plane3:

@@ -1409,6 +1409,7 @@ bin/pzfps assets index-geometry
 bin/pzfps assets index-textures --pack Tiles2x.pack
 bin/pzfps assets index-models
 bin/pzfps assets index-map-usage
+bin/pzfps assets compile-prop-surfaces
 bin/pzfps assets audit-coverage
 bin/pzfps assets extract-sprite furniture_bedding_01_0
 
