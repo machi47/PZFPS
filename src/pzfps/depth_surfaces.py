@@ -9,6 +9,7 @@ import zlib
 
 from .asset_coverage import category
 from .common import now_utc, sha256_file, write_json
+from .texture_packs import TexturePackError, read_indexed_pages
 
 
 class DepthSurfaceError(ValueError):
@@ -23,6 +24,9 @@ _DEPTH_Y_SCALE = 1.0 / (2.0 * math.sqrt(6.0))
 _STRICT_PATCH_DISTANCE = 0.018
 _QUANTISED_PATCH_DISTANCE = 0.025
 _MAXIMUM_PATCH_RMS = 0.012
+_SOURCE_EQUIVALENT_ROOF_FAMILIES = {
+    "walls_exterior_roofs_30_21": "walls_exterior_roofs_30_19",
+}
 
 
 def compile_planar_roof_surfaces(
@@ -33,6 +37,7 @@ def compile_planar_roof_surfaces(
     *,
     game_version: str,
     textures_path: Path | None = None,
+    map_usage_path: Path | None = None,
 ) -> dict[str, Any]:
     """Recover planar roof patches from PZ's own per-pixel depth evidence."""
     definitions = json.loads(definitions_path.read_text(encoding="utf-8"))
@@ -44,6 +49,12 @@ def compile_planar_roof_surfaces(
     )
     if textures_path is not None and textures.get("game_version") != game_version:
         raise DepthSurfaceError("texture index describes a different game version")
+    map_usage = (
+        json.loads(map_usage_path.read_text(encoding="utf-8"))
+        if map_usage_path is not None else {"identities": {}}
+    )
+    if map_usage_path is not None and map_usage.get("game_version") != game_version:
+        raise DepthSurfaceError("map usage index describes a different game version")
     assignments = parse_depth_assignments(assignments_path)
     tiles: dict[str, Any] = definitions.get("tiles", {})
     texture_records: dict[str, Any] = textures.get("textures", {})
@@ -183,6 +194,14 @@ def compile_planar_roof_surfaces(
             "properties": properties,
         }
 
+    source_equivalent_aliases = compile_source_equivalent_roof_aliases(
+        compiled,
+        texture_records,
+        textures,
+        map_usage.get("identities", {}),
+    )
+    compiled.update(source_equivalent_aliases)
+
     source_hashes = {
         "tile_definitions": sha256_file(definitions_path),
         "depth_assignments": sha256_file(assignments_path),
@@ -192,6 +211,8 @@ def compile_planar_roof_surfaces(
     }
     if textures_path is not None:
         source_hashes["texture_index"] = sha256_file(textures_path)
+    if map_usage_path is not None:
+        source_hashes["map_usage"] = sha256_file(map_usage_path)
     document = {
         "schema_version": 1,
         "generated_at": now_utc(),
@@ -201,10 +222,12 @@ def compile_planar_roof_surfaces(
             "depth_assignments": str(assignments_path),
             "depthmaps": str(depthmaps),
             "texture_index": str(textures_path) if textures_path is not None else "not supplied",
+            "map_usage": str(map_usage_path) if map_usage_path is not None else "not supplied",
         },
         "source_sha256": _stable_hash(source_hashes),
         "source_hashes": source_hashes,
         "method": "strict-planar-patch-fit-from-installed-depth-texture",
+        "source_equivalent_alias_count": len(source_equivalent_aliases),
         "tile_count": len(compiled),
         "triangle_count": sum(len(value["geometry"]) for value in compiled.values()),
         "rejected": dict(sorted(rejected.items())),
@@ -216,6 +239,113 @@ def compile_planar_roof_surfaces(
     document["audit"] = audit_roof_surfaces(document)
     write_json(output, document)
     return document
+
+
+def compile_source_equivalent_roof_aliases(
+    compiled: dict[str, dict[str, Any]],
+    texture_records: dict[str, Any],
+    texture_index: dict[str, Any],
+    map_usage_records: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Recover map-used atlas-only variants from proven source-equivalent families.
+
+    Build 42.20 ships ``walls_exterior_roofs_30_21`` in the atlas and names four of its
+    pieces in Muldraugh map headers, but omits the family from tile definitions and geometry.
+    Its matching ``30_19`` pieces have the same original frame and a near-identical alpha
+    silhouette. We only inherit geometry when the destination is map-referenced and its
+    opaque mask is a strict subset of the source with no more than a one-pixel border removed.
+    """
+    candidates: list[tuple[str, str]] = []
+    for identity in sorted(map_usage_records):
+        family, suffix = split_tile_identity(identity)
+        source_family = _SOURCE_EQUIVALENT_ROOF_FAMILIES.get(family)
+        if source_family is None or suffix is None or identity in compiled:
+            continue
+        source_identity = f"{source_family}_{suffix}"
+        if (
+            source_identity in compiled
+            and identity in texture_records
+            and source_identity in texture_records
+        ):
+            candidates.append((identity, source_identity))
+    if not candidates:
+        return {}
+
+    page_names = {
+        str(texture_records[identity]["page"])
+        for pair in candidates
+        for identity in pair
+    }
+    try:
+        page_bytes = read_indexed_pages(texture_index, page_names)
+    except (KeyError, OSError, TexturePackError) as error:
+        raise DepthSurfaceError(f"could not verify source-equivalent roof masks: {error}") from error
+    pages = {
+        name: decode_png(data, f"indexed texture page {name}")
+        for name, data in page_bytes.items()
+    }
+    aliases: dict[str, dict[str, Any]] = {}
+    for identity, source_identity in candidates:
+        destination_record = texture_records[identity]
+        source_record = texture_records[source_identity]
+        destination_mask = sprite_alpha_mask(destination_record, pages)
+        source_mask = sprite_alpha_mask(source_record, pages)
+        if not destination_mask or not source_mask:
+            continue
+        removed = source_mask - destination_mask
+        added = destination_mask - source_mask
+        retained_fraction = len(destination_mask) / len(source_mask)
+        # The verified family differs by a one-pixel trim: it may remove at most one full
+        # tile-width row/column, but may never add unsupported opaque pixels.
+        if added or len(removed) > _TILE_WIDTH or retained_fraction < 0.90:
+            continue
+        source = compiled[source_identity]
+        aliases[identity] = {
+            "geometry": source["geometry"],
+            "properties": source["properties"] | {
+                "source_equivalent_identity": source_identity,
+                "source_equivalent_evidence": "installed_atlas_alpha_subset_and_map_header_reference",
+                "source_alpha_pixels": len(source_mask),
+                "destination_alpha_pixels": len(destination_mask),
+                "removed_border_pixels": len(removed),
+                "retained_alpha_fraction": round(retained_fraction, 7),
+                "installed_map_header_count": int(
+                    map_usage_records[identity].get("header_count", 0)
+                ),
+            },
+        }
+    return aliases
+
+
+def sprite_alpha_mask(
+    texture: dict[str, Any], pages: dict[str, "PngPixels"]
+) -> set[tuple[int, int]]:
+    """Return an atlas sprite's alpha mask in its original-frame coordinates."""
+    page_name = str(texture["page"])
+    page = pages[page_name]
+    atlas_x = int(texture["x"])
+    atlas_y = int(texture["y"])
+    width = int(texture["width"])
+    height = int(texture["height"])
+    offset_x = int(texture["offset_x"])
+    offset_y = int(texture["offset_y"])
+    original_width = int(texture["original_width"])
+    original_height = int(texture["original_height"])
+    if original_width != _TILE_WIDTH or original_height != _TILE_HEIGHT:
+        return set()
+    if (
+        atlas_x < 0
+        or atlas_y < 0
+        or atlas_x + width > page.width
+        or atlas_y + height > page.height
+    ):
+        raise DepthSurfaceError(f"sprite crop lies outside indexed page: {page_name}")
+    return {
+        (offset_x + x, offset_y + y)
+        for y in range(height)
+        for x in range(width)
+        if page.alpha[(atlas_y + y) * page.width + atlas_x + x] != 0
+    }
 
 
 def empty_source_placeholder_evidence(
@@ -303,9 +433,12 @@ class PngPixels:
 
 
 def read_png(path: Path) -> PngPixels:
-    data = path.read_bytes()
+    return decode_png(path.read_bytes(), str(path))
+
+
+def decode_png(data: bytes, source: str) -> PngPixels:
     if not data.startswith(_PNG_SIGNATURE):
-        raise DepthSurfaceError(f"not a PNG: {path}")
+        raise DepthSurfaceError(f"not a PNG: {source}")
     position = len(_PNG_SIGNATURE)
     header: tuple[int, int, int, int, int, int, int] | None = None
     compressed = bytearray()
@@ -313,12 +446,12 @@ def read_png(path: Path) -> PngPixels:
     transparency = b""
     while position < len(data):
         if position + 12 > len(data):
-            raise DepthSurfaceError(f"truncated PNG chunk in {path}")
+            raise DepthSurfaceError(f"truncated PNG chunk in {source}")
         length = struct.unpack(">I", data[position:position + 4])[0]
         kind = data[position + 4:position + 8]
         payload = data[position + 8:position + 8 + length]
         if len(payload) != length:
-            raise DepthSurfaceError(f"truncated PNG payload in {path}")
+            raise DepthSurfaceError(f"truncated PNG payload in {source}")
         position += length + 12
         if kind == b"IHDR":
             header = struct.unpack(">IIBBBBB", payload)
@@ -331,13 +464,13 @@ def read_png(path: Path) -> PngPixels:
         elif kind == b"IEND":
             break
     if header is None:
-        raise DepthSurfaceError(f"PNG has no IHDR: {path}")
+        raise DepthSurfaceError(f"PNG has no IHDR: {source}")
     width, height, bit_depth, color_type, compression, filtering, interlace = header
     if bit_depth != 8 or compression != 0 or filtering != 0 or interlace != 0:
-        raise DepthSurfaceError(f"unsupported PNG encoding in {path}")
+        raise DepthSurfaceError(f"unsupported PNG encoding in {source}")
     channels = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}.get(color_type)
     if channels is None:
-        raise DepthSurfaceError(f"unsupported PNG color type {color_type} in {path}")
+        raise DepthSurfaceError(f"unsupported PNG color type {color_type} in {source}")
     raw = zlib.decompress(bytes(compressed))
     rows = _unfilter(raw, width * channels, height, channels)
     depth = bytearray(width * height)
@@ -354,7 +487,7 @@ def read_png(path: Path) -> PngPixels:
                 index = row[source]
                 palette_offset = index * 3
                 if palette_offset + 2 >= len(palette):
-                    raise DepthSurfaceError(f"palette index outside PLTE in {path}")
+                    raise DepthSurfaceError(f"palette index outside PLTE in {source}")
                 depth[target] = palette[palette_offset + 2]
                 alpha[target] = transparency[index] if index < len(transparency) else 255
             elif color_type == 4:

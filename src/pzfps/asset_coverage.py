@@ -106,6 +106,7 @@ def build_coverage(
     definitions_path: Path | None = None,
     depth_surfaces_path: Path | None = None,
     items_path: Path | None = None,
+    map_usage_path: Path | None = None,
 ) -> dict[str, Any]:
     geometry = json.loads(geometry_path.read_text(encoding="utf-8"))
     textures = json.loads(texture_path.read_text(encoding="utf-8"))
@@ -122,6 +123,10 @@ def build_coverage(
         json.loads(items_path.read_text(encoding="utf-8"))
         if items_path is not None else {"game_version": geometry.get("game_version"), "items": {}}
     )
+    map_usage = (
+        json.loads(map_usage_path.read_text(encoding="utf-8"))
+        if map_usage_path is not None else {"game_version": geometry.get("game_version"), "identities": {}}
+    )
     versions = {
         str(geometry.get("game_version", "")),
         str(textures.get("game_version", "")),
@@ -129,6 +134,7 @@ def build_coverage(
         str(definitions.get("game_version", "")),
         str(depth_surfaces.get("game_version", "")),
         str(items.get("game_version", "")),
+        str(map_usage.get("game_version", "")),
     }
     if len(versions) != 1 or "" in versions:
         raise ValueError(f"asset indexes describe different/unknown game versions: {sorted(versions)}")
@@ -139,6 +145,7 @@ def build_coverage(
     depth_surface_records = depth_surfaces.get("tiles", {})
     depth_surface_rejections = depth_surfaces.get("rejected_identities", {})
     depth_surface_skips = depth_surfaces.get("skipped_identities", {})
+    map_usage_records = map_usage.get("identities", {})
     identities = sorted(
         set(tile_records)
         | set(texture_records)
@@ -146,6 +153,7 @@ def build_coverage(
         | set(depth_surface_records)
         | set(depth_surface_rejections)
         | set(depth_surface_skips)
+        | set(map_usage_records)
     )
     rows: list[dict[str, Any]] = []
     by_category: dict[str, Counter[str]] = defaultdict(Counter)
@@ -155,6 +163,7 @@ def build_coverage(
         depth_primitives = depth_surface_records.get(identity, {}).get("geometry", [])
         depth_rejection = depth_surface_rejections.get(identity, {})
         depth_skip = depth_surface_skips.get(identity, {})
+        map_record = map_usage_records.get(identity, {})
         rule, state = renderer_rule(
             identity,
             len(primitives),
@@ -167,6 +176,9 @@ def build_coverage(
             "in_geometry_registry": identity in tile_records,
             "in_texture_atlas": identity in texture_records,
             "in_tile_definitions": identity in definition_records,
+            "in_installed_map_headers": identity in map_usage_records,
+            "installed_map_header_count": int(map_record.get("header_count", 0)),
+            "installed_map_directories": map_record.get("map_directories", []),
             "primitive_count": len(primitives),
             "primitive_kinds": dict(sorted(Counter(value.get("kind", "unknown") for value in primitives).items())),
             "depth_surface_primitive_count": len(depth_primitives),
@@ -236,6 +248,7 @@ def build_coverage(
             "tile_definitions": str(definitions_path.resolve()) if definitions_path is not None else "not supplied",
             "depth_surfaces": str(depth_surfaces_path.resolve()) if depth_surfaces_path is not None else "not supplied",
             "items": str(items_path.resolve()) if items_path is not None else "not supplied",
+            "map_usage": str(map_usage_path.resolve()) if map_usage_path is not None else "not supplied",
         },
         "summary": {
             "tile_geometry_identities": len(tile_records),
@@ -248,6 +261,40 @@ def build_coverage(
             ),
             "model_identities": len(model_rows),
             "item_identities": len(item_rows),
+            "installed_map_referenced_identities": len(map_usage_records),
+            "atlas_only_map_referenced_identities": sum(
+                row["in_installed_map_headers"]
+                and row["in_texture_atlas"]
+                and not row["in_tile_definitions"]
+                and not row["in_geometry_registry"]
+                for row in rows
+            ),
+            "atlas_only_not_observed_in_map_headers": sum(
+                not row["in_installed_map_headers"]
+                and row["in_texture_atlas"]
+                and not row["in_tile_definitions"]
+                and not row["in_geometry_registry"]
+                for row in rows
+            ),
+            "map_referenced_tile_states": dict(sorted(Counter(
+                row["coverage_state"] for row in rows if row["in_installed_map_headers"]
+            ).items())),
+            "map_referenced_by_category": {
+                name: {
+                    "total": sum(
+                        row["in_installed_map_headers"] and row["category"] == name
+                        for row in rows
+                    ),
+                    "states": dict(sorted(Counter(
+                        row["coverage_state"]
+                        for row in rows
+                        if row["in_installed_map_headers"] and row["category"] == name
+                    ).items())),
+                }
+                for name in sorted({
+                    row["category"] for row in rows if row["in_installed_map_headers"]
+                })
+            },
             "tile_states": dict(sorted(Counter(row["coverage_state"] for row in rows).items())),
             "model_states": dict(sorted(model_states.items())),
             "item_states": dict(sorted(item_states.items())),
@@ -278,6 +325,7 @@ def write_coverage(
     definitions_path: Path | None = None,
     depth_surfaces_path: Path | None = None,
     items_path: Path | None = None,
+    map_usage_path: Path | None = None,
 ) -> dict[str, Any]:
     report = build_coverage(
         geometry_path,
@@ -286,6 +334,7 @@ def write_coverage(
         definitions_path,
         depth_surfaces_path,
         items_path,
+        map_usage_path,
     )
     write_json(output, report)
     return report

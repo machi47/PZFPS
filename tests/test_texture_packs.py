@@ -8,6 +8,7 @@ from pzfps.texture_packs import (
     TexturePackError,
     extract_sprite_page,
     index_texture_pack,
+    read_indexed_pages,
 )
 
 
@@ -47,6 +48,9 @@ class TexturePackTests(unittest.TestCase):
             manifest = extract_sprite_page(index, "furniture_bedding_01_0", root / "out")
             self.assertEqual(Path(manifest["page_path"]).read_bytes(), png)
             self.assertEqual(manifest["region"]["original_height"], 134)
+            self.assertEqual(read_indexed_pages(document, ["atlas_page"]), {
+                "atlas_page": png,
+            })
 
     def test_rejects_legacy_pack(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

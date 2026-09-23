@@ -16,6 +16,7 @@ from .assets import compile_geometry
 from .asset_coverage import write_coverage, write_scene_coverage
 from .model_assets import compile_model_index
 from .item_definitions import compile_item_definitions
+from .map_usage import index_map_header_usage
 from .texture_packs import extract_sprite_page, index_texture_pack
 from .tile_definitions import compile_tile_definitions
 from .depth_surfaces import compile_planar_roof_surfaces
@@ -402,23 +403,26 @@ def command_assets_compile_roof_surfaces(args: argparse.Namespace) -> int:
     media = Path(install) / "Project Zomboid.app" / "Contents" / "Java" / "media"
     definitions = args.definitions or LOCAL / "assets" / f"pz-{version}" / "tile-definitions.json"
     textures = args.textures or LOCAL / "assets" / f"pz-{version}" / "Tiles2x-texture-index.json"
+    map_usage = args.map_usage or LOCAL / "assets" / f"pz-{version}" / "map-header-usage.json"
     assignments = media / "tileDepthTextureAssignments.txt"
     depthmaps = media / "depthmaps"
     output = args.output or LOCAL / "assets" / f"pz-{version}" / "roof-depth-surfaces.json"
     for label, path in (("tile-definition index", definitions), ("texture index", textures),
+                        ("map-header usage", map_usage),
                         ("depth assignments", assignments),
                         ("depth-map directory", depthmaps)):
         if not path.exists():
             raise UserError(f"{label} is absent: {path}")
     document = compile_planar_roof_surfaces(
         definitions, assignments, depthmaps, output,
-        game_version=version, textures_path=textures)
+        game_version=version, textures_path=textures, map_usage_path=map_usage)
     _print_json({
         "schema_version": document["schema_version"],
         "game_version": document["game_version"],
         "method": document["method"],
         "tile_count": document["tile_count"],
         "triangle_count": document["triangle_count"],
+        "source_equivalent_alias_count": document["source_equivalent_alias_count"],
         "rejected": document["rejected"],
         "skipped": document["skipped"],
         "output": str(output),
@@ -534,6 +538,36 @@ def command_assets_index_items(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_assets_index_map_usage(args: argparse.Namespace) -> int:
+    report = inspect()
+    install = report["game"]["install_path"]
+    if not report["game"]["installed"] or not install:
+        raise UserError("Project Zomboid is not installed")
+    version = report["game"]["version"]
+    root = LOCAL / "assets" / f"pz-{version}"
+    textures = args.textures or root / "Tiles2x-texture-index.json"
+    maps = args.maps or (
+        Path(install) / "Project Zomboid.app" / "Contents" / "Java" / "media" / "maps"
+    )
+    output = args.output or root / "map-header-usage.json"
+    for label, path in (("texture index", textures), ("map directory", maps)):
+        if not path.exists():
+            raise UserError(f"{label} is absent: {path}")
+    document = index_map_header_usage(
+        maps, textures, output, game_version=version)
+    _print_json({
+        key: document[key]
+        for key in (
+            "schema_version",
+            "game_version",
+            "source_header_count",
+            "source_bytes",
+            "referenced_identity_count",
+        )
+    } | {"output": str(output)})
+    return 0
+
+
 def command_assets_audit_coverage(args: argparse.Namespace) -> int:
     report = inspect()
     version = report["game"]["version"]
@@ -544,14 +578,15 @@ def command_assets_audit_coverage(args: argparse.Namespace) -> int:
     definitions = args.definitions or root / "tile-definitions.json"
     depth_surfaces = args.depth_surfaces or root / "roof-depth-surfaces.json"
     items = args.items or root / "item-definitions.json"
+    map_usage = args.map_usage or root / "map-header-usage.json"
     output = args.output or LOCAL / "reports" / f"asset-coverage-pz-{version}.json"
     for label, path in (("geometry", geometry), ("texture", textures), ("model", models),
                         ("tile-definition", definitions), ("roof depth-surface", depth_surfaces),
-                        ("item-definition", items)):
+                        ("item-definition", items), ("map-header usage", map_usage)):
         if not path.is_file():
             raise UserError(f"{label} index is absent: {path}")
     document = write_coverage(
-        geometry, textures, models, output, definitions, depth_surfaces, items)
+        geometry, textures, models, output, definitions, depth_surfaces, items, map_usage)
     _print_json(document["summary"] | {"output": str(output)})
     return 0
 
@@ -717,6 +752,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     roof_surfaces.add_argument("--definitions", type=Path)
     roof_surfaces.add_argument("--textures", type=Path)
+    roof_surfaces.add_argument("--map-usage", type=Path)
     roof_surfaces.add_argument("--output", type=Path)
     roof_surfaces.set_defaults(func=command_assets_compile_roof_surfaces)
     textures = asset_commands.add_parser(
@@ -739,6 +775,14 @@ def build_parser() -> argparse.ArgumentParser:
     items.add_argument("--models", type=Path)
     items.add_argument("--output", type=Path)
     items.set_defaults(func=command_assets_index_items)
+    map_usage = asset_commands.add_parser(
+        "index-map-usage",
+        help="index exact atlas identities named by installed binary map headers",
+    )
+    map_usage.add_argument("--textures", type=Path)
+    map_usage.add_argument("--maps", type=Path)
+    map_usage.add_argument("--output", type=Path)
+    map_usage.set_defaults(func=command_assets_index_map_usage)
     coverage = asset_commands.add_parser(
         "audit-coverage",
         help="join indexed tiles, atlas sprites, models and item scripts with honest renderer coverage states",
@@ -749,6 +793,7 @@ def build_parser() -> argparse.ArgumentParser:
     coverage.add_argument("--definitions", type=Path)
     coverage.add_argument("--depth-surfaces", type=Path)
     coverage.add_argument("--items", type=Path)
+    coverage.add_argument("--map-usage", type=Path)
     coverage.add_argument("--output", type=Path)
     coverage.set_defaults(func=command_assets_audit_coverage)
     scene_coverage = asset_commands.add_parser(

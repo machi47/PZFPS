@@ -4,7 +4,7 @@ import json
 import struct
 from dataclasses import dataclass
 from pathlib import Path
-from typing import BinaryIO
+from typing import BinaryIO, Iterable
 
 from .common import now_utc, sha256_file, write_json
 
@@ -175,6 +175,39 @@ def extract_sprite_page(index_path: Path, sprite: str, output_directory: Path) -
     write_json(manifest_path, manifest)
     manifest["manifest_path"] = str(manifest_path)
     return manifest
+
+
+def read_indexed_pages(
+    document: dict[str, object], page_names: Iterable[str]
+) -> dict[str, bytes]:
+    """Read selected PNG pages after validating the indexed source pack.
+
+    This keeps installed artwork out of project registries while still allowing compilers
+    to compare source alpha masks. The pack checksum is verified once per call rather than
+    once per page.
+    """
+    source = Path(str(document["source"]))
+    if sha256_file(source) != document["source_sha256"]:
+        raise TexturePackError(f"texture pack checksum changed since indexing: {source}")
+    pages = {
+        str(page["name"]): page
+        for page in document.get("pages", [])
+        if isinstance(page, dict)
+    }
+    requested = sorted(set(page_names))
+    missing = [name for name in requested if name not in pages]
+    if missing:
+        raise TexturePackError(f"indexed texture pages are absent: {', '.join(missing)}")
+    result: dict[str, bytes] = {}
+    with source.open("rb") as stream:
+        for name in requested:
+            page = pages[name]
+            stream.seek(int(page["png_offset"]))
+            png = stream.read(int(page["png_length"]))
+            if len(png) != int(page["png_length"]) or not png.startswith(PNG_SIGNATURE):
+                raise TexturePackError(f"failed to read indexed page {name!r} from {source}")
+            result[name] = png
+    return result
 
 
 def _validate_count(kind: str, count: int) -> None:

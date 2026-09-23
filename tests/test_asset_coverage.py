@@ -78,8 +78,19 @@ class AssetCoverageTests(unittest.TestCase):
                     },
                 },
             }))
+            map_usage = root / "map-usage.json"
+            map_usage.write_text(json.dumps({
+                "schema_version": 1,
+                "game_version": "42.20",
+                "identities": {
+                    "texture_only_0": {
+                        "header_count": 2,
+                        "map_directories": ["Muldraugh, KY"],
+                    },
+                },
+            }))
             report = build_coverage(
-                geometry, textures, models, definitions, depth_surfaces, items)
+                geometry, textures, models, definitions, depth_surfaces, items, map_usage)
             rows = {row["identity"]: row for row in report["tile_texture_identities"]}
             self.assertEqual(
                 rows["roofs_02_3"]["coverage_state"],
@@ -111,6 +122,8 @@ class AssetCoverageTests(unittest.TestCase):
             )
             self.assertEqual(rows["furniture_storage_02_36"]["coverage_state"], "implemented_unaccepted")
             self.assertEqual(rows["texture_only_0"]["coverage_state"], "unsupported_unless_native_runtime_path")
+            self.assertTrue(rows["texture_only_0"]["in_installed_map_headers"])
+            self.assertEqual(rows["texture_only_0"]["installed_map_header_count"], 2)
             self.assertEqual(report["summary"]["model_states"], {"native_model_resolved": 1})
             self.assertEqual(report["summary"]["identities_with_depth_surfaces"], 1)
             self.assertEqual(report["summary"]["depth_surface_rejection_reasons"], {
@@ -120,6 +133,13 @@ class AssetCoverageTests(unittest.TestCase):
                 "empty_source_placeholder": 1,
             })
             self.assertEqual(report["summary"]["item_identities"], 2)
+            self.assertEqual(report["summary"]["installed_map_referenced_identities"], 1)
+            self.assertEqual(report["summary"]["atlas_only_map_referenced_identities"], 1)
+            self.assertEqual(report["summary"]["map_referenced_tile_states"], {
+                "unsupported_unless_native_runtime_path": 1,
+            })
+            self.assertEqual(
+                report["summary"]["map_referenced_by_category"]["other"]["total"], 1)
             self.assertEqual(report["summary"]["item_states"], {
                 "native_world_model_resolved": 1,
                 "no_world_model_declared": 1,

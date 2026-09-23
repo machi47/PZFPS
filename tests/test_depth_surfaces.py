@@ -8,6 +8,7 @@ import zlib
 
 from pzfps.depth_surfaces import (
     compile_planar_roof_surfaces,
+    compile_source_equivalent_roof_aliases,
     audit_roof_surfaces,
     depth_point,
     empty_source_placeholder_evidence,
@@ -22,6 +23,7 @@ from pzfps.depth_surfaces import (
     point_on_implicit_plane,
     point_on_plane,
     polygon_area,
+    PngPixels,
     read_png,
     split_tile_identity,
     triangulate_planar_patches,
@@ -40,6 +42,51 @@ def png_gray_alpha(width: int, height: int, pixels: list[tuple[int, int]]) -> by
 
 
 class DepthSurfaceTests(unittest.TestCase):
+    def test_map_used_source_equivalent_roof_inherits_only_verified_subset(self) -> None:
+        source_identity = "walls_exterior_roofs_30_19_16"
+        destination_identity = "walls_exterior_roofs_30_21_16"
+        alpha = bytearray(20)
+        alpha[0:10] = b"\xff" * 10
+        alpha[10:19] = b"\xff" * 9
+        page = PngPixels(10, 2, bytes(20), bytes(alpha))
+        texture = {
+            "page": "page",
+            "x": 0,
+            "width": 10,
+            "height": 1,
+            "offset_x": 0,
+            "offset_y": 0,
+            "original_width": 128,
+            "original_height": 256,
+        }
+        textures = {
+            source_identity: texture | {"y": 0},
+            destination_identity: texture | {"y": 1, "width": 9},
+        }
+        compiled = {
+            source_identity: {
+                "geometry": [{"kind": "triangle", "points": [[0, 0, 0]] * 3}],
+                "properties": {"depth_target": "preset_depthmaps_01_5"},
+            },
+        }
+        with (
+            mock.patch(
+                "pzfps.depth_surfaces.read_indexed_pages",
+                return_value={"page": b"source-backed-page"},
+            ),
+            mock.patch("pzfps.depth_surfaces.decode_png", return_value=page),
+        ):
+            aliases = compile_source_equivalent_roof_aliases(
+                compiled,
+                textures,
+                {},
+                {destination_identity: {"header_count": 1}},
+            )
+        properties = aliases[destination_identity]["properties"]
+        self.assertEqual(properties["source_equivalent_identity"], source_identity)
+        self.assertEqual(properties["removed_border_pixels"], 1)
+        self.assertEqual(properties["retained_alpha_fraction"], 0.9)
+
     def test_empty_roof_slot_requires_atlas_and_semantic_evidence(self) -> None:
         definition = {"properties": {"BurntTile": "walls_burnt_roofs_01_18"}}
         identity = "walls_exterior_roofs_05_18"

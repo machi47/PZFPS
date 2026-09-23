@@ -30,8 +30,9 @@ surfaces present on the nearby building without the earlier detached strips.
 The macOS session was locked, so safe input refused to run and no moving-view
 acceptance is claimed. This is a narrow visible improvement, not broad roof acceptance.
 The subsequently regenerated local registry is
-`7b66178406b5e65c8b3d646200c725758b41873532401fb3cd07d3c4b4288c2a`.
-It contains a new offline-validated quantised-depth recovery described below;
+`35f27b3709613e51c0d78baa4728ebfe45326fbdae8c5078dadc3d7b10191291`.
+It contains the offline-validated quantised-depth recovery and source-equivalent
+map-used roof recovery described below;
 it has not been live-loaded because `loginwindow` is foreground, so it is not
 used to claim another visible improvement or to justify an untestable reload.
 No normal save, installed game binary or unrelated mod was changed.
@@ -54,6 +55,16 @@ explicitly labels accepted,
 unaccepted, rejected and unsupported renderer paths instead of treating index
 presence as successful visual coverage.
 
+`bin/pzfps assets index-map-usage` also scans all 4,112 installed binary map
+headers (32,534,900 bytes) and intersects their exact sprite names with the
+atlas index. It observes 20,037 atlas identities in at least one map header.
+Of those, 396 are atlas-only identities with neither a tile definition nor a
+geometry-registry entry; 2,844 other atlas-only identities were not observed in
+the installed headers. Header presence is deliberately not called an instance
+count. The joined report records the source headers/directories and aggregates
+map-referenced renderer states by category, so visible work can be prioritized
+from installed-world evidence instead of repeated owner screenshots.
+
 This corpus covers installed tile/sprite definitions, named models and item
 scripts. It does not pretend to enumerate every modded identity, procedural
 runtime object, character/clothing combination, damage variant, object state or
@@ -66,13 +77,13 @@ identities are present and only 84 have installed authored source primitives.
 planar patches from PZ's installed depth atlases using the game's source
 projection/depth equations. Concave source silhouettes use an exact alpha-mask
 rectangle decomposition instead of an unsafe convex hull. The local supplemental
-registry contains 4,368 identities and 87,191 triangles; 4,287 roof identities
+registry contains 4,372 identities and 87,215 triangles; 4,291 roof identities
 are pending broader live acceptance. Authored geometry wins when both paths
 exist. A strict-first 0.025 retry recovers 72 compound identities whose
 quantised source depth narrowly missed the 0.018 inlier threshold; every patch
 still passes 95% source coverage and a 0.012 RMS gate, with a measured maximum
 of 0.0116119. The compiler rejects 11 unsafe tile-local surfaces and 112
-unanchored roof-overlay entries, leaving 190 roof identities
+unanchored roof-overlay entries, leaving 186 roof identities
 rejected/unsupported after authored precedence. It separately records eight
 confirmed empty source placeholders rather than misreporting them as missing
 geometry. Each rejected or skipped identity records its reason and evidence. This is a systemic
@@ -147,11 +158,27 @@ with 84 authored and 38 rejected/unsupported. The eight former missing-depth
 entries were audited against both definitions and atlas metadata: six have no
 sprite, two are 1x1 placeholders, and all eight expose only a burnt-tile
 fallback with no depth assignment. They are now `not_applicable_source_placeholder`,
-not fabricated geometry. Python discovery passes 38 tests. The clean Gradle
+not fabricated geometry. Python discovery passes 41 tests. The clean Gradle
 build passes 129 tests with one unrelated opt-in test skipped and explicitly
-loads the 4,368-entry generated registry. An initial targeted Python run exposed
+loads the 4,372-entry generated registry, including
+`walls_exterior_roofs_30_21_16`. An initial targeted Python run exposed
 a Python 3.14 `unittest.mock` import assumption; the import was corrected before
 the passing full suite. No game process was started for this pass.
+
+The map-header join identifies four atlas-only, installed-Muldraugh roof pieces:
+`walls_exterior_roofs_30_21_16/17/28/29`. Their same-suffix `30_19`
+counterparts have definitions and compiled depth surfaces. The compiler now
+loads only the two required installed atlas pages and requires each destination
+alpha mask to be a strict subset of its counterpart, with zero added pixels,
+at most a one-tile-width removed border and at least 90% retained coverage.
+All four pass with 90--91 removed pixels and 92.86--97.46% retained coverage.
+Their source identity, measurements and map-header count are recorded in the
+registry. This raises compiled roof identities from 4,287 to 4,291 and reduces
+the global rejected/unsupported count from 190 to 186. Of the remaining 186,
+115 are map-referenced: 106 are deliberately rejected unanchored overlays,
+seven exceed the conservative local envelope, and two are atlas-only challenge
+roof pieces without sufficient structural evidence. This pass is offline; it
+has not been live-loaded while the desktop remains locked.
 
 The indexed source properties retain `RoofGroup`, `BlockRain`, `attached*`,
 `isEave`, `diamondFloor` and `solidfloor` roles for later topology grouping.
@@ -1349,6 +1376,8 @@ bin/pzfps upstream verify --force-unsupported-host
 bin/pzfps assets index-geometry
 bin/pzfps assets index-textures --pack Tiles2x.pack
 bin/pzfps assets index-models
+bin/pzfps assets index-map-usage
+bin/pzfps assets audit-coverage
 bin/pzfps assets extract-sprite furniture_bedding_01_0
 
 PZ_JAR='/Users/machi/Library/Application Support/Steam/steamapps/common/ProjectZomboid/Project Zomboid.app/Contents/Java/projectzomboid.jar' \
@@ -1434,17 +1463,14 @@ reticle image with four code-drawn ticks and returned `PZFPS_LUA_PARSE_OK`.
 
 Most recent test results:
 
-- Python/pytest: 45 passed, 0 failed (49 deprecation warnings).
-- Java/Gradle: 83 passed, 0 failed across `ChunkLifecycleTest`,
-  `CursorCaptureStateTest`, `DirectPatchInstallerTest`, `FirstPersonInputTest`,
-  `FirstPersonCharacterCameraTest`, `FirstPersonModelCameraTest`,
-  `InputStateTest`, `InteractionTargetTest`, `MovementDiagnosticsTest`,
-  `NativeActorPassTest`, `NativeFirstPersonHandsPassTest`,
-  `NativeVehiclePassTest`, `NativeWorldItemPassTest`,
-  `PerspectiveBallisticsTest`, `PerspectiveInteractTest`,
-  `PerspectiveViewRayTest`, `PerspectiveVisibilityTest`, `ReticleTrackerTest`,
-  `RepresentationBacklogTest`,
-  `WireProtocolTest` and `WorldMeshBuilderTest`.
+- Project Python suite: 41 passed, 0 failed.
+- Java/Gradle: 129 tests, 1 skipped, 0 failures/errors; the opt-in generated
+  registry audit ran and loaded all 4,372 entries.
+- The broader canonical-package pytest run has 63 passing tests and four
+  failures in untouched `canonical/tests/test_pzregistry.py` concerning
+  cylinder axis, polygon plane and rotation conventions. They are not hidden
+  as part of this checkpoint and were not caused or changed by the corpus/roof
+  work.
 
 ## Evidence and identities
 
@@ -1463,7 +1489,7 @@ Most recent test results:
 - Last live-loaded supplemental roof registry SHA-256:
   `78fec525c09663f93648beb90dbc5dcec680d85bc0b16cbd17842cb6b213a4e7`.
 - Current local supplemental roof registry SHA-256:
-  `8239a5e636be9bd5fb60b497206fcba771fcdd97278032569f287d75c5481d71`.
+  `35f27b3709613e51c0d78baa4728ebfe45326fbdae8c5078dadc3d7b10191291`.
 - Latest live screenshot:
   `.local/captures/roof-mask-live-window.png`; it is stationary roof evidence,
   not a moving-view acceptance capture. Earlier gameplay/reticle evidence is
