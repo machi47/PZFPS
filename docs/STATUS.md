@@ -30,11 +30,12 @@ surfaces present on the nearby building without the earlier detached strips.
 The macOS session was locked, so safe input refused to run and no moving-view
 acceptance is claimed. This is a narrow visible improvement, not broad roof acceptance.
 The subsequently regenerated local registry is
-`35f27b3709613e51c0d78baa4728ebfe45326fbdae8c5078dadc3d7b10191291`.
+`4f27ea99ff0fc0ebfc674c5d1f3d877b1f1e1659c386cca1af0ff197f9310b8c`.
 It contains the offline-validated quantised-depth recovery and source-equivalent
 map-used roof recovery described below;
-it has not been live-loaded because `loginwindow` is foreground, so it is not
-used to claim another visible improvement or to justify an untestable reload.
+it has not been live-loaded because the newest change only improves audit
+classification, so it is not used to claim a visible improvement or justify a
+reload without a visual renderer change.
 No normal save, installed game binary or unrelated mod was changed.
 
 ### Installed corpus ledger and depth-derived roof checkpoint
@@ -65,6 +66,15 @@ count. The joined report records the source headers/directories and aggregates
 map-referenced renderer states by category, so visible work can be prioritized
 from installed-world evidence instead of repeated owner screenshots.
 
+Coverage schema 2 now joins those exact identities to the relevant V-IDs in
+`docs/VISUAL_ISSUES.md`. Each tile row contains `visual_issue_scope_ids`; the
+summary gives total and installed-map-referenced identity counts per reported
+issue; and scene coverage gives matching runtime object-instance counts. The
+scope is explicitly a work queue rather than proof that every member exhibits
+the example defect. Global issues such as lighting, sky, render distance and
+the first-person body stay as ledger rows instead of being falsely attached to
+every sprite.
+
 This corpus covers installed tile/sprite definitions, named models and item
 scripts. It does not pretend to enumerate every modded identity, procedural
 runtime object, character/clothing combination, damage variant, object state or
@@ -83,10 +93,10 @@ exist. A strict-first 0.025 retry recovers 72 compound identities whose
 quantised source depth narrowly missed the 0.018 inlier threshold; every patch
 still passes 95% source coverage and a 0.012 RMS gate, with a measured maximum
 of 0.0116119. The compiler rejects 11 unsafe tile-local surfaces and 112
-unanchored roof-overlay entries, leaving 186 roof identities
-rejected/unsupported after authored precedence. It separately records eight
-confirmed empty source placeholders rather than misreporting them as missing
-geometry. Each rejected or skipped identity records its reason and evidence. This is a systemic
+unanchored roof-overlay entries, leaving 158 roof identities
+rejected/unsupported after authored precedence. It separately records 36
+source-evidenced non-renderable placeholders rather than misreporting them as
+missing geometry. Each rejected or skipped identity records its reason and evidence. This is a systemic
 identity-level representation path, not a per-house patch and not a broad
 visual acceptance claim.
 
@@ -173,12 +183,18 @@ alpha mask to be a strict subset of its counterpart, with zero added pixels,
 at most a one-tile-width removed border and at least 90% retained coverage.
 All four pass with 90--91 removed pixels and 92.86--97.46% retained coverage.
 Their source identity, measurements and map-header count are recorded in the
-registry. This raises compiled roof identities from 4,287 to 4,291 and reduces
-the global rejected/unsupported count from 190 to 186. Of the remaining 186,
-115 are map-referenced: 106 are deliberately rejected unanchored overlays,
-seven exceed the conservative local envelope, and two are atlas-only challenge
-roof pieces without sufficient structural evidence. This pass is offline; it
-has not been live-loaded while the desktop remains locked.
+registry. This raises compiled roof identities from 4,287 to 4,291. A further
+source audit classifies 28 atlas-only roof crumbs with at most four packed
+pixels and no definition, depth assignment or compiled geometry as
+non-renderable placeholders. Two of those legacy names occur in challenge-map
+headers. The global roof result is therefore 4,291 compiled, 84 authored and
+unaccepted, 36 source placeholders, and 158 rejected/unsupported. Of the 3,077
+map-referenced roof identities, 113 remain rejected: 106 are deliberately
+rejected unanchored overlays and seven exceed the conservative local envelope.
+Every remaining map-referenced rejection has an explicit source-backed reason.
+This pass is offline and has not been live-loaded because it changes audit
+classification rather than visible geometry; it is not a justified visual
+checkpoint by itself.
 
 The indexed source properties retain `RoofGroup`, `BlockRain`, `attached*`,
 `isEave`, `diamondFloor` and `solidfloor` roles for later topology grouping.
@@ -1463,7 +1479,7 @@ reticle image with four code-drawn ticks and returned `PZFPS_LUA_PARSE_OK`.
 
 Most recent test results:
 
-- Project Python suite: 41 passed, 0 failed.
+- Project Python suite: 42 passed, 0 failed.
 - Java/Gradle: 129 tests, 1 skipped, 0 failures/errors; the opt-in generated
   registry audit ran and loaded all 4,372 entries.
 - The broader canonical-package pytest run has 63 passing tests and four
@@ -1489,7 +1505,9 @@ Most recent test results:
 - Last live-loaded supplemental roof registry SHA-256:
   `78fec525c09663f93648beb90dbc5dcec680d85bc0b16cbd17842cb6b213a4e7`.
 - Current local supplemental roof registry SHA-256:
-  `35f27b3709613e51c0d78baa4728ebfe45326fbdae8c5078dadc3d7b10191291`.
+  `4f27ea99ff0fc0ebfc674c5d1f3d877b1f1e1659c386cca1af0ff197f9310b8c`.
+- Current local installed-asset coverage report SHA-256:
+  `f2947926871160237a119c98c0f5d8b067f4bd1d1ce22ca44549b49e18da5628`.
 - Latest live screenshot:
   `.local/captures/roof-mask-live-window.png`; it is stationary roof evidence,
   not a moving-view acceptance capture. Earlier gameplay/reticle evidence is

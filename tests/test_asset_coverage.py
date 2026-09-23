@@ -3,7 +3,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from pzfps.asset_coverage import build_coverage, build_scene_coverage, category, renderer_rule
+from pzfps.asset_coverage import (
+    build_coverage,
+    build_scene_coverage,
+    category,
+    renderer_rule,
+    visual_issue_ids,
+)
 
 
 class AssetCoverageTests(unittest.TestCase):
@@ -112,6 +118,7 @@ class AssetCoverageTests(unittest.TestCase):
                 "fixture diagnostic",
             )
             self.assertEqual(rows["roofs_02_3"]["source_properties"]["RoofGroup"], "3")
+            self.assertEqual(rows["roofs_02_3"]["visual_issue_scope_ids"], ["V-12"])
             self.assertEqual(
                 rows["walls_exterior_roofs_05_18"]["coverage_state"],
                 "not_applicable_source_placeholder",
@@ -144,6 +151,20 @@ class AssetCoverageTests(unittest.TestCase):
                 "native_world_model_resolved": 1,
                 "no_world_model_declared": 1,
             })
+            self.assertEqual(
+                report["summary"]["visual_issue_identity_scopes"]["V-12"],
+                {
+                    "categories": ["roof"],
+                    "identity_count": 3,
+                    "states": {
+                        "implemented_pending_live_acceptance": 1,
+                        "not_applicable_source_placeholder": 1,
+                        "rejected_or_unsupported": 1,
+                    },
+                    "installed_map_referenced_identity_count": 0,
+                    "installed_map_referenced_states": {},
+                },
+            )
 
     def test_known_problem_families_are_explicit(self) -> None:
         self.assertEqual(category("walls_exterior_roofs_10_5"), "roof")
@@ -151,6 +172,9 @@ class AssetCoverageTests(unittest.TestCase):
         self.assertEqual(renderer_rule("fixtures_windows_01_24", 0)[1], "rejected_not_physical")
         self.assertEqual(renderer_rule("fencing_01_25", 0),
                          ("short_chainlink_boundary_panel", "implemented_unaccepted"))
+        self.assertEqual(visual_issue_ids("roof"), ["V-12"])
+        self.assertEqual(visual_issue_ids("door"), ["V-05", "V-09"])
+        self.assertEqual(visual_issue_ids("vegetation"), [])
 
     def test_scene_report_joins_runtime_instances_to_identity_coverage(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -163,6 +187,7 @@ class AssetCoverageTests(unittest.TestCase):
                     "category": "roof",
                     "coverage_state": "implemented_pending_live_acceptance",
                     "renderer_rule": "installed_depth_planar_surface",
+                    "visual_issue_scope_ids": ["V-12"],
                     "depth_surface_rejection_reason": "",
                     "depth_surface_target": "roofs_02_3",
                 }],
@@ -179,11 +204,16 @@ class AssetCoverageTests(unittest.TestCase):
             self.assertEqual(report["summary"]["scene_objects"], 2)
             self.assertEqual(report["summary"]["scene_identities"], 2)
             self.assertEqual(report["summary"]["identities_absent_from_installed_corpus"], 1)
+            self.assertEqual(
+                report["summary"]["object_instances_by_visual_issue_scope"],
+                {"V-12": 1},
+            )
             self.assertEqual(report["summary"]["depth_surface_rejected_instances_by_reason"], {})
             roof = next(item for item in report["identities"] if item["identity"] == "roofs_02_3")
             self.assertEqual(roof["instances"], 1)
             self.assertEqual(roof["sample_positions"], [[10, 20, 1]])
             self.assertEqual(roof["depth_surface_target"], "roofs_02_3")
+            self.assertEqual(roof["visual_issue_scope_ids"], ["V-12"])
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@ from pzfps.depth_surfaces import (
     compile_planar_roof_surfaces,
     compile_source_equivalent_roof_aliases,
     audit_roof_surfaces,
+    atlas_only_tiny_placeholder_evidence,
     depth_point,
     empty_source_placeholder_evidence,
     fit_planar_surface,
@@ -42,6 +43,16 @@ def png_gray_alpha(width: int, height: int, pixels: list[tuple[int, int]]) -> by
 
 
 class DepthSurfaceTests(unittest.TestCase):
+    def test_atlas_only_tiny_roof_requires_all_absence_evidence(self) -> None:
+        identity = "roofs_01_48"
+        texture = {"width": 2, "height": 1}
+        self.assertIn("atlas_crop_2x1", atlas_only_tiny_placeholder_evidence(
+            identity, texture, {}, {}, {}))
+        self.assertEqual(atlas_only_tiny_placeholder_evidence(
+            identity, texture, {identity: {}}, {}, {}), "")
+        self.assertEqual(atlas_only_tiny_placeholder_evidence(
+            identity, {"width": 5, "height": 1}, {}, {}, {}), "")
+
     def test_map_used_source_equivalent_roof_inherits_only_verified_subset(self) -> None:
         source_identity = "walls_exterior_roofs_30_19_16"
         destination_identity = "walls_exterior_roofs_30_21_16"

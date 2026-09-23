@@ -201,6 +201,21 @@ def compile_planar_roof_surfaces(
         map_usage.get("identities", {}),
     )
     compiled.update(source_equivalent_aliases)
+    for identity, texture in sorted(texture_records.items()):
+        evidence = atlas_only_tiny_placeholder_evidence(
+            identity,
+            texture,
+            tiles,
+            assignments,
+            compiled,
+        )
+        if not evidence:
+            continue
+        _count(skipped, "atlas_only_tiny_source_placeholder")
+        skipped_identities[identity] = {
+            "reason": "atlas_only_tiny_source_placeholder",
+            "evidence": evidence,
+        }
 
     source_hashes = {
         "tile_definitions": sha256_file(definitions_path),
@@ -373,6 +388,33 @@ def empty_source_placeholder_evidence(
     if int(texture.get("width", 0)) <= 1 and int(texture.get("height", 0)) <= 1:
         return "one_pixel_texture_placeholder; burnt_fallback_only; no_depth_assignment"
     return ""
+
+
+def atlas_only_tiny_placeholder_evidence(
+    identity: str,
+    texture: dict[str, Any],
+    definitions: dict[str, Any],
+    assignments: dict[str, str],
+    compiled: dict[str, Any],
+) -> str:
+    """Classify atlas crumbs that cannot encode a renderable roof surface.
+
+    Some legacy map dictionaries still name roof slots whose installed source image is at
+    most four packed pixels. Requiring absence from definitions, depth assignments and
+    compiled geometry keeps this classification narrow and source-backed.
+    """
+    if category(identity) != "roof":
+        return ""
+    if identity in definitions or identity in assignments or identity in compiled:
+        return ""
+    width = int(texture.get("width", 0))
+    height = int(texture.get("height", 0))
+    if width <= 0 or height <= 0 or width * height > 4:
+        return ""
+    return (
+        f"atlas_crop_{width}x{height}; no_tile_definition; "
+        "no_depth_assignment; no_compiled_geometry"
+    )
 
 
 def has_physical_roof_anchor(identity: str, definition: dict[str, Any]) -> bool:

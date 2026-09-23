@@ -26,7 +26,7 @@ machine-readable installed-asset audit is
 | V-09 | Doors disappear when open, remain paper-thin, and need transparent panes plus coherent hinge motion | 17–19 | **Rejected**. Current renderer is a state-aware edge card, not a 3D door. | Closed/open states use one persistent volumetric asset, correct hinge/pivot and thickness; glass panes preserve transparency. |
 | V-10 | Rejected door experiment stretched one isometric crop across guessed box faces, creating stacked/distorted shapes and opaque glass | 33 | **Regression removed**. Never an accepted checkpoint. | The rejected six-face path remains absent; a future replacement must pass V-09 before deployment. |
 | V-11 | Short chain-link fence tiles/gates do not meet and alternate offsets; material/depth ordering is unstable | 09, 20 | **Partial, unaccepted**. Only `fencing_01_24..27` share a boundary-panel rule; gates and 1,210 other fence identities are not accepted. | Continuous endpoints, height and depth across straight runs, corners and gates in both viewing directions. |
-| V-12 | Roofs are missing huge sections, transparent from some sides, or assembled as disconnected/malformed cards | 21, 34, three live roof checkpoints | **Partial, rejected overall; two narrow improvements visible live**. Installed source evidence now produces surfaces for 4,291 roof identities; 84 retain installed authored geometry, 186 remain rejected/unsupported and 8 are proven empty source placeholders. A strict-first quantisation retry recovered 72 compound roof identities while retaining the 0.012 RMS safety gate. Four atlas-only Muldraugh pieces in `walls_exterior_roofs_30_21` now inherit matching `30_19` surfaces only after installed-map reference and strict source-alpha-subset checks. The first valid capture exposed detached strips from unanchored upper-storey overlays. A semantic fail-closed rule removed 112 compiler entries, including all 21 nearby `roofs_05_47` instances. Exact alpha-mask meshing recovered the concave `roofs_30_02_*` identities in the captured scene. The latest stationary frame has continuous visible slopes on that building, but the later 72-identity and four-identity compiler passes have not been live-loaded because the desktop is locked. Motion, roof junctions, undersides and other buildings remain unaccepted. | Watertight eaves, slopes, ridges, hips/valleys and undersides across representative one- and two-storey buildings, with no detached surfaces or camera-side disappearance. |
+| V-12 | Roofs are missing huge sections, transparent from some sides, or assembled as disconnected/malformed cards | 21, 34, three live roof checkpoints | **Partial, rejected overall; two narrow improvements visible live**. Installed source evidence now produces surfaces for 4,291 roof identities; 84 retain installed authored geometry, 158 remain rejected/unsupported and 36 are source-evidenced non-renderable placeholders. A strict-first quantisation retry recovered 72 compound roof identities while retaining the 0.012 RMS safety gate. Four atlas-only Muldraugh pieces in `walls_exterior_roofs_30_21` now inherit matching `30_19` surfaces only after installed-map reference and strict source-alpha-subset checks. The first valid capture exposed detached strips from unanchored upper-storey overlays. A semantic fail-closed rule removed 112 compiler entries, including all 21 nearby `roofs_05_47` instances. Exact alpha-mask meshing recovered the concave `roofs_30_02_*` identities in the captured scene. The latest stationary frame has continuous visible slopes on that building, but the later compiler passes have not been live-loaded. Motion, roof junctions, undersides and other buildings remain unaccepted. | Watertight eaves, slopes, ridges, hips/valleys and undersides across representative one- and two-storey buildings, with no detached surfaces or camera-side disappearance. |
 | V-13 | Render distance is too short to read a substantial part of town | 09, 21 | **Open**. Projection far plane is 400m, but loaded/visible chunk range and asset correctness—not only the far plane—limit useful distance. | Measured chunk/mesh visibility at agreed town-scale distance without missing simulation state or unacceptable frame-time/memory regression. |
 | V-14 | Need a coherent skybox synchronized to authoritative time through pause and time acceleration | 34 | **Prototype rejected as insufficient**. Only a clock-driven two-color screen gradient exists; the pictured night result is effectively black. | Horizon, celestial/time progression and weather-aware sky remain synchronized to PZ time in pause/1x/fast-forward and are visibly credible. |
 | V-15 | Need robust lighting with semantic source types rather than arbitrary darkness | 01, 06–08, 34 | **Open**. Current pass samples raw square RGB with an exposure floor; it has no sun/sky/fixture semantic model, shadows or calibrated materials. | Directional sun/sky plus typed local emitters, stable exposure, occlusion and day/night transitions validated in the same route. |
@@ -56,7 +56,7 @@ Important category totals from the current audit:
 
 | Category | Identities | Honest renderer state |
 |---|---:|---|
-| Roof | 4,569 | 4,291 compiled from installed depth/alpha evidence pending broader live acceptance; 84 authored-geometry identities unaccepted; 186 rejected/unsupported; 8 proven empty source placeholders |
+| Roof | 4,569 | 4,291 compiled from installed depth/alpha evidence pending broader live acceptance; 84 authored-geometry identities unaccepted; 158 rejected/unsupported; 36 source-evidenced non-renderable placeholders |
 | Door | 166 | all rejected as non-volumetric |
 | Window | 648 | all rejected as non-physical |
 | Fence | 1,214 | four exact short-chain-link identities implemented but unaccepted; 1,210 unaccepted |
@@ -76,6 +76,30 @@ an object-instance count. The coverage report exposes map-reference status and
 renderer state per identity, plus state totals by category. This separates
 real installed-world holes from unused atlas slots without asking the owner to
 rediscover them by eye.
+
+Coverage schema 2 also joins the identity corpus to this ledger. Every scoped
+tile row carries `visual_issue_scope_ids`; the summary reports the total and
+installed-map-referenced identities for each V-ID; and `audit-scene` reports
+the matching runtime object-instance counts. These are exhaustive category
+work queues, not an assertion that every member reproduces the pictured bug.
+The current issue scopes are:
+
+| Issue | Installed identities in scope | Referenced by installed map headers |
+|---|---:|---:|
+| V-03 shell seams (`wall`, `floor`) | 8,993 | 3,844 |
+| V-04 exterior furniture/fixture leak | 1,938 | 1,513 |
+| V-05 window/door transparency | 814 | 505 |
+| V-06 alpha/wire outlines | 4,298 | 1,589 |
+| V-07 open furniture/fixture topology | 1,512 | 1,286 |
+| V-08 wall-mounted fixtures | 426 | 227 |
+| V-09 volumetric doors | 166 | 159 |
+| V-11 fences and gates | 1,348 | 664 |
+| V-12 roofs | 4,569 | 3,077 |
+
+V-01, V-02 and V-13 through V-17 are global renderer/gameplay concerns, so
+they remain explicit ledger rows rather than being misleadingly attached to
+every asset identity. V-10 records a removed regression rather than an active
+asset family.
 
 This is a corpus of installed tile/sprite definitions, named models and item
 scripts, not a claim that every runtime state combination is already known.
@@ -181,14 +205,24 @@ This is an offline deterministic recovery, not yet a live visual acceptance.
 
 The compiler rejects 11 targets that exceed the conservative tile-local
 envelope and 112 entries without installed physical anchoring semantics. Eight
-former `missing_depth_image` entries are now separately classified as source
+former `missing_depth_image` entries are separately classified as source
 placeholders: six have no atlas sprite and two have only a 1x1 atlas entry, all
-eight have only a burnt-tile fallback property and no depth assignment. They
-are not counted as missing renderable roofs. Every rejected or skipped identity
+eight have only a burnt-tile fallback property and no depth assignment. A
+second conservative pass classifies 28 atlas-only roof crumbs whose complete
+packed source is at most four pixels and which have no definition, depth
+assignment or compiled geometry. Two of those legacy names occur in challenge
+map headers. They are not counted as missing renderable roofs. Every rejected or skipped identity
 records its reason and source evidence in `roof-depth-surfaces.json`; those
 fields flow into both global and captured-scene coverage reports. Java
 load/render tests validate the generated registry in addition to the Python
 geometry audit.
+
+For the 3,077 roof identities referenced by installed map headers, the current
+breakdown is 2,881 compiled, 81 authored/unaccepted, two source placeholders
+and 113 rejected/unsupported. All 113 unresolved identities now have an
+explicit reason: 106 are unanchored overlays requiring topology-aware assembly
+and seven violate the conservative local envelope. There is no remaining
+unexplained map-referenced roof identity in this static corpus.
 
 The first isolated launch on 17 September loaded the staged registry and ran at
 59.91--60.08 completed callbacks/s with zero dropped mesh requests, but its

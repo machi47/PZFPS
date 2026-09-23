@@ -30,6 +30,14 @@ The report separately ranks `topCollisionHoles` from B42's authoritative
 `solid`/`solidtrans` object flags. This identifies invisible blockers without
 drawing an invented box or changing the game's collision.
 
+The installed corpus is also joined to the owner's V-01..V-17 visual issue
+ledger. `bin/pzfps assets audit-coverage` writes an exact per-identity
+`visual_issue_scope_ids` field and total/map-referenced counts under
+`summary.visual_issue_identity_scopes`; `assets audit-scene` carries those IDs
+onto the actual object instances in a retained runtime snapshot. Scope
+membership is a work queue, not an assertion that every identity visibly
+reproduces the example defect or has passed live acceptance.
+
 `pzcanonical from-pz` directly reads the actual B42 geometry registry and sprite extraction manifest formats, including primitive rotations, tapered cylinders and concave polygons. It fits the source image anchor by silhouette overlap and refuses bad matches rather than warping known geometry. This connects the new compiler to the published asset indexers without a manual schema rewrite.
 
 **Validation:** the canonical CPU suite has 25 passing tests and a complete offline orbit. See [the measured result](evidence/canonical-validation.json). Its original calibration fixture is not a PZ asset. Learned inference has not been executed with model weights in the Chat environment. The existing game's runtime diagnostics are in `docs/STATUS.md`; no CPU fixture establishes accepted gameplay, multiplayer correctness, photorealistic quality or Mac GPU performance.

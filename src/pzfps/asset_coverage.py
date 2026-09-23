@@ -20,6 +20,37 @@ EXACT_RULES: dict[str, tuple[str, str]] = {
 }
 
 
+# Identity-level scopes for the owner's visual issue ledger.  These are broad
+# work queues, not assertions that every member has reproduced the pictured
+# defect.  Global renderer concerns (lighting, render distance, player body,
+# and input) deliberately remain outside this mapping because attaching them
+# to every sprite would create misleading per-asset counts.
+VISUAL_ISSUE_CATEGORY_SCOPES: dict[str, tuple[str, ...]] = {
+    "V-03": ("wall", "floor"),
+    "V-04": ("furniture_fixture", "lighting_fixture"),
+    "V-05": ("window", "door"),
+    "V-06": ("window", "fence", "gate", "street", "lighting_fixture"),
+    "V-07": ("furniture_fixture",),
+    "V-08": ("lighting_fixture",),
+    "V-09": ("door",),
+    "V-11": ("fence", "gate"),
+    "V-12": ("roof",),
+}
+
+
+def visual_issue_ids(kind: str) -> list[str]:
+    """Return ledger issues whose declared identity scope includes ``kind``.
+
+    Scope membership is useful for exhaustive backlog queries, but remains
+    separate from live acceptance and from a confirmed defect observation.
+    """
+    return [
+        issue_id
+        for issue_id, categories in VISUAL_ISSUE_CATEGORY_SCOPES.items()
+        if kind in categories
+    ]
+
+
 def _suffix(name: str) -> int | None:
     try:
         return int(name.rsplit("_", 1)[1])
@@ -157,6 +188,8 @@ def build_coverage(
     )
     rows: list[dict[str, Any]] = []
     by_category: dict[str, Counter[str]] = defaultdict(Counter)
+    by_issue: dict[str, Counter[str]] = defaultdict(Counter)
+    map_referenced_by_issue: dict[str, Counter[str]] = defaultdict(Counter)
     for identity in identities:
         record = tile_records.get(identity, {})
         primitives = record.get("geometry", [])
@@ -170,9 +203,11 @@ def build_coverage(
             len(depth_primitives),
             source_placeholder=bool(depth_skip),
         )
+        kind = category(identity)
+        issue_ids = visual_issue_ids(kind)
         item = {
             "identity": identity,
-            "category": category(identity),
+            "category": kind,
             "in_geometry_registry": identity in tile_records,
             "in_texture_atlas": identity in texture_records,
             "in_tile_definitions": identity in definition_records,
@@ -195,10 +230,15 @@ def build_coverage(
             ),
             "renderer_rule": rule,
             "coverage_state": state,
+            "visual_issue_scope_ids": issue_ids,
             "source_properties": definition_records.get(identity, {}).get("properties", {}),
         }
         rows.append(item)
         by_category[item["category"]][state] += 1
+        for issue_id in issue_ids:
+            by_issue[issue_id][state] += 1
+            if item["in_installed_map_headers"]:
+                map_referenced_by_issue[issue_id][state] += 1
 
     model_rows = []
     model_states: Counter[str] = Counter()
@@ -238,7 +278,7 @@ def build_coverage(
         })
 
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "generated_at": now_utc(),
         "game_version": versions.pop(),
         "sources": {
@@ -310,6 +350,20 @@ def build_coverage(
                 key: {"total": sum(value.values()), "states": dict(sorted(value.items()))}
                 for key, value in sorted(by_category.items())
             },
+            "visual_issue_identity_scopes": {
+                issue_id: {
+                    "categories": list(VISUAL_ISSUE_CATEGORY_SCOPES[issue_id]),
+                    "identity_count": sum(by_issue[issue_id].values()),
+                    "states": dict(sorted(by_issue[issue_id].items())),
+                    "installed_map_referenced_identity_count": sum(
+                        map_referenced_by_issue[issue_id].values()
+                    ),
+                    "installed_map_referenced_states": dict(sorted(
+                        map_referenced_by_issue[issue_id].items()
+                    )),
+                }
+                for issue_id in sorted(VISUAL_ISSUE_CATEGORY_SCOPES)
+            },
         },
         "tile_texture_identities": rows,
         "model_identities": model_rows,
@@ -349,6 +403,7 @@ def build_scene_coverage(scene_path: Path, coverage_path: Path) -> dict[str, Any
     identities: dict[str, dict[str, Any]] = {}
     state_counts: Counter[str] = Counter()
     category_counts: Counter[str] = Counter()
+    issue_counts: Counter[str] = Counter()
     depth_rejection_counts: Counter[str] = Counter()
     object_count = 0
     for square in scene.get("squares", []):
@@ -361,6 +416,12 @@ def build_scene_coverage(scene_path: Path, coverage_path: Path) -> dict[str, Any
             kind = row.get("category", category(identity)) if row else category(identity)
             state_counts[state] += 1
             category_counts[kind] += 1
+            issue_ids = (
+                list(row.get("visual_issue_scope_ids", visual_issue_ids(kind)))
+                if row else visual_issue_ids(kind)
+            )
+            for issue_id in issue_ids:
+                issue_counts[issue_id] += 1
             if row and row.get("depth_surface_rejection_reason"):
                 depth_rejection_counts[row["depth_surface_rejection_reason"]] += 1
             item = identities.setdefault(identity, {
@@ -368,6 +429,7 @@ def build_scene_coverage(scene_path: Path, coverage_path: Path) -> dict[str, Any
                 "category": kind,
                 "coverage_state": state,
                 "renderer_rule": row.get("renderer_rule", "none") if row else "none",
+                "visual_issue_scope_ids": issue_ids,
                 "depth_surface_rejection_reason": (
                     row.get("depth_surface_rejection_reason", "") if row else ""
                 ),
@@ -392,7 +454,7 @@ def build_scene_coverage(scene_path: Path, coverage_path: Path) -> dict[str, Any
         rows.append(item)
     rows.sort(key=lambda item: (item["category"], item["coverage_state"], item["identity"]))
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "generated_at": now_utc(),
         "game_version": coverage.get("game_version", ""),
         "sources": {
@@ -404,6 +466,7 @@ def build_scene_coverage(scene_path: Path, coverage_path: Path) -> dict[str, Any
             "scene_identities": len(rows),
             "object_instances_by_state": dict(sorted(state_counts.items())),
             "object_instances_by_category": dict(sorted(category_counts.items())),
+            "object_instances_by_visual_issue_scope": dict(sorted(issue_counts.items())),
             "depth_surface_rejected_instances_by_reason": dict(
                 sorted(depth_rejection_counts.items())
             ),
