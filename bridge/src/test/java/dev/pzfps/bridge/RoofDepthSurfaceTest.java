@@ -218,15 +218,30 @@ final class RoofDepthSurfaceTest {
         HashMap<Long, WorldState.Chunk> snapshots = new HashMap<>();
         WorldState.Chunk eastChunk = new WorldState.Chunk(5, 7, 4, 4, List.of());
         WorldState.Chunk diagonalChunk = new WorldState.Chunk(5, 8, 5, 5, List.of());
+        WorldState.Chunk westChunk = new WorldState.Chunk(3, 7, 6, 6, List.of());
+        WorldState.Chunk aboveChunk = new WorldState.Chunk(4, 6, 7, 7, List.of());
         snapshots.put(northChunk.key(), northChunk);
         snapshots.put(eastChunk.key(), eastChunk);
         snapshots.put(southChunk.key(), southChunk);
         snapshots.put(diagonalChunk.key(), diagonalChunk);
+        snapshots.put(westChunk.key(), westChunk);
+        snapshots.put(aboveChunk.key(), aboveChunk);
         assertEquals(List.of(northChunk, eastChunk, southChunk),
                 InProcessWorldRenderer.roofContext(northChunk, snapshots));
+        assertEquals(List.of(northChunk, eastChunk, southChunk, westChunk, aboveChunk),
+                InProcessWorldRenderer.meshContext(northChunk, snapshots));
         assertFalse(InProcessWorldRenderer.roofContextEdgeChanged(
                 null, northChunk, false));
         assertTrue(InProcessWorldRenderer.roofContextEdgeChanged(null, southChunk, false));
+
+        WorldState.Square westWall = new WorldState.Square(
+                0, 4, 0, -1, 0, 255, 255, 255,
+                false, true, false, false, false, false, List.of(), StructuralPropClip.WEST);
+        WorldState.Chunk wallTarget = new WorldState.Chunk(5, 7, 8, 8, List.of(westWall));
+        assertTrue(InProcessWorldRenderer.wallContextEdgeChanged(
+                eastChunk, wallTarget, StructuralPropClip.WEST));
+        assertFalse(InProcessWorldRenderer.wallContextEdgeChanged(
+                eastChunk, wallTarget, StructuralPropClip.EAST));
     }
 
     /** Opt-in parser/load audit for the local proprietary-derived registry. */

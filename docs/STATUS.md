@@ -24,7 +24,7 @@ No isolated PZ process is currently running. PID 65845 was stopped at
 inspectable CoreGraphics game window appeared. Its log proved only that an
 earlier generated registry loaded; it is not visual evidence. The current
 staged bridge JAR is
-`e0ea535ea3fa58befd8e1d3c18e1f4f0f5edd035c0388f6ef1aaae9e4bddd852` and the
+`f5faaa7ba9b0262389ace3acd1f9b066f7bfe266f2adf8ab852f077293297559` and the
 current staged supplemental roof registry is
 `e652b21a8bb7a14c7bea7e051ff8fcb0f9bc730280764aaca09bb4322ddc6b37`.
 The latest staged code adds the sealed-wall join path described below. It has
@@ -43,6 +43,17 @@ panel that owns a sealed edge. Rendering flags are part of the batch key, so a
 sealed wall and an unsealed door/window occurrence remain separate even if PZ
 reuses the same source sprite within one chunk.
 
+Prop clipping also no longer stops at an 8×8 B42 chunk boundary. Each bounded
+mesh job receives immutable snapshots for its four cardinal neighbors and
+translates their finite sealed-wall segments into the source chunk's local
+coordinates. A border-wall change or unload requeues only the affected
+adjacent meshes. Neighbor-wall state participates in the mesh fingerprint, so
+the render thread cannot retain geometry clipped against an older boundary.
+The regression fixture places a prop across the final square of one chunk and
+the owning wall on the first square of the next; the overhang is clipped to
+the same 1 mm clearance used inside a chunk, while the no-neighbor case remains
+unchanged.
+
 At those sealed outer joins only, the production fragment shader searches a
 bounded six-source-pixel tangent/vertical neighborhood. Once the wall's own
 raster supplies colour, its antialiased fringe becomes opaque and
@@ -60,8 +71,11 @@ production GLSL probe on the Apple M4 Max renders an ordinary 99/255-alpha
 sample as transparent (`51`, the clear-buffer red value) and the identical
 sample as an authoritative sealed wall at the expected lit value (`128`). It
 also retains zero failures in the physical-occlusion and wall-prop-clearance
-fixtures. The full Java suite passes 136 tests against the real installed
-geometry/roof/prop registries, and the Python suite passes 50 tests.
+fixtures. The full Java suite passes 137 tests against the real installed
+geometry/roof/prop registries, and the Python suite passes 51 tests. The
+isolated staging command now runs the bridge `jar` task before copying, rather
+than silently reusing an older artifact; the staged and freshly built JAR hashes
+match.
 
 This is offline CPU/GPU evidence, not a moving live acceptance. V-03, V-04 and
 V-06 remain open because complete corners, wall/floor/ceiling topology,

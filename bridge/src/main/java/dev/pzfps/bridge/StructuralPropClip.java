@@ -13,6 +13,7 @@ import java.util.Set;
 final class StructuralPropClip {
     static final int NORTH = 1, WEST = 2, EAST = 4, SOUTH = 8;
     static final float CLEARANCE = .001f;
+    private static final int CHUNK_SIZE = zombie.iso.IsoChunkMap.CHUNK_SIZE_IN_SQUARES;
 
     /** Canonical finite wall segment in chunk-local coordinates. Axis 0 is an
      * X-normal wall; axis 2 is a Z-normal wall. */
@@ -39,18 +40,46 @@ final class StructuralPropClip {
 
     static List<Boundary> boundaries(List<WorldState.Square> squares) {
         Set<Boundary> result = new LinkedHashSet<>();
+        addBoundaries(result, squares, 0, 0);
+        return List.copyOf(result);
+    }
+
+    /**
+     * Collects wall segments from immutable neighboring chunks in coordinates local to
+     * {@code source}. A prop at a chunk edge must be constrained by the same physical wall as a
+     * prop one tile farther in; chunk ownership is an implementation detail, not an opening.
+     */
+    static List<Boundary> boundaries(
+            WorldState.Chunk source, List<WorldState.Chunk> contextChunks) {
+        Set<Boundary> result = new LinkedHashSet<>();
+        for (WorldState.Chunk context : contextChunks) {
+            int offsetX = (context.worldX() - source.worldX()) * CHUNK_SIZE;
+            int offsetY = (context.worldY() - source.worldY()) * CHUNK_SIZE;
+            addBoundaries(result, context.squares(), offsetX, offsetY);
+        }
+        return List.copyOf(result);
+    }
+
+    private static void addBoundaries(
+            Set<Boundary> result,
+            List<WorldState.Square> squares,
+            int offsetX,
+            int offsetY) {
         for (WorldState.Square square : squares) {
             int edges = square.sealedEdges();
             if ((edges & NORTH) != 0)
-                result.add(new Boundary(2, square.localY(), square.localX(), square.z()));
+                result.add(new Boundary(
+                        2, offsetY + square.localY(), offsetX + square.localX(), square.z()));
             if ((edges & SOUTH) != 0)
-                result.add(new Boundary(2, square.localY() + 1, square.localX(), square.z()));
+                result.add(new Boundary(
+                        2, offsetY + square.localY() + 1, offsetX + square.localX(), square.z()));
             if ((edges & WEST) != 0)
-                result.add(new Boundary(0, square.localX(), square.localY(), square.z()));
+                result.add(new Boundary(
+                        0, offsetX + square.localX(), offsetY + square.localY(), square.z()));
             if ((edges & EAST) != 0)
-                result.add(new Boundary(0, square.localX() + 1, square.localY(), square.z()));
+                result.add(new Boundary(
+                        0, offsetX + square.localX() + 1, offsetY + square.localY(), square.z()));
         }
-        return List.copyOf(result);
     }
 
     static float[] clip(

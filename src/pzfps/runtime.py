@@ -40,13 +40,15 @@ def stage(install: Path) -> dict[str, Any]:
     for required in (
         game_jar,
         zombie_buddy_jar,
-        bridge_jar,
         ASSET_REGISTRY,
         SUPPLEMENTAL_ASSET_REGISTRY,
         PROP_SURFACE_REGISTRY,
     ):
         if not required.is_file():
             raise RuntimeError(f"required runtime artifact is absent: {required}")
+    _build_bridge(game_jar, zombie_buddy_jar)
+    if not bridge_jar.is_file():
+        raise RuntimeError(f"bridge build did not produce required artifact: {bridge_jar}")
 
     zombie_buddy_mod = MODS / "ZombieBuddy"
     bridge_mod = MODS / "PZFPSBridge"
@@ -135,6 +137,43 @@ def stage(install: Path) -> dict[str, Any]:
     }
     write_json(RUNTIME_ROOT / "staging-manifest.json", manifest)
     return manifest
+
+
+def _build_bridge(game_jar: Path, zombie_buddy_jar: Path) -> None:
+    """Build the staged bridge from current sources instead of copying a stale prior JAR."""
+    gradle = _gradle_executable()
+    environment = os.environ.copy()
+    environment["PZ_JAR"] = str(game_jar)
+    environment["ZOMBIE_BUDDY_JAR"] = str(zombie_buddy_jar)
+    result = subprocess.run(
+        [str(gradle), "jar"],
+        cwd=ROOT / "bridge",
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode:
+        details = "\n".join(
+            value.strip() for value in (result.stdout, result.stderr) if value.strip()
+        )
+        raise RuntimeError(f"bridge build failed with exit {result.returncode}:\n{details}")
+
+
+def _gradle_executable() -> Path:
+    configured = os.environ.get("PZFPS_GRADLE")
+    candidates = [Path(configured)] if configured else []
+    installed = shutil.which("gradle")
+    if installed:
+        candidates.append(Path(installed))
+    candidates.extend(sorted((LOCAL / "toolchains").glob("gradle-*/bin/gradle"), reverse=True))
+    for candidate in candidates:
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return candidate
+    raise RuntimeError(
+        "Gradle is required to build the current bridge before staging; set PZFPS_GRADLE "
+        "or install a project-local Gradle under .local/toolchains"
+    )
 
 
 def launch(install: Path) -> dict[str, Any]:

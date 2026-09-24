@@ -129,6 +129,40 @@ final class StructuralPropClipTest {
     }
 
     @Test
+    void adjacentChunkWallClipsPropInSourceChunkAndChangesMeshFingerprint(@TempDir Path dir)
+            throws Exception {
+        Path file = dir.resolve("cross-chunk-geometry.json");
+        Files.writeString(file, """
+                {"schema_version":1,"tiles":{"furniture_fixture_0":{"geometry":[{
+                  "kind":"box","min":[0.2,0,-0.3],"max":[1.2,1,0.3]
+                }]}}}
+                """);
+        int boundary = zombie.iso.IsoChunkMap.CHUNK_SIZE_IN_SQUARES;
+        int last = boundary - 1;
+        var prop = object("furniture_fixture_0");
+        var propSquare = new WorldState.Square(last,0,0,1,0,255,255,255,
+                false,false,false,false,false,false,List.of(prop),0);
+        var source = new WorldState.Chunk(4,7,1,11,List.of(propSquare));
+        var wallSquare = new WorldState.Square(0,0,0,1,0,255,255,255,
+                false,false,false,false,false,false,List.of(),StructuralPropClip.WEST);
+        var east = new WorldState.Chunk(5,7,2,22,List.of(wallSquare));
+        WorldMeshBuilder builder = new WorldMeshBuilder(TileGeometryRegistry.load(file));
+
+        var unbounded = builder.build(source, List.of(source));
+        var bounded = builder.build(source, List.of(source, east));
+
+        assertEquals(
+                new StructuralPropClip.Boundary(0,boundary,0,0),
+                StructuralPropClip.boundaries(source, List.of(source, east)).getFirst());
+        float unboundedMax = maxAxis(unbounded.texturedBatches().getFirst().vertices(), 0);
+        float boundedMax = maxAxis(bounded.texturedBatches().getFirst().vertices(), 0);
+        assertTrue(unboundedMax > boundary, "unboundedMax=" + unboundedMax);
+        assertTrue(boundedMax <= boundary - StructuralPropClip.CLEARANCE + .0001f,
+                "boundedMax=" + boundedMax);
+        assertNotEquals(unbounded.fingerprint(), bounded.fingerprint());
+    }
+
+    @Test
     void allAuthoredSceneObjectsExceptBoundaryAssembliesAreWallConstrained() {
         assertTrue(StructuralPropClip.constrainedByWalls(object("furniture_bedding_01_0")));
         assertTrue(StructuralPropClip.constrainedByWalls(object("lighting_indoor_01_1")));
@@ -141,4 +175,11 @@ final class StructuralPropClipTest {
     private static WorldState.TileObject object(String sprite) {
         return new WorldState.TileObject(3,"IsoObject","MAX",sprite,false,false,false,false,false,false,false);
     }
+
+    private static float maxAxis(float[] vertices, int axis) {
+        float result = Float.NEGATIVE_INFINITY;
+        for (int i = axis; i < vertices.length; i += STRIDE) result = Math.max(result, vertices[i]);
+        return result;
+    }
+
 }

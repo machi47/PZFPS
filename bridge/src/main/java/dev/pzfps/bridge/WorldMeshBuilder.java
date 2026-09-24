@@ -135,7 +135,7 @@ public final class WorldMeshBuilder {
      * into its mesh.
      */
     public MeshData build(
-            WorldState.Chunk chunk, List<WorldState.Chunk> roofContextChunks) {
+            WorldState.Chunk chunk, List<WorldState.Chunk> contextChunks) {
         FloatBuilder output = new FloatBuilder(16_384, FLOATS_PER_VERTEX);
         Map<TexturedBatchKey, FloatBuilder> textured = new LinkedHashMap<>();
         Map<String, FloatBuilder> materials = new LinkedHashMap<>();
@@ -152,6 +152,7 @@ public final class WorldMeshBuilder {
         int completedRoofBoxFaces = 0;
         int completedInteriorCeilings = 0;
         int nativeWorldItems = 0;
+        int wallConstrainedObjects = 0;
         int unsupportedObjects = 0;
         int collisionCriticalUnsupportedObjects = 0;
         Map<String, Integer> unsupportedSprites = new HashMap<>();
@@ -159,8 +160,10 @@ public final class WorldMeshBuilder {
         boolean truncated = false;
         Map<Long, WorldState.Square> squaresByPosition = squareIndex(chunk.squares());
         Map<GlobalSquarePosition, WorldState.Square> roofSquaresByPosition =
-                globalSquareIndex(roofContextChunks);
-        List<StructuralPropClip.Boundary> wallBoundaries = StructuralPropClip.boundaries(chunk.squares());
+                globalSquareIndex(contextChunks);
+        List<StructuralPropClip.Boundary> wallBoundaries =
+                StructuralPropClip.boundaries(chunk, contextChunks);
+        long wallBoundaryState = boundaryFingerprint(wallBoundaries);
         for (WorldState.Square square : chunk.squares()) {
             float baseX = square.localX();
             float baseY = square.z() * LEVEL_HEIGHT;
@@ -288,6 +291,7 @@ public final class WorldMeshBuilder {
                             new TexturedBatchKey(object.sprite(), false, false, false),
                             ignored -> new FloatBuilder(512, TEXTURED_FLOATS_PER_VERTEX));
                     boolean wallConstrained = StructuralPropClip.constrainedByWalls(object);
+                    if (wallConstrained) wallConstrainedObjects++;
                     // Authored scene volume is not a wall decal. Pulling fixtures or props
                     // toward the camera by source-object order exposes them through walls.
                     batch.layer = wallConstrained ? 0 : Math.min(16, Math.max(1, object.index() + 1));
@@ -429,7 +433,8 @@ public final class WorldMeshBuilder {
         return new MeshData(
                 chunk.key(),
                 meshFingerprint(
-                        chunk.fingerprint(), contextualRoofState, contextualRoofCandidates),
+                        chunk.fingerprint(), contextualRoofState, contextualRoofCandidates,
+                        wallBoundaryState, wallConstrainedObjects),
                 vertices,
                 texturedBatches,
                 materialBatches,
@@ -460,11 +465,38 @@ public final class WorldMeshBuilder {
 
     /** GPU cache revision: source state plus only the context decisions that change geometry. */
     private static long meshFingerprint(
-            long sourceFingerprint, long contextualState, int contextualCandidates) {
-        if (contextualCandidates == 0) return sourceFingerprint;
-        long mixed = sourceFingerprint ^ Long.rotateLeft(contextualState, 23);
-        mixed ^= (long) contextualCandidates * 0x9e3779b97f4a7c15L;
+            long sourceFingerprint,
+            long contextualState,
+            int contextualCandidates,
+            long wallBoundaryState,
+            int wallConstrainedObjects) {
+        if (contextualCandidates == 0 && wallConstrainedObjects == 0) return sourceFingerprint;
+        long mixed = sourceFingerprint;
+        if (contextualCandidates != 0) {
+            mixed ^= Long.rotateLeft(contextualState, 23);
+            mixed ^= (long) contextualCandidates * 0x9e3779b97f4a7c15L;
+        }
+        if (wallConstrainedObjects != 0) {
+            mixed ^= Long.rotateLeft(wallBoundaryState, 41);
+            mixed ^= (long) wallConstrainedObjects * 0xc2b2ae3d27d4eb4fL;
+        }
         return mixed;
+    }
+
+    private static long boundaryFingerprint(List<StructuralPropClip.Boundary> boundaries) {
+        long result = 0xcbf29ce484222325L;
+        for (StructuralPropClip.Boundary boundary : boundaries) {
+            result ^= boundary.axis();
+            result *= 0x100000001b3L;
+            result ^= boundary.coordinate();
+            result *= 0x100000001b3L;
+            result ^= boundary.spanStart();
+            result *= 0x100000001b3L;
+            result ^= boundary.level();
+            result *= 0x100000001b3L;
+        }
+        result ^= boundaries.size();
+        return result * 0x100000001b3L;
     }
 
     /**

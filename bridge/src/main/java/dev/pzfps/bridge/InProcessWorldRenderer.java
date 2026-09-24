@@ -96,16 +96,21 @@ public final class InProcessWorldRenderer {
         LIGHTING.put(chunk.key(), ChunkLighting.fromChunk(chunk));
         WorldState.Chunk previous = CHUNKS.put(chunk.key(), chunk);
         enqueue(chunk);
-        // Contextual roof pieces only point east/south. A changed target may therefore
-        // change eligibility in the immutable chunk immediately west or north of it. Compare
-        // roof identities on just those target edges so routine revisions do not triple mesh
-        // traffic across the whole loaded window.
-        if (roofContextEdgeChanged(previous, chunk, true)) {
+        // Contextual roof pieces only point east/south, while physical props may cross any
+        // chunk edge toward a wall owned by the adjacent snapshot. Rebuild only dependents of
+        // a changed border so routine interior revisions do not fan out across the window.
+        if (roofContextEdgeChanged(previous, chunk, true)
+                || wallContextEdgeChanged(previous, chunk, StructuralPropClip.WEST)) {
             enqueueIfPresent(chunk.worldX() - 1, chunk.worldY());
         }
-        if (roofContextEdgeChanged(previous, chunk, false)) {
+        if (roofContextEdgeChanged(previous, chunk, false)
+                || wallContextEdgeChanged(previous, chunk, StructuralPropClip.NORTH)) {
             enqueueIfPresent(chunk.worldX(), chunk.worldY() - 1);
         }
+        if (wallContextEdgeChanged(previous, chunk, StructuralPropClip.EAST))
+            enqueueIfPresent(chunk.worldX() + 1, chunk.worldY());
+        if (wallContextEdgeChanged(previous, chunk, StructuralPropClip.SOUTH))
+            enqueueIfPresent(chunk.worldX(), chunk.worldY() + 1);
     }
 
     static void acceptLighting(long key, ChunkLighting lighting) {
@@ -118,9 +123,12 @@ public final class InProcessWorldRenderer {
         MESHES.remove(key);
         LIGHTING.remove(key);
         if (removed != null) {
-            // Rebuild dependents so a contextual surface cannot survive after its target unloads.
+            // Rebuild dependents so contextual roofs and cross-chunk prop clips cannot survive
+            // after their immutable target/boundary snapshot unloads.
             enqueueIfPresent(removed.worldX() - 1, removed.worldY());
             enqueueIfPresent(removed.worldX(), removed.worldY() - 1);
+            enqueueIfPresent(removed.worldX() + 1, removed.worldY());
+            enqueueIfPresent(removed.worldX(), removed.worldY() + 1);
         }
     }
 
@@ -244,7 +252,7 @@ public final class InProcessWorldRenderer {
                     registry.sourceSha256(), MAX_PENDING_CHUNKS);
             while (!Thread.currentThread().isInterrupted()) {
                 WorldState.Chunk chunk = PENDING.take();
-                WorldMeshBuilder.MeshData mesh = builder.build(chunk, roofContext(chunk, CHUNKS));
+                WorldMeshBuilder.MeshData mesh = builder.build(chunk, meshContext(chunk, CHUNKS));
                 // A remove or newer accepted revision may race bounded mesh work. Never publish
                 // an obsolete mesh after either event; the current revision is already queued.
                 if (CHUNKS.get(chunk.key()) == chunk) MESHES.put(chunk.key(), mesh);
@@ -267,6 +275,17 @@ public final class InProcessWorldRenderer {
         return List.copyOf(result);
     }
 
+    static List<WorldState.Chunk> meshContext(
+            WorldState.Chunk source, Map<Long, WorldState.Chunk> snapshots) {
+        ArrayList<WorldState.Chunk> result = new ArrayList<>(5);
+        addSnapshot(result, snapshots, source.worldX(), source.worldY());
+        addSnapshot(result, snapshots, source.worldX() + 1, source.worldY());
+        addSnapshot(result, snapshots, source.worldX(), source.worldY() + 1);
+        addSnapshot(result, snapshots, source.worldX() - 1, source.worldY());
+        addSnapshot(result, snapshots, source.worldX(), source.worldY() - 1);
+        return List.copyOf(result);
+    }
+
     private static void addSnapshot(
             List<WorldState.Chunk> output,
             Map<Long, WorldState.Chunk> snapshots,
@@ -285,6 +304,34 @@ public final class InProcessWorldRenderer {
         return previous == null
                 ? !roofContextEdge(current, westEdge).isEmpty()
                 : !roofContextEdge(previous, westEdge).equals(roofContextEdge(current, westEdge));
+    }
+
+    static boolean wallContextEdgeChanged(
+            WorldState.Chunk previous, WorldState.Chunk current, int edge) {
+        return previous == null
+                ? !wallContextEdge(current, edge).isEmpty()
+                : !wallContextEdge(previous, edge).equals(wallContextEdge(current, edge));
+    }
+
+    private static List<String> wallContextEdge(WorldState.Chunk chunk, int edge) {
+        int last = zombie.iso.IsoChunkMap.CHUNK_SIZE_IN_SQUARES - 1;
+        ArrayList<String> result = new ArrayList<>();
+        for (WorldState.Square square : chunk.squares()) {
+            boolean onEdge = switch (edge) {
+                case StructuralPropClip.NORTH -> square.localY() == 0;
+                case StructuralPropClip.WEST -> square.localX() == 0;
+                case StructuralPropClip.EAST -> square.localX() == last;
+                case StructuralPropClip.SOUTH -> square.localY() == last;
+                default -> throw new IllegalArgumentException("unknown edge " + edge);
+            };
+            if (!onEdge || (square.sealedEdges() & edge) == 0) continue;
+            int tangent = edge == StructuralPropClip.NORTH || edge == StructuralPropClip.SOUTH
+                    ? square.localX()
+                    : square.localY();
+            result.add(tangent + ":" + square.z());
+        }
+        result.sort(String::compareTo);
+        return List.copyOf(result);
     }
 
     private static List<String> roofContextEdge(WorldState.Chunk chunk, boolean westEdge) {

@@ -114,3 +114,20 @@ class RuntimeProcessTests(unittest.TestCase):
                 options.read_text(encoding="utf-8"),
                 "fullScreen=false\nborderless=false\nwidth=1600\nheight=1000\nvolume=7\n",
             )
+
+    @patch("pzfps.runtime._gradle_executable", return_value=Path("/tools/gradle"))
+    @patch("pzfps.runtime.subprocess.run")
+    def test_bridge_is_built_from_current_sources_before_staging(self, run, _gradle) -> None:
+        run.return_value.returncode = 0
+        run.return_value.stdout = ""
+        run.return_value.stderr = ""
+        game = Path("/game/projectzomboid.jar")
+        agent = Path("/project/ZombieBuddy.jar")
+
+        runtime._build_bridge(game, agent)
+
+        args, kwargs = run.call_args
+        self.assertEqual(args[0], ["/tools/gradle", "jar"])
+        self.assertEqual(kwargs["cwd"], runtime.ROOT / "bridge")
+        self.assertEqual(kwargs["env"]["PZ_JAR"], str(game))
+        self.assertEqual(kwargs["env"]["ZOMBIE_BUDDY_JAR"], str(agent))
