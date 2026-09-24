@@ -405,11 +405,13 @@ def command_assets_compile_roof_surfaces(args: argparse.Namespace) -> int:
     definitions = args.definitions or LOCAL / "assets" / f"pz-{version}" / "tile-definitions.json"
     textures = args.textures or LOCAL / "assets" / f"pz-{version}" / "Tiles2x-texture-index.json"
     map_usage = args.map_usage or LOCAL / "assets" / f"pz-{version}" / "map-header-usage.json"
+    geometry = args.geometry or LOCAL / "assets" / f"pz-{version}" / "tile-geometry.json"
     assignments = media / "tileDepthTextureAssignments.txt"
     depthmaps = media / "depthmaps"
     seams = media / "seams.txt"
     output = args.output or LOCAL / "assets" / f"pz-{version}" / "roof-depth-surfaces.json"
     for label, path in (("tile-definition index", definitions), ("texture index", textures),
+                        ("tile geometry", geometry),
                         ("map-header usage", map_usage),
                         ("depth assignments", assignments),
                         ("depth-map directory", depthmaps),
@@ -419,7 +421,7 @@ def command_assets_compile_roof_surfaces(args: argparse.Namespace) -> int:
     document = compile_planar_roof_surfaces(
         definitions, assignments, depthmaps, output,
         game_version=version, textures_path=textures, map_usage_path=map_usage,
-        seams_path=seams)
+        seams_path=seams, geometry_path=geometry)
     _print_json({
         "schema_version": document["schema_version"],
         "game_version": document["game_version"],
@@ -428,6 +430,8 @@ def command_assets_compile_roof_surfaces(args: argparse.Namespace) -> int:
         "triangle_count": document["triangle_count"],
         "contextual_tile_count": document["contextual_tile_count"],
         "contextual_triangle_count": document["contextual_triangle_count"],
+        "assigned_anchor_alias_count": document["assigned_anchor_alias_count"],
+        "authored_geometry_alias_count": document["authored_geometry_alias_count"],
         "source_equivalent_alias_count": document["source_equivalent_alias_count"],
         "rejected": document["rejected"],
         "skipped": document["skipped"],
@@ -817,6 +821,7 @@ def build_parser() -> argparse.ArgumentParser:
     roof_surfaces.add_argument("--definitions", type=Path)
     roof_surfaces.add_argument("--textures", type=Path)
     roof_surfaces.add_argument("--map-usage", type=Path)
+    roof_surfaces.add_argument("--geometry", type=Path)
     roof_surfaces.add_argument("--output", type=Path)
     roof_surfaces.set_defaults(func=command_assets_compile_roof_surfaces)
     prop_surfaces = asset_commands.add_parser(

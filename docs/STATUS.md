@@ -77,23 +77,28 @@ multi-tile scene grouping. Runtime captures are joined to the installed corpus
 so those combinations can be measured when encountered.
 
 The joined audit exposes the scale of the roof gap: 4,569 roof-related
-identities are present and only 84 have installed authored source primitives.
+identities are present and only 84 retain installed authored source primitives.
 `bin/pzfps assets compile-roof-surfaces` now reconstructs conservative connected
 planar patches from PZ's installed depth atlases using the game's source
 projection/depth equations. Concave source silhouettes use an exact alpha-mask
 rectangle decomposition instead of an unsafe convex hull. The local supplemental
-registry contains 4,372 unconditional identities and 87,215 triangles; 4,291
-roof identities are pending broader live acceptance. A separate section now
+registry contains 4,413 unconditional identities and 88,473 primitives; 4,331
+roof identities are pending broader live acceptance. Twenty-four installed
+accent variants inherit anchoring from their explicitly assigned anchored
+accent target, while ten same-suffix material variants inherit an installed
+authored ridge-cap box only after original-frame and alpha-subset verification.
+A separate section
 contains 80 contextual roof identities and 968 triangles. These are emitted
 only when PZ's installed roof-seam graph names an exact neighboring canonical
 roof identity at the captured offset. Authored geometry wins when both paths
 exist. A strict-first 0.025 retry recovers 72 compound identities whose
 quantised source depth narrowly missed the 0.018 inlier threshold; every patch
 still passes 95% source coverage and a 0.012 RMS gate, with a measured maximum
-of 0.0116119. The compiler rejects 11 unsafe tile-local surfaces and 32
-unanchored roof-overlay entries after promoting 80 other unanchored identities
-to the contextual path. Final coverage records 78 roof identities as
-rejected/unsupported after authored precedence. It separately records 36
+of 0.0116119. The compiler now retains one unsafe canonical depth fit and one
+unanchored overlay rejection after applying authored geometry, explicit
+attachment metadata and the contextual topology path. Final coverage records
+38 non-map-referenced roof identities as rejected/unsupported after authored
+precedence. It separately records 36
 source-evidenced non-renderable placeholders rather than misreporting them as
 missing geometry. Each rejected or skipped identity records its reason and evidence. This is a systemic
 identity-level representation path, not a per-house patch and not a broad
@@ -218,20 +223,37 @@ alpha mask to be a strict subset of its counterpart, with zero added pixels,
 at most a one-tile-width removed border and at least 90% retained coverage.
 All four pass with 90--91 removed pixels and 92.86--97.46% retained coverage.
 Their source identity, measurements and map-header count are recorded in the
-registry. This raises compiled roof identities from 4,287 to 4,291. A further
+registry. That pass raised compiled roof identities from 4,287 to 4,291. A further
 source audit classifies 28 atlas-only roof crumbs with at most four packed
 pixels and no definition, depth assignment or compiled geometry as
 non-renderable placeholders. Two of those legacy names occur in challenge-map
-headers. That static recovery established 4,291 unconditional compiled roof
-identities. The current seam-topology pass additionally classifies 80
-identities as contextual, leaving 84 authored/unaccepted, 36 source
-placeholders and 78 rejected/unsupported. Of the 3,077 map-referenced roof
-identities, 2,881 have unconditional depth surfaces, 76 have contextual
-surfaces, 81 are authored, two are placeholders and 37 remain
-rejected/unsupported. Every remaining map-referenced rejection has an explicit
-source-backed reason. The contextual path is offline-tested and staged, but
-has not yielded an inspectable live frame; it is not an accepted visual
+headers. Later attachment and authored-alias recovery establishes 4,331
+unconditional compiled roof identities. The seam-topology pass additionally
+classifies 80 identities as contextual, leaving 84 authored/unaccepted, 36
+source placeholders and 38 rejected/unsupported identities unused by installed
+map headers. Of the 3,077 map-referenced roof identities, 2,918 have
+unconditional source-backed surfaces, 76 have contextual surfaces, 81 are
+authored and two are placeholders; none remain rejected/unsupported. The
+contextual and alias paths are offline-tested and staged, but they have not
+yielded an inspectable live frame; this is not an accepted visual
 checkpoint.
+
+The 23 September corpus pass then closed the remaining *map-referenced* static
+roof identities without weakening either rejection gate. Seven installed
+`roofs_accents_01` identities expose diagonal `attachedNW`/`attachedSE`
+semantics that the compiler had omitted. Twenty-four
+`roofs_accents_30_01` material variants contain only `SnowTile`, but their
+installed depth assignments point to a different cardinally anchored accent;
+only that exact family/property/target relationship inherits the anchor. Ten
+same-suffix `*_90` material variants whose depth fit exceeds the tile envelope
+inherit PZ's installed authored source box only after identical original-frame
+placement and an atlas-alpha-subset check retaining 86.78--100% of the source.
+The original unsafe canonical fit remains rejected. Global roof coverage is now
+4,331 unconditional, 80 contextual, 84 authored, 36 proven placeholders and 38
+rejected/unsupported identities unused by installed map headers. The retained
+690-roof scene resolves as 575 unconditional, 31 contextual and 84 authored
+instances. This is measured offline representation coverage, not live visual
+acceptance of roof assembly.
 
 The indexed source properties retain `RoofGroup`, `BlockRain`, `attached*`,
 `isEave`, `diamondFloor` and `solidfloor` roles for later topology grouping.
@@ -1517,10 +1539,10 @@ reticle image with four code-drawn ticks and returned `PZFPS_LUA_PARSE_OK`.
 
 Most recent test results:
 
-- Project Python suite: 43 passed, 0 failed.
-- Java/Gradle: 130 tests, 0 skipped, 0 failures/errors; the opt-in generated
-  registry audit loaded all 4,372 unconditional entries and the contextual
-  roof test proves a candidate fails closed without its declared neighbor.
+- Project Python suite: 50 passed, 0 failed.
+- Java/Gradle: 134 tests, 0 skipped, 0 failures/errors; the opt-in generated
+  registry audit loaded all 4,413 unconditional entries, asserted the inherited
+  `roofs_30_02_90` authored box, and retained the contextual fail-closed test.
 - The broader canonical-package pytest run has 63 passing tests and four
   failures in untouched `canonical/tests/test_pzregistry.py` concerning
   cylinder axis, polygon plane and rotation conventions. They are not hidden
@@ -1540,13 +1562,13 @@ Most recent test results:
 - Disposable save:
   `.local/pz-runtime/user-cache/Zomboid/Saves/Top Of The World/46507890207760758489`.
 - Latest staged bridge JAR SHA-256:
-  `e60e0cf64e758e26a3dfc2ca8363cdbb254702dccbb6b7a26213fe1c626f0c2a`.
+  `e0ea535ea3fa58befd8e1d3c18e1f4f0f5edd035c0388f6ef1aaae9e4bddd852`.
 - Last live-loaded supplemental roof registry SHA-256:
   `78fec525c09663f93648beb90dbc5dcec680d85bc0b16cbd17842cb6b213a4e7`.
 - Current local supplemental roof registry SHA-256:
-  `e63c520cd2506e6738973c81e0cb784ee7c0ec1c378e4bb4301c9d3d7a881b18`.
+  `e652b21a8bb7a14c7bea7e051ff8fcb0f9bc730280764aaca09bb4322ddc6b37`.
 - Current local installed-asset coverage report SHA-256:
-  `864d45888c4b792fb0a7145c48b194d071e63610c1eccbe2c7550a3cc96ba5d6`.
+  `fd8472034e32701c017e5a07c3a98dac94d5391250528a90cbb61b4ce7f3e245`.
 - Latest live screenshot:
   `.local/captures/roof-mask-live-window.png`; it is stationary roof evidence,
   not a moving-view acceptance capture. Earlier gameplay/reticle evidence is

@@ -26,7 +26,7 @@ machine-readable installed-asset audit is
 | V-09 | Doors disappear when open, remain paper-thin, and need transparent panes plus coherent hinge motion | 17–19 | **Rejected**. Current renderer is a state-aware edge card, not a 3D door. | Closed/open states use one persistent volumetric asset, correct hinge/pivot and thickness; glass panes preserve transparency. |
 | V-10 | Rejected door experiment stretched one isometric crop across guessed box faces, creating stacked/distorted shapes and opaque glass | 33 | **Regression removed**. Never an accepted checkpoint. | The rejected six-face path remains absent; a future replacement must pass V-09 before deployment. |
 | V-11 | Short chain-link fence tiles/gates do not meet and alternate offsets; material/depth ordering is unstable | 09, 20 | **Partial, unaccepted**. Only `fencing_01_24..27` share a boundary-panel rule; gates and 1,210 other fence identities are not accepted. | Continuous endpoints, height and depth across straight runs, corners and gates in both viewing directions. |
-| V-12 | Roofs are missing huge sections, transparent from some sides, or assembled as disconnected/malformed cards | 21, 34, three live roof checkpoints | **Partial, rejected overall; latest box completion is offline-tested only**. Installed source evidence produces unconditional surfaces for 4,291 roof identities; 80 more identities have surfaces gated by exact neighbor relations from PZ's installed `seams.txt`; 84 retain installed authored geometry; 78 remain rejected/unsupported; and 36 are source-evidenced non-renderable placeholders. The authored path had emitted only source-camera-facing box faces. It now closes all complementary faces for the 74 authored roof-box identities (71 map-referenced, 4,548 installed map-header references); this affects 84 instances across 28 identities in the retained 690-roof scene. Thirty of 31 contextual instances have their declared same-snapshot neighbor and one fails closed. No current live capture proves either new path, moving views, complete junctions, undersides or other buildings. | Watertight eaves, slopes, ridges, hips/valleys and undersides across representative one- and two-storey buildings, with no detached surfaces or camera-side disappearance. |
+| V-12 | Roofs are missing huge sections, transparent from some sides, or assembled as disconnected/malformed cards | 21, 34, three live roof checkpoints | **Partial, rejected overall; current corpus completion is offline-tested only**. Installed source evidence produces unconditional surfaces for 4,331 roof identities; 80 more identities have surfaces gated by exact neighbor relations from PZ's installed `seams.txt`; 84 retain installed authored geometry; 38 unused/non-map-referenced identities remain rejected/unsupported; and 36 are source-evidenced non-renderable placeholders. All 3,077 identities named by installed map headers now have a representation state: 2,918 unconditional, 76 contextual, 81 authored and two placeholders, with zero map-referenced roof identities rejected. The authored path now closes complementary faces for 74 roof-box identities (71 map-referenced, 4,548 installed map-header references). All 690 roof instances in the retained problem scene resolve through unconditional (575), contextual (31), or authored (84) geometry. No current live moving-view capture proves correct assembled placement, junctions, undersides or other buildings. | Watertight eaves, slopes, ridges, hips/valleys and undersides across representative one- and two-storey buildings, with no detached surfaces or camera-side disappearance. |
 | V-13 | Render distance is too short to read a substantial part of town | 09, 21 | **Open**. Projection far plane is 400m, but loaded/visible chunk range and asset correctness—not only the far plane—limit useful distance. | Measured chunk/mesh visibility at agreed town-scale distance without missing simulation state or unacceptable frame-time/memory regression. |
 | V-14 | Need a coherent skybox synchronized to authoritative time through pause and time acceleration | 34 | **Prototype rejected as insufficient**. Only a clock-driven two-color screen gradient exists; the pictured night result is effectively black. | Horizon, celestial/time progression and weather-aware sky remain synchronized to PZ time in pause/1x/fast-forward and are visibly credible. |
 | V-15 | Need robust lighting with semantic source types rather than arbitrary darkness | 01, 06–08, 34 | **Open**. Current pass samples raw square RGB with an exposure floor; it has no sun/sky/fixture semantic model, shadows or calibrated materials. | Directional sun/sky plus typed local emitters, stable exposure, occlusion and day/night transitions validated in the same route. |
@@ -56,7 +56,7 @@ Important category totals from the current audit:
 
 | Category | Identities | Honest renderer state |
 |---|---:|---|
-| Roof | 4,569 | 4,291 unconditional depth/alpha surfaces pending broader live acceptance; 80 contextual surfaces gated by installed seam neighbors and pending first live acceptance; 84 authored-geometry identities unaccepted, including 74 authored box identities whose novel-view faces are now completed offline; 78 rejected/unsupported; 36 source-evidenced non-renderable placeholders |
+| Roof | 4,569 | 4,331 unconditional source-backed surfaces pending broader live acceptance; 80 contextual surfaces gated by installed seam neighbors; 84 authored-geometry identities unaccepted, including 74 authored box identities whose novel-view faces are completed offline; 38 rejected/unsupported identities not referenced by installed map headers; 36 source-evidenced non-renderable placeholders |
 | Door | 166 | all rejected as non-volumetric |
 | Window | 648 | all rejected as non-physical |
 | Fence | 1,214 | four exact short-chain-link identities implemented but unaccepted; 1,210 unaccepted |
@@ -241,8 +241,9 @@ bounded 2026-09-23 isolated launch loaded the registry without renderer errors
 but remained in PZ's startup/Bink state for more than five minutes, so it was
 stopped without promoting V-12's acceptance state.
 
-The current local output contains 4,372 supplemental identities and 87,215
-triangles. Of those identities, 4,291 are roof-category identities; the
+The current local output contains 4,413 unconditional supplemental identities
+and 88,473 primitives (88,463 depth-derived triangles plus ten inherited
+source-authored boxes). Of those identities, 4,331 are roof-category identities; the
 remainder are installed depth helpers used by the same deterministic path. Of
 the emitted identities, 414 use exact alpha-mask rectangle decomposition (21,810
 rectangles). Seventy-two compound roof identities that narrowly missed the
@@ -260,12 +261,20 @@ source mask. The four accepted identities remove 90--91 border pixels and
 retain 92.86--97.46%; the evidence and source identity are recorded per asset.
 This is an offline deterministic recovery, not yet a live visual acceptance.
 
-The compiler rejects 11 targets that exceed the conservative tile-local
-envelope. Of the 112 entries without direct physical anchoring semantics, 80
+The compiler still rejects the canonical `roofs_30_01_90` depth fit because it
+exceeds the conservative tile-local envelope. Ten same-suffix material variants
+instead inherit its installed authored box after the compiler verifies the
+explicit depth assignment, identical original-frame placement and an atlas
+alpha subset retaining 86.78--100% of the source. Twenty-four
+`roofs_accents_30_01` variants inherit cardinal anchoring only from their
+explicitly assigned `roofs_accents_01` target; seven diagonal accent identities
+use their own installed `attachedNW`/`attachedSE` properties. Each accepted
+alias records its source and evidence. Of the remaining entries without direct
+physical anchoring semantics, 80
 now have a separate contextual surface backed by an exact neighbor relation in
 PZ's installed `seams.txt`; runtime emits those surfaces only if the immutable
 snapshot contains one of the declared neighboring canonical roof identities.
-The other 32 remain rejected as unanchored overlays. Eight
+Only one compiler identity remains rejected as an unanchored overlay. Eight
 former `missing_depth_image` entries are separately classified as source
 placeholders: six have no atlas sprite and two have only a 1x1 atlas entry, all
 eight have only a burnt-tile fallback property and no depth assignment. A
@@ -279,11 +288,11 @@ load/render tests validate the generated registry in addition to the Python
 geometry audit.
 
 For the 3,077 roof identities referenced by installed map headers, the current
-breakdown is 2,881 unconditional depth surfaces, 76 contextual seam-gated
-surfaces, 81 authored/unaccepted, two source placeholders and 37
-rejected/unsupported. Every unresolved identity has an explicit source-backed
-reason; there is no unexplained map-referenced roof identity in this static
-corpus.
+breakdown is 2,918 unconditional source-backed surfaces, 76 contextual
+seam-gated surfaces, 81 authored/unaccepted, two source placeholders and zero
+rejected/unsupported. This closes static identity representation coverage for
+the installed map-header corpus; it does not prove correct multi-tile assembly
+or live appearance.
 
 The first isolated launch on 17 September loaded the staged registry and ran at
 59.91--60.08 completed callbacks/s with zero dropped mesh requests, but its
@@ -321,11 +330,11 @@ The same captured scene also contained 135 `roofs_30_02_*` instances. Before
 mask-preserving meshing, 108 of them were rejected because a convex hull around
 their concave source silhouettes would invent opaque roof over transparent
 pixels. All 135 now resolve to compiled geometry. Across the entire 690-roof
-scene, the current offline compiler resolves 568 instances, 84 use authored
-geometry and 38 remain rejected/unsupported. The supplemental rejection audit
-still lists 39 unanchored-overlay instances and one unsafe-envelope instance;
-two of those also have authored geometry, which takes precedence in the final
-coverage state. PID
+scene, the current offline registry resolves all 690 roof instances: 575 use
+unconditional supplemental geometry, 31 use contextual candidates and 84 use
+authored geometry. The raw supplemental rejection metadata still names one
+unanchored overlay and one unsafe-envelope instance in this scene, but both
+have authored geometry and therefore are not unresolved in final coverage. PID
 44309 loaded supplemental registry SHA-256
 `78fec525c09663f93648beb90dbc5dcec680d85bc0b16cbd17842cb6b213a4e7`.
 The exact-window capture at `.local/captures/roof-mask-live-window.png` shows the

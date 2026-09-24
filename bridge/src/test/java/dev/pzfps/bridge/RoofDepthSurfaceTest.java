@@ -242,6 +242,8 @@ final class RoofDepthSurfaceTest {
         assertFalse(registry.geometry("roofs_02_3").isEmpty());
         assertFalse(registry.geometry("roofs_accents_01_4").isEmpty());
         assertFalse(registry.geometry("roofs_30_02_28").isEmpty());
+        assertEquals(1, registry.geometry("roofs_30_02_90").size());
+        assertEquals("box", registry.geometry("roofs_30_02_90").getFirst().kind());
         assertFalse(registry.geometry("walls_exterior_roofs_10_5").isEmpty());
         assertFalse(registry.geometry("walls_exterior_roofs_30_21_16").isEmpty());
     }

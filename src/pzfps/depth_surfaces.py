@@ -39,6 +39,7 @@ def compile_planar_roof_surfaces(
     textures_path: Path | None = None,
     map_usage_path: Path | None = None,
     seams_path: Path | None = None,
+    geometry_path: Path | None = None,
 ) -> dict[str, Any]:
     """Recover planar roof patches from PZ's own per-pixel depth evidence."""
     definitions = json.loads(definitions_path.read_text(encoding="utf-8"))
@@ -56,6 +57,12 @@ def compile_planar_roof_surfaces(
     )
     if map_usage_path is not None and map_usage.get("game_version") != game_version:
         raise DepthSurfaceError("map usage index describes a different game version")
+    authored_geometry = (
+        json.loads(geometry_path.read_text(encoding="utf-8"))
+        if geometry_path is not None else {"tiles": {}}
+    )
+    if geometry_path is not None and authored_geometry.get("game_version") != game_version:
+        raise DepthSurfaceError("tile geometry describes a different game version")
     roof_seams = parse_roof_seams(seams_path) if seams_path is not None else {}
     assignments = parse_depth_assignments(assignments_path)
     tiles: dict[str, Any] = definitions.get("tiles", {})
@@ -65,6 +72,7 @@ def compile_planar_roof_surfaces(
     target_error_details: dict[str, str] = {}
     compiled: dict[str, dict[str, Any]] = {}
     contextual: dict[str, dict[str, Any]] = {}
+    assigned_anchor_aliases: set[str] = set()
     rejected: dict[str, int] = {}
     rejected_identities: dict[str, dict[str, str]] = {}
     skipped: dict[str, int] = {}
@@ -97,13 +105,16 @@ def compile_planar_roof_surfaces(
             }
             continue
         target = assignments.get(identity, identity)
-        if not has_physical_roof_anchor(identity, definition):
-            # A depth assignment is an occlusion hint, not proof that the target sprite is
-            # itself a square-anchored surface. PZ places ridge/overlay art on upper squares
-            # (for example roofs_05_47) so it can extend down across lower roof sprites in the
-            # isometric compositor. Reusing the assigned plane as local 3D geometry instead
-            # produces the observed long strips suspended above the building. Fail closed
-            # until those identities have a topology-aware ridge/accent assembly.
+        assigned_anchor = has_assigned_physical_roof_anchor(
+            identity, definition, target, tiles,
+        )
+        if not (has_physical_roof_anchor(identity, definition) or assigned_anchor):
+            # A self-assignment or assignment to another unanchored sprite is only an
+            # occlusion hint. PZ places ridge/overlay art on upper squares (for example
+            # roofs_05_47) so it can extend down across lower roof sprites in the isometric
+            # compositor. Reusing that plane as local 3D geometry produces the observed long
+            # strips suspended above the building. Fail closed until those identities have a
+            # topology-aware ridge/accent assembly.
             reject(identity, "unanchored_roof_overlay", target)
             continue
         cached = target_cache.get(target)
@@ -112,7 +123,19 @@ def compile_planar_roof_surfaces(
             continue
         if cached is not None:
             geometry, properties = cached
-            compiled[identity] = {"geometry": geometry, "properties": properties | {"depth_target": target}}
+            anchor_evidence = (
+                {
+                    "anchor_source": target,
+                    "anchor_evidence": "installed_accent_depth_assignment_to_anchored_target",
+                }
+                if assigned_anchor else {}
+            )
+            compiled[identity] = {
+                "geometry": geometry,
+                "properties": properties | {"depth_target": target} | anchor_evidence,
+            }
+            if assigned_anchor:
+                assigned_anchor_aliases.add(identity)
             continue
         target_definition = tiles.get(target)
         if target_definition is not None:
@@ -194,8 +217,16 @@ def compile_planar_roof_surfaces(
         target_cache[target] = (triangles, properties)
         compiled[identity] = {
             "geometry": triangles,
-            "properties": properties,
+            "properties": properties | (
+                {
+                    "anchor_source": target,
+                    "anchor_evidence": "installed_accent_depth_assignment_to_anchored_target",
+                }
+                if assigned_anchor else {}
+            ),
         }
+        if assigned_anchor:
+            assigned_anchor_aliases.add(identity)
 
     # A plain roofs_* sprite without a physical anchor cannot safely be emitted on its
     # square in isolation: several of these are compositor overlays and previously became
@@ -240,6 +271,20 @@ def compile_planar_roof_surfaces(
         map_usage.get("identities", {}),
     )
     compiled.update(source_equivalent_aliases)
+    authored_geometry_aliases = compile_assigned_authored_geometry_aliases(
+        rejected_identities,
+        assignments,
+        authored_geometry.get("tiles", {}),
+        texture_records,
+        textures,
+    )
+    compiled.update(authored_geometry_aliases)
+    for identity in authored_geometry_aliases:
+        rejection = rejected_identities.pop(identity)
+        reason = rejection["reason"]
+        rejected[reason] -= 1
+        if rejected[reason] == 0:
+            rejected.pop(reason)
     for identity, texture in sorted(texture_records.items()):
         evidence = atlas_only_tiny_placeholder_evidence(
             identity,
@@ -269,6 +314,8 @@ def compile_planar_roof_surfaces(
         source_hashes["map_usage"] = sha256_file(map_usage_path)
     if seams_path is not None:
         source_hashes["roof_seams"] = sha256_file(seams_path)
+    if geometry_path is not None:
+        source_hashes["tile_geometry"] = sha256_file(geometry_path)
     document = {
         "schema_version": 1,
         "generated_at": now_utc(),
@@ -280,10 +327,13 @@ def compile_planar_roof_surfaces(
             "texture_index": str(textures_path) if textures_path is not None else "not supplied",
             "map_usage": str(map_usage_path) if map_usage_path is not None else "not supplied",
             "roof_seams": str(seams_path) if seams_path is not None else "not supplied",
+            "tile_geometry": str(geometry_path) if geometry_path is not None else "not supplied",
         },
         "source_sha256": _stable_hash(source_hashes),
         "source_hashes": source_hashes,
         "method": "strict-planar-patch-fit-from-installed-depth-texture",
+        "assigned_anchor_alias_count": len(assigned_anchor_aliases),
+        "authored_geometry_alias_count": len(authored_geometry_aliases),
         "source_equivalent_alias_count": len(source_equivalent_aliases),
         "tile_count": len(compiled),
         "triangle_count": sum(len(value["geometry"]) for value in compiled.values()),
@@ -476,6 +526,92 @@ def compile_source_equivalent_roof_aliases(
     return aliases
 
 
+def compile_assigned_authored_geometry_aliases(
+    rejected_identities: dict[str, dict[str, str]],
+    assignments: dict[str, str],
+    authored_tiles: dict[str, Any],
+    texture_records: dict[str, Any],
+    texture_index: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Inherit an installed roof primitive across verified material variants.
+
+    The installed B42 geometry registry authors the narrow ``*_90`` ridge cap for one
+    material family and leaves the same-index material variants empty. Its depth-assignment
+    table maps those variants back to the authored identity. We require that exact
+    assignment, matching numeric suffix and original-frame placement, plus a destination
+    alpha mask that is a substantial subset of the source. This is intentionally limited to
+    depth fits already rejected for leaving the tile envelope; it cannot turn arbitrary
+    compositor overlays into geometry.
+    """
+    candidates: list[tuple[str, str]] = []
+    for identity, rejection in sorted(rejected_identities.items()):
+        if rejection.get("reason") != "unsafe_tile_local_envelope":
+            continue
+        target = assignments.get(identity, identity)
+        identity_family, identity_suffix = split_tile_identity(identity)
+        target_family, target_suffix = split_tile_identity(target)
+        if (
+            target == identity
+            or identity_suffix is None
+            or identity_suffix != target_suffix
+            or identity_family == target_family
+        ):
+            continue
+        target_geometry = authored_tiles.get(target, {}).get("geometry", [])
+        if (
+            not target_geometry
+            or identity not in texture_records
+            or target not in texture_records
+        ):
+            continue
+        destination = texture_records[identity]
+        source = texture_records[target]
+        frame_keys = ("original_width", "original_height", "offset_x", "offset_y")
+        if any(destination.get(key) != source.get(key) for key in frame_keys):
+            continue
+        candidates.append((identity, target))
+    if not candidates:
+        return {}
+
+    page_names = {
+        str(texture_records[identity]["page"])
+        for pair in candidates
+        for identity in pair
+    }
+    try:
+        page_bytes = read_indexed_pages(texture_index, page_names)
+    except (KeyError, OSError, TexturePackError) as error:
+        raise DepthSurfaceError(f"could not verify authored roof aliases: {error}") from error
+    pages = {
+        name: decode_png(data, f"indexed texture page {name}")
+        for name, data in page_bytes.items()
+    }
+    aliases: dict[str, dict[str, Any]] = {}
+    for identity, target in candidates:
+        destination_mask = sprite_alpha_mask(texture_records[identity], pages)
+        source_mask = sprite_alpha_mask(texture_records[target], pages)
+        if not destination_mask or not source_mask or destination_mask - source_mask:
+            continue
+        retained_fraction = len(destination_mask) / len(source_mask)
+        if retained_fraction < 0.85:
+            continue
+        source_geometry = authored_tiles[target]["geometry"]
+        aliases[identity] = {
+            "geometry": source_geometry,
+            "properties": {
+                "depth_target": target,
+                "source_authored_geometry_identity": target,
+                "source_authored_geometry_evidence": (
+                    "installed_depth_assignment_same_suffix_and_alpha_subset"
+                ),
+                "source_alpha_pixels": len(source_mask),
+                "destination_alpha_pixels": len(destination_mask),
+                "retained_alpha_fraction": round(retained_fraction, 7),
+            },
+        }
+    return aliases
+
+
 def sprite_alpha_mask(
     texture: dict[str, Any], pages: dict[str, "PngPixels"]
 ) -> set[tuple[int, int]]:
@@ -567,6 +703,8 @@ def has_physical_roof_anchor(identity: str, definition: dict[str, Any]) -> bool:
     Exterior-roof wall/fascia families have an explicit structural family identity. Plain
     ``roofs_*`` art must carry a rain-blocking, eave, floor or attachment property; RoofGroup
     and WestRoofT alone only identify compositing/style and do not locate an overlay in 3D.
+    Build 42 also uses diagonal ``attachedNW``/``attachedSE`` properties for corner fascia
+    pieces, so those are physical anchors just like the cardinal attachment properties.
     """
     if not identity.startswith("roofs_"):
         return True
@@ -580,9 +718,40 @@ def has_physical_roof_anchor(identity: str, definition: dict[str, Any]) -> bool:
         "attachedE",
         "attachedS",
         "attachedW",
+        "attachedNW",
+        "attachedSE",
         "attachedFloor",
     }
     return any(anchor in properties for anchor in anchors)
+
+
+def has_assigned_physical_roof_anchor(
+    identity: str,
+    definition: dict[str, Any],
+    target: str,
+    definitions: dict[str, Any],
+) -> bool:
+    """Whether an explicit depth assignment supplies installed attachment semantics.
+
+    Build 42.20's ``roofs_accents_30_01`` colour variants contain only a snow counterpart
+    property but are explicitly assigned to a *different* canonical accent carrying
+    ``attachedN`` or ``attachedW``. The assignment supplies surface equivalence and the
+    target supplies its square attachment. This deliberately narrow family/properties check
+    does not promote regular roof ridge overlays: those remain contextual or rejected.
+    """
+    identity_family, _ = split_tile_identity(identity)
+    target_family, _ = split_tile_identity(target)
+    if (
+        identity_family != "roofs_accents_30_01"
+        or target_family != "roofs_accents_01"
+        or set(definition.get("properties", {})) != {"SnowTile"}
+        or target == identity
+    ):
+        return False
+    target_definition = definitions.get(target)
+    if not isinstance(target_definition, dict):
+        return False
+    return has_physical_roof_anchor(target, target_definition)
 
 
 def parse_depth_assignments(path: Path) -> dict[str, str]:
@@ -932,6 +1101,7 @@ def audit_roof_surfaces(document: dict[str, Any]) -> dict[str, Any]:
     points: list[list[float]] = []
     minimum_triangle_area = math.inf
     maximum_hull_fill_ratio = 0.0
+    source_authored_alias_primitives = 0
     for section_name in ("tiles", "contextual_tiles"):
         for identity, record in document.get(section_name, {}).items():
             geometry = record.get("geometry", [])
@@ -946,6 +1116,14 @@ def audit_roof_surfaces(document: dict[str, Any]) -> dict[str, Any]:
                 float(record.get("properties", {}).get("opaque_hull_fill_ratio", 0.0)),
             )
             for primitive in geometry:
+                if record.get("properties", {}).get("source_authored_geometry_identity"):
+                    audit_source_authored_primitive(identity, primitive)
+                    source_authored_alias_primitives += 1
+                    if section_name == "tiles":
+                        triangle_count += 1
+                    else:
+                        contextual_triangle_count += 1
+                    continue
                 if primitive.get("kind") != "triangle" or len(primitive.get("points", [])) != 3:
                     raise DepthSurfaceError(f"compiled roof contains a non-triangle: {identity}")
                 triangle = primitive["points"]
@@ -980,6 +1158,7 @@ def audit_roof_surfaces(document: dict[str, Any]) -> dict[str, Any]:
         "finite_points": len(points),
         "contextual_tiles": contextual_tile_count,
         "contextual_triangles": contextual_triangle_count,
+        "source_authored_alias_primitives": source_authored_alias_primitives,
         "minimum_triangle_area": round(minimum_triangle_area, 9),
         "maximum_hull_fill_ratio": round(maximum_hull_fill_ratio, 7),
         "authored_bounds": {
@@ -997,6 +1176,39 @@ def audit_roof_surfaces(document: dict[str, Any]) -> dict[str, Any]:
             "max_v": round(max(source_pixel(point)[1] for point in points), 6),
         },
     }
+
+
+def audit_source_authored_primitive(identity: str, primitive: dict[str, Any]) -> None:
+    """Validate a source-authored alias without applying depth-surface footprint limits."""
+    kind = primitive.get("kind")
+    if kind not in {"box", "cylinder", "polygon"}:
+        raise DepthSurfaceError(
+            f"source-authored roof alias has unsupported primitive {kind!r}: {identity}"
+        )
+    vector_keys = ["translate", "rotate_degrees"]
+    if kind == "box":
+        vector_keys.extend(("min", "max"))
+    for key in vector_keys:
+        values = primitive.get(key, [])
+        if len(values) != 3 or not all(math.isfinite(float(value)) for value in values):
+            raise DepthSurfaceError(
+                f"source-authored roof alias has malformed {key}: {identity}"
+            )
+    if kind == "cylinder":
+        for key in ("radius1", "radius2", "height"):
+            if not math.isfinite(float(primitive.get(key, math.nan))):
+                raise DepthSurfaceError(
+                    f"source-authored roof alias has malformed {key}: {identity}"
+                )
+    if kind == "polygon":
+        points = primitive.get("points", [])
+        if len(points) < 3 or not all(
+            len(point) == 2 and all(math.isfinite(float(value)) for value in point)
+            for point in points
+        ):
+            raise DepthSurfaceError(
+                f"source-authored roof alias has malformed polygon: {identity}"
+            )
 
 
 def source_pixel(point: list[float]) -> tuple[float, float]:

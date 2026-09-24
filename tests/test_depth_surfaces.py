@@ -8,6 +8,7 @@ import zlib
 
 from pzfps.depth_surfaces import (
     compile_planar_roof_surfaces,
+    compile_assigned_authored_geometry_aliases,
     compile_source_equivalent_roof_aliases,
     audit_roof_surfaces,
     atlas_only_tiny_placeholder_evidence,
@@ -16,6 +17,7 @@ from pzfps.depth_surfaces import (
     fit_planar_surface,
     fit_piecewise_planar_surfaces,
     fit_roof_planar_patches,
+    has_assigned_physical_roof_anchor,
     has_physical_roof_anchor,
     opaque_rectangles,
     parse_depth_assignments,
@@ -99,6 +101,56 @@ class DepthSurfaceTests(unittest.TestCase):
         self.assertEqual(properties["removed_border_pixels"], 1)
         self.assertEqual(properties["retained_alpha_fraction"], 0.9)
 
+    def test_rejected_material_variant_inherits_verified_authored_roof_geometry(self) -> None:
+        source_identity = "roofs_30_01_90"
+        destination_identity = "roofs_30_02_90"
+        alpha = bytearray(20)
+        alpha[0:10] = b"\xff" * 10
+        alpha[10:19] = b"\xff" * 9
+        page = PngPixels(10, 2, bytes(20), bytes(alpha))
+        texture = {
+            "page": "page",
+            "x": 0,
+            "width": 10,
+            "height": 1,
+            "offset_x": 0,
+            "offset_y": 96,
+            "original_width": 128,
+            "original_height": 256,
+        }
+        textures = {
+            source_identity: texture | {"y": 0},
+            destination_identity: texture | {"y": 1, "width": 9},
+        }
+        geometry = [{
+            "kind": "box",
+            "translate": [0, 1.4, 0],
+            "rotate_degrees": [157, 0, -180],
+            "min": [-.5, 0, -.5],
+            "max": [.5, .06, .5],
+        }]
+        with (
+            mock.patch(
+                "pzfps.depth_surfaces.read_indexed_pages",
+                return_value={"page": b"source-backed-page"},
+            ),
+            mock.patch("pzfps.depth_surfaces.decode_png", return_value=page),
+        ):
+            aliases = compile_assigned_authored_geometry_aliases(
+                {destination_identity: {
+                    "reason": "unsafe_tile_local_envelope",
+                    "depth_target": source_identity,
+                }},
+                {destination_identity: source_identity},
+                {source_identity: {"geometry": geometry}},
+                textures,
+                {},
+            )
+        self.assertEqual(aliases[destination_identity]["geometry"], geometry)
+        properties = aliases[destination_identity]["properties"]
+        self.assertEqual(properties["source_authored_geometry_identity"], source_identity)
+        self.assertEqual(properties["retained_alpha_fraction"], 0.9)
+
     def test_empty_roof_slot_requires_atlas_and_semantic_evidence(self) -> None:
         definition = {"properties": {"BurntTile": "walls_burnt_roofs_01_18"}}
         identity = "walls_exterior_roofs_05_18"
@@ -128,7 +180,36 @@ class DepthSurfaceTests(unittest.TestCase):
         self.assertTrue(has_physical_roof_anchor(
             "roofs_accents_01_25", {"properties": {"attachedN": "", "isEave": ""}}))
         self.assertTrue(has_physical_roof_anchor(
+            "roofs_accents_01_23", {"properties": {"attachedNW": ""}}))
+        self.assertTrue(has_physical_roof_anchor(
+            "roofs_accents_01_47", {"properties": {"attachedSE": ""}}))
+        self.assertTrue(has_physical_roof_anchor(
             "walls_exterior_roofs_03_39", {"properties": {}}))
+
+    def test_explicit_depth_target_can_supply_missing_anchor_semantics(self) -> None:
+        definitions = {
+            "roofs_accents_01_0": {"properties": {"attachedN": ""}},
+            "roofs_accents_01_8": {"properties": {"attachedW": ""}},
+            "roofs_accents_01_16": {"properties": {"WestRoofB": ""}},
+        }
+        self.assertTrue(has_assigned_physical_roof_anchor(
+            "roofs_accents_30_01_16", {"properties": {"SnowTile": "snow_16"}},
+            "roofs_accents_01_0", definitions))
+        self.assertTrue(has_assigned_physical_roof_anchor(
+            "roofs_accents_30_01_12", {"properties": {"SnowTile": "snow_12"}},
+            "roofs_accents_01_8", definitions))
+        self.assertFalse(has_assigned_physical_roof_anchor(
+            "roofs_accents_01_16", {"properties": {"WestRoofB": ""}},
+            "roofs_accents_01_16", definitions))
+        self.assertFalse(has_assigned_physical_roof_anchor(
+            "roofs_accents_30_01_16", {"properties": {"SnowTile": "snow_16"}},
+            "roofs_accents_01_16", definitions))
+        self.assertFalse(has_assigned_physical_roof_anchor(
+            "roofs_accents_30_01_16", {"properties": {"SnowTile": "snow_16"}},
+            "roofs_accents_99_99_99", definitions))
+        self.assertFalse(has_assigned_physical_roof_anchor(
+            "roofs_05_47", {"properties": {"RoofGroup": "10", "WestRoofT": ""}},
+            "roofs_01_1", definitions))
 
     def test_polygon_area_reports_convex_hull_coverage(self) -> None:
         self.assertEqual(polygon_area([(0, 0), (3, 0), (3, 2), (0, 2)]), 6)
