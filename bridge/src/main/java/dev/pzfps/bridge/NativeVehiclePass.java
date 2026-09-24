@@ -57,7 +57,7 @@ public final class NativeVehiclePass {
             Drawer drawer = DRAWER_POOL.poll();
             if (drawer == null) drawer = new Drawer();
             try {
-                drawer.prepare(slot);
+                drawer.prepare(slot, vehicle);
                 drawers.add(drawer);
                 entityIds.add(vehicle.getID());
             } catch (Throwable error) {
@@ -159,12 +159,17 @@ public final class NativeVehiclePass {
         private ModelSlotRenderData renderData;
         private boolean retained;
 
-        void prepare(ModelManager.ModelSlot slot) {
+        void prepare(ModelManager.ModelSlot slot, BaseVehicle vehicle) {
+            NativeVehiclePresentation.prepare(vehicle);
             renderData = ModelSlotRenderData.alloc();
             renderData.initModel(slot);
             slot.renderRefCount++;
             retained = true;
             renderData.init(slot);
+            // BaseVehicle.render normally updates alpha from the isometric seen/could-see
+            // pass. This pass uses the perspective depth/frustum instead, so the replacement
+            // must not inherit that unrelated alpha fade.
+            NativeVehiclePresentation.usePerspectiveVisibility(renderData);
         }
 
         @Override
@@ -201,6 +206,7 @@ public final class NativeVehiclePass {
 
         void releaseAfterPreparationFailure() {
             if (retained) discard();
+            else if (renderData == null) DRAWER_POOL.offer(this);
         }
 
         void discard() {

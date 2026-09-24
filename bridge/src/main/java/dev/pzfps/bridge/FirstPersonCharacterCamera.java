@@ -24,9 +24,9 @@ final class FirstPersonCharacterCamera extends ModelCamera {
         x = data.x;
         y = data.y;
         z = data.z;
-        useAngle = data.animPlayerAngle;
         inVehicle = data.inVehicle;
         vehicleRoot = data.object instanceof zombie.vehicles.BaseVehicle;
+        useAngle = cameraAngle(data.animPlayerAngle, vehicleRoot);
     }
 
     @Override
@@ -47,6 +47,11 @@ final class FirstPersonCharacterCamera extends ModelCamera {
         modelViewStack.push(modelView);
         pushed = true;
         GL11.glDepthMask(depthMask);
+    }
+
+    /** PZ's VehicleModelCameraRenderData explicitly assigns zero angle for vehicle roots. */
+    static float cameraAngle(float pzAngle, boolean vehicleRoot) {
+        return vehicleRoot ? 0.0f : pzAngle;
     }
 
     @Override

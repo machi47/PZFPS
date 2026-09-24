@@ -19,12 +19,13 @@ PZ simulation/update -> immutable authoritative snapshot
 PZ render thread     -> PZFPS perspective world -> PZ text/UI
 ```
 
-No isolated PZ process is currently running. PID 65845 was stopped at
-23 September 21:48:00 UTC after the client remained at startup videos and no
-inspectable CoreGraphics game window appeared. Its log proved only that an
-earlier generated registry loaded; it is not visual evidence. The current
-staged bridge JAR is
-`d67e48759be1b4aa4c5251efaf83c4e257ef18ef2f193b5867eb713c40211924` and the
+No isolated PZ process is currently running. The latest PID 93910 ran from
+24 September 03:46:51 to 03:50:22 UTC, then was stopped. Its captured first
+person view faced a plain wall rather than a door, so it yielded no usable
+visual evidence for the door-edge change. The capture is
+`.local/captures/door-edge-regression-live.png`; it is not acceptance. The
+current staged bridge JAR is
+`92bb244c7d4b256a69c5ab1e76e38d8fc4b2da9dc36f628ba61bd76a461ae867` and the
 current staged supplemental roof registry is
 `e652b21a8bb7a14c7bea7e051ff8fcb0f9bc730280764aaca09bb4322ddc6b37`.
 The current staged prop registry is
@@ -35,6 +36,27 @@ passed offline source and production-shader tests but has not produced a live
 visual frame, so it is not claimed as an accepted improvement and does not by
 itself justify another reload.
 No normal save, installed game binary or unrelated mod was changed.
+
+### Native vehicle pose/visibility repair (built, not live-accepted)
+
+The installed 42.20.4 `ModelCameraRenderData.init` assigns angle `0` to a
+vehicle root, while `ModelSlotRenderData.init` leaves its `animPlayerAngle` as
+`NaN`. The previous perspective pass copied that NaN into the camera rotation;
+the resulting vehicle transform could not produce valid vertices. The first-
+person camera now uses PZ's zero vehicle-root angle and retains PZ's
+`BaseVehicle.renderTransform`/model-slot transform for its evaluated heading,
+scale and attachments, while applying the world position and perspective view.
+
+Replacing `BaseVehicle.render` also skipped its per-render `updateLights()`
+refresh and inherited the model slot's isometric visibility alpha. The native
+vehicle pass now invokes the same PZ light/paint/damage state update and resets
+only the retained render snapshot's alpha to 1; world-depth occlusion remains
+owned by the perspective scene. It does not mutate vehicle simulation state.
+Unit tests cover NaN-angle removal, finite vehicle transforms and isometric
+alpha removal. `gradle test jar` passes (146 tests, 3 skipped, no failures);
+`bin/pzfps game stage-isolated`
+staged the exact tested JAR (SHA-256 above). No car-facing live check has been
+run, so vehicle visibility is still **unaccepted**.
 
 ### Sealed-wall join and exterior prop-occlusion checkpoint
 

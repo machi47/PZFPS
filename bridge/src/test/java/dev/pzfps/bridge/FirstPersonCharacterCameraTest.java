@@ -63,4 +63,17 @@ final class FirstPersonCharacterCameraTest {
         assertEquals(9.0f, origin.z, 0.0001f);
         assertEquals(1.0f, oneModelUnit.length(), 0.0001f);
     }
+
+    @Test
+    void vehicleRootUsesPzCameraAngleInsteadOfItsNaNSlotAnimationAngle() {
+        float vehicleAngle = FirstPersonCharacterCamera.cameraAngle(Float.NaN, true);
+        assertEquals(0.0f, vehicleAngle);
+        assertEquals(0.37f, FirstPersonCharacterCamera.cameraAngle(0.37f, false), 0.0001f);
+
+        float[] matrix = FirstPersonCharacterCamera.modelTransform(
+                8.0f, 9.0f, 2.0f, vehicleAngle, false, true, new Matrix4f()).get(new float[16]);
+        for (float component : matrix) {
+            org.junit.jupiter.api.Assertions.assertTrue(Float.isFinite(component));
+        }
+    }
 }
