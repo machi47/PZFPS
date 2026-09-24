@@ -61,13 +61,14 @@ public final class WorldMeshBuilder {
             int contextualRoofObjects,
             int structuralFallbackObjects,
             int mirroredStructuralFaces,
+            int completedRoofBoxFaces,
             int completedInteriorCeilings,
             int nativeWorldItems,
             int unsupportedObjects,
             int collisionCriticalUnsupportedObjects,
             int truncatedChunks) {
         public static Coverage none() {
-            return new Coverage(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+            return new Coverage(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
         }
 
         public Coverage plus(Coverage other) {
@@ -79,6 +80,7 @@ public final class WorldMeshBuilder {
                     contextualRoofObjects + other.contextualRoofObjects,
                     structuralFallbackObjects + other.structuralFallbackObjects,
                     mirroredStructuralFaces + other.mirroredStructuralFaces,
+                    completedRoofBoxFaces + other.completedRoofBoxFaces,
                     completedInteriorCeilings + other.completedInteriorCeilings,
                     nativeWorldItems + other.nativeWorldItems,
                     unsupportedObjects + other.unsupportedObjects,
@@ -144,6 +146,7 @@ public final class WorldMeshBuilder {
         long contextualRoofState = 0xcbf29ce484222325L;
         int structuralFallbackObjects = 0;
         int mirroredStructuralFaces = 0;
+        int completedRoofBoxFaces = 0;
         int completedInteriorCeilings = 0;
         int nativeWorldItems = 0;
         int unsupportedObjects = 0;
@@ -292,7 +295,21 @@ public final class WorldMeshBuilder {
                     for (TileGeometryRegistry.Primitive primitive : geometry) {
                         addTexturedPrimitive(batch, baseX, baseY, baseZ, primitive, light);
                         if (primitive.kind().equals("box")) {
-                            if (BoxSideCompletion.closedCrate(object.sprite())) {
+                            if (isRoofSprite(object.sprite())) {
+                                // Authored roof boxes describe closed, thin construction
+                                // volumes.  PZ's source sprite can observe only the faces aimed
+                                // toward its isometric camera; omitting the complementary faces
+                                // made a whole slope disappear from the opposite first-person
+                                // side.  Mirror each observed opposite face in local box space,
+                                // preserving the installed box orientation and persistent sprite
+                                // identity instead of inventing a camera-dependent replacement.
+                                completedRoofBoxFaces += addOppositeBoxSide(
+                                        batch, baseX, baseY, baseZ, primitive, light, 0);
+                                completedRoofBoxFaces += addOppositeBoxSide(
+                                        batch, baseX, baseY, baseZ, primitive, light, 1);
+                                completedRoofBoxFaces += addOppositeBoxSide(
+                                        batch, baseX, baseY, baseZ, primitive, light, 2);
+                            } else if (BoxSideCompletion.closedCrate(object.sprite())) {
                                 addOppositeBoxSide(batch, baseX, baseY, baseZ, primitive, light, 0);
                                 addOppositeBoxSide(batch, baseX, baseY, baseZ, primitive, light, 2);
                                 addCrateBottom(batch, baseX, baseY, baseZ, primitive, light);
@@ -419,6 +436,7 @@ public final class WorldMeshBuilder {
                         contextualRoofObjects,
                         structuralFallbackObjects,
                         mirroredStructuralFaces,
+                        completedRoofBoxFaces,
                         completedInteriorCeilings,
                         nativeWorldItems,
                         unsupportedObjects,
@@ -922,9 +940,13 @@ public final class WorldMeshBuilder {
                 light);
     }
 
-    private static void addOppositeBoxSide(
+    private static int addOppositeBoxSide(
             FloatBuilder output, float baseX, float baseY, float baseZ,
             TileGeometryRegistry.Primitive box, float[] light, int sideAxis) {
+        if (sideAxis < 0 || sideAxis > 2) {
+            throw new IllegalArgumentException("box side axis must be 0, 1, or 2");
+        }
+        int emitted = 0;
         for (boolean positive : new boolean[] {false, true}) {
             float x = positive ? box.maxX() : box.minX();
             float[][] local = positive
@@ -932,7 +954,14 @@ public final class WorldMeshBuilder {
                         {x, box.maxY(), box.maxZ()}, {x, box.minY(), box.maxZ()}}
                     : new float[][] {{x, box.minY(), box.minZ()}, {x, box.minY(), box.maxZ()},
                         {x, box.maxY(), box.maxZ()}, {x, box.maxY(), box.minZ()}};
-            if (sideAxis == 2) {
+            if (sideAxis == 1) {
+                float y = positive ? box.maxY() : box.minY();
+                local = positive
+                        ? new float[][] {{box.minX(), y, box.minZ()}, {box.minX(), y, box.maxZ()},
+                            {box.maxX(), y, box.maxZ()}, {box.maxX(), y, box.minZ()}}
+                        : new float[][] {{box.minX(), y, box.minZ()}, {box.maxX(), y, box.minZ()},
+                            {box.maxX(), y, box.maxZ()}, {box.minX(), y, box.maxZ()}};
+            } else if (sideAxis == 2) {
                 float z = positive ? box.maxZ() : box.minZ();
                 local = positive
                         ? new float[][] {{box.minX(), box.minY(), z}, {box.maxX(), box.minY(), z},
@@ -948,12 +977,15 @@ public final class WorldMeshBuilder {
             float[][] uv = new float[4][];
             for (int i = 0; i < 4; i++) {
                 float donorX = sideAxis == 0 ? box.minX() + box.maxX() - local[i][0] : local[i][0];
+                float donorY = sideAxis == 1 ? box.minY() + box.maxY() - local[i][1] : local[i][1];
                 float donorZ = sideAxis == 2 ? box.minZ() + box.maxZ() - local[i][2] : local[i][2];
-                float[] donor = transformLocal(box, donorX, local[i][1], donorZ);
+                float[] donor = transformLocal(box, donorX, donorY, donorZ);
                 uv[i] = sourcePixel(donor);
             }
             addTexturedQuad(output, world[0], world[1], world[2], world[3], n, light, uv);
+            emitted++;
         }
+        return emitted;
     }
 
     private static void addCrateBottom(

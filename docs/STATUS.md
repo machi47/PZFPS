@@ -123,6 +123,27 @@ not proof that the reconstructed plane has correct 3D placement: the prior
 detached-strip regression must still be rejected or accepted in a moving live
 view.
 
+The same scene also exposed a separate novel-view failure in the installed
+authored path. Its 84 authored-roof instances (28 identities) are all thin box
+primitives. `WorldMeshBuilder` previously emitted only faces aimed toward PZ's
+source isometric camera, so an otherwise valid closed roof box could lose an
+entire slope from the opposite first-person side. The renderer now emits the
+complementary local X/Y/Z faces by mirroring the corresponding observed-face
+projection, and reports `completedRoofBoxFaces`. This applies corpus-wide to 74
+authored roof-box identities, 71 of which occur in installed map headers with
+4,548 total header references. The synthetic rotated-roof fixture emits all six
+faces (36 vertices) and the full local registry run passes 134 Java tests with
+zero skipped, failed or errored tests. No live frame has accepted this change;
+non-box roof planes, ridges and multi-tile junctions remain open under V-12.
+The bounded isolated-client attempt on 2026-09-23 loaded all 9,812 geometry
+identities without a renderer exception, but remained in PZ's startup/Bink
+state for more than five minutes and never exposed the saved world for visual
+inspection. PID 76432 was terminated and the all-client inventory was empty
+afterward. This is load evidence only, not live roof acceptance. That run also
+showed that macOS LaunchServices can replace the initially recorded packaged-app
+PID with a later JavaAppLauncher PID; `process_state()` now follows that
+isolated successor so status cannot falsely report stopped while it is alive.
+
 At the initial depth-surface checkpoint, Python discovery passed 35 tests and
 the clean Gradle build passed 129 tests, including loading that supplemental registry, validating 3,894 entries
 and rendering source-projected roof triangles. The Apple production-shader

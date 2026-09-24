@@ -262,6 +262,20 @@ def process_state() -> dict[str, Any]:
     try:
         os.kill(pid, 0)
     except (ProcessLookupError, PermissionError):
+        if state.get("kind") == "packaged":
+            # LaunchServices can keep a short-lived JavaAppLauncher while the real
+            # application process is created several seconds later with a new PID.
+            # Keep status and cleanup attached to that successor instead of reporting
+            # a false stopped state while the isolated client is still rendering.
+            successors = isolated_pz_processes()
+            if successors:
+                successor = max(successors, key=lambda item: int(item["pid"]))
+                return {
+                    **state,
+                    "recorded_pid": pid,
+                    "pid": int(successor["pid"]),
+                    "running": True,
+                }
         return {**state, "running": False}
     command = subprocess.run(
         ["ps", "-p", str(pid), "-o", "command="],

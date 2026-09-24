@@ -47,6 +47,35 @@ class RuntimeProcessTests(unittest.TestCase):
             [value["pid"] for value in runtime.isolated_pz_processes()], [101, 202]
         )
 
+    @patch("pzfps.runtime.isolated_pz_processes")
+    @patch("pzfps.runtime.os.kill")
+    def test_packaged_process_state_follows_launchservices_successor(
+        self, kill, isolated_processes
+    ) -> None:
+        kill.side_effect = ProcessLookupError
+        isolated_processes.return_value = [
+            {
+                "pid": 202,
+                "command": "/project/.local/pz-runtime/PZFPS Isolated.app/Contents/"
+                "MacOS/JavaAppLauncher",
+            }
+        ]
+        state = {
+            "pid": 101,
+            "kind": "packaged",
+            "executable": "/project/.local/pz-runtime/PZFPS Isolated.app/Contents/"
+            "MacOS/JavaAppLauncher",
+        }
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            state_path = Path(temporary_directory) / "isolated-game.json"
+            state_path.write_text(runtime.json.dumps(state), encoding="utf-8")
+            with patch.object(runtime, "STATE", state_path):
+                result = runtime.process_state()
+
+        self.assertTrue(result["running"])
+        self.assertEqual(result["recorded_pid"], 101)
+        self.assertEqual(result["pid"], 202)
+
     @patch("pzfps.runtime.write_json")
     @patch("pzfps.runtime.time.sleep")
     @patch("pzfps.runtime.os.kill")

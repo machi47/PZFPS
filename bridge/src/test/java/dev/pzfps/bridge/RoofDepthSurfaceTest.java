@@ -99,6 +99,35 @@ final class RoofDepthSurfaceTest {
     }
 
     @Test
+    void authoredRoofBoxIsClosedForNovelFirstPersonViewpoints() throws Exception {
+        Path registryPath = temporary.resolve("authored-roof-box.json");
+        Files.writeString(registryPath, """
+                {"schema_version":1,"source_sha256":"roof-box","tiles":{"roofs_30_01_0":{
+                  "geometry":[{
+                    "kind":"box",
+                    "min":[-.5,0,-.54],"max":[.5,.065,.54],
+                    "translate":[0,.18,-.02],"rotate_degrees":[22.6,0,0]
+                  }]
+                }}}
+                """);
+        WorldState.TileObject roof = new WorldState.TileObject(
+                0, "IsoObject", "WestRoofB", "roofs_30_01_0",
+                false, false, false, false, false, false, false);
+        WorldState.Square square = new WorldState.Square(
+                0, 0, 1, -1, 0, 255, 255, 255,
+                false, true, false, false, false, false, List.of(roof));
+
+        WorldMeshBuilder.MeshData mesh = new WorldMeshBuilder(
+                TileGeometryRegistry.load(registryPath))
+                .build(new WorldState.Chunk(0, 0, 1, 1, List.of(square)));
+
+        // Six faces, rather than only the source-camera-facing half of the box.
+        assertEquals(36, mesh.texturedBatches().getFirst().vertexCount());
+        assertEquals(3, mesh.coverage().completedRoofBoxFaces());
+        assertEquals(1, mesh.coverage().authoredGeometryObjects());
+    }
+
+    @Test
     void roofWallFamilyWithoutEvidenceIsNotTurnedIntoVerticalWall() throws Exception {
         Path authored = temporary.resolve("empty.json");
         Files.writeString(authored, """
