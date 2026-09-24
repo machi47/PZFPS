@@ -481,6 +481,7 @@ def command_assets_compile_prop_surfaces(args: argparse.Namespace) -> int:
         "candidate_count": document["candidate_count"],
         "tile_count": document["tile_count"],
         "triangle_count": document["triangle_count"],
+        "wall_attachment_tile_count": document["wall_attachment_tile_count"],
         "rejected": document["rejected"],
         "output": str(output),
     })

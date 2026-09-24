@@ -36,6 +36,56 @@ _MAXIMUM_RMS = 0.015
 _TILE_WIDTH = 128
 _TILE_HEIGHT = 256
 _SOURCE_Y_SCALE = 64.0 * math.sqrt(1.5)
+_WALL_ATTACHMENT_CLEARANCE = 0.002
+
+
+def wall_attachment_properties(definition: dict[str, Any]) -> dict[str, Any]:
+    """Return a cardinal wall anchor only when PZ declares one unambiguously.
+
+    ``MoveType=WallObject`` by itself is not enough: counters, satellite dishes and
+    other objects use that placement mode without declaring a wall face.  The installed
+    tile definitions provide the stronger ``attachedN/S/E/W`` evidence for fixtures that
+    really are owned by one wall boundary.
+    """
+    properties = definition.get("properties", {})
+    if properties.get("MoveType") != "WallObject":
+        return {}
+    edges = [edge for edge in "NSEW" if f"attached{edge}" in properties]
+    if len(edges) != 1:
+        return {}
+    edge = edges[0]
+    return {
+        "wall_attachment_edge": edge,
+        "wall_attachment_evidence": f"MoveType=WallObject+attached{edge}",
+    }
+
+
+def wall_attachment_metrics(
+    geometry: list[dict[str, Any]], attachment: dict[str, Any]
+) -> dict[str, Any]:
+    edge = str(attachment.get("wall_attachment_edge", ""))
+    if not edge:
+        return {}
+    axis = 2 if edge in {"N", "S"} else 0
+    values = [
+        float(point[axis]) + 0.5
+        for primitive in geometry
+        for point in primitive.get("points", [])
+    ]
+    if not values:
+        raise DepthSurfaceError("wall attachment has no source surface points")
+    source_clearance = min(values) if edge in {"N", "W"} else 1.0 - max(values)
+    translation = (
+        _WALL_ATTACHMENT_CLEARANCE - source_clearance
+        if edge in {"N", "W"}
+        else source_clearance - _WALL_ATTACHMENT_CLEARANCE
+    )
+    return {
+        "wall_attachment_source_clearance": round(source_clearance, 7),
+        "wall_attachment_normal_extent": round(max(values) - min(values), 7),
+        "wall_attachment_target_clearance": _WALL_ATTACHMENT_CLEARANCE,
+        "wall_attachment_translation": round(translation, 7),
+    }
 
 
 class _DepthImageCache:
@@ -129,6 +179,7 @@ def compile_planar_prop_surfaces(
     for page_name in sorted(by_page):
         page = decode_png(encoded_pages.pop(page_name), f"indexed texture page {page_name}")
         for identity in by_page[page_name]:
+            attachment = wall_attachment_properties(tile_definitions[identity])
             target = assignments.get(identity, identity)
             target_definition = tile_definitions.get(target)
             if target_definition is not None:
@@ -172,7 +223,7 @@ def compile_planar_prop_surfaces(
                     "properties": properties | {
                         "depth_target": target,
                         "source_alpha_pixels": len(source_mask),
-                    },
+                    } | attachment | wall_attachment_metrics(geometry, attachment),
                 }
                 continue
 
@@ -271,7 +322,12 @@ def compile_planar_prop_surfaces(
                 "replacement_evidence": "installed_depth_map_intersected_with_exact_sprite_alpha",
             }
             fit_cache[cache_key] = (geometry, properties)
-            compiled[identity] = {"geometry": geometry, "properties": properties}
+            compiled[identity] = {
+                "geometry": geometry,
+                "properties": properties | attachment | wall_attachment_metrics(
+                    geometry, attachment
+                ),
+            }
 
     source_hashes = {
         "tile_definitions": sha256_file(definitions_path),
@@ -305,6 +361,10 @@ def compile_planar_prop_surfaces(
             2 if primitive.get("kind") == "quad" else 1
             for value in compiled.values()
             for primitive in value["geometry"]
+        ),
+        "wall_attachment_tile_count": sum(
+            "wall_attachment_edge" in value["properties"]
+            for value in compiled.values()
         ),
         "rejected": dict(sorted(rejected.items())),
         "rejected_identities": dict(sorted(rejected_identities.items())),
@@ -363,6 +423,10 @@ def audit_prop_surfaces(document: dict[str, Any]) -> dict[str, Any]:
     minimum_area = math.inf
     maximum_projection_error = 0.0
     minimum_coverage = 1.0
+    wall_attachment_count = 0
+    minimum_wall_source_clearance = math.inf
+    maximum_wall_source_clearance = -math.inf
+    maximum_wall_translation = 0.0
     for identity, record in document.get("tiles", {}).items():
         properties = record.get("properties", {})
         if not properties.get("replace_authored_geometry"):
@@ -375,6 +439,22 @@ def audit_prop_surfaces(document: dict[str, Any]) -> dict[str, Any]:
         if not geometry:
             raise DepthSurfaceError(f"compiled prop has no geometry: {identity}")
         tile_count += 1
+        edge = str(properties.get("wall_attachment_edge", ""))
+        if edge:
+            if edge not in {"N", "S", "E", "W"}:
+                raise DepthSurfaceError(f"invalid wall attachment edge: {identity}")
+            if float(properties.get("wall_attachment_target_clearance", -1.0)) != _WALL_ATTACHMENT_CLEARANCE:
+                raise DepthSurfaceError(f"invalid wall attachment target clearance: {identity}")
+            source_clearance = float(properties["wall_attachment_source_clearance"])
+            translation = float(properties["wall_attachment_translation"])
+            wall_attachment_count += 1
+            minimum_wall_source_clearance = min(
+                minimum_wall_source_clearance, source_clearance
+            )
+            maximum_wall_source_clearance = max(
+                maximum_wall_source_clearance, source_clearance
+            )
+            maximum_wall_translation = max(maximum_wall_translation, abs(translation))
         for triangle in geometry:
             points = triangle.get("points", [])
             kind = triangle.get("kind")
@@ -406,10 +486,23 @@ def audit_prop_surfaces(document: dict[str, Any]) -> dict[str, Any]:
         raise DepthSurfaceError("compiled prop tile count does not match output")
     if triangle_count != int(document.get("triangle_count", -1)):
         raise DepthSurfaceError("compiled prop triangle count does not match output")
+    if wall_attachment_count != int(document.get("wall_attachment_tile_count", -1)):
+        raise DepthSurfaceError("compiled wall attachment count does not match output")
     return {
         "tile_count": tile_count,
         "triangle_count": triangle_count,
         "minimum_triangle_area": 0.0 if math.isinf(minimum_area) else minimum_area,
         "maximum_source_projection_error": maximum_projection_error,
         "minimum_fitted_source_coverage": minimum_coverage if tile_count else 0.0,
+        "wall_attachment_tile_count": wall_attachment_count,
+        "wall_attachment_target_clearance": _WALL_ATTACHMENT_CLEARANCE,
+        "minimum_wall_attachment_source_clearance": (
+            0.0 if math.isinf(minimum_wall_source_clearance)
+            else minimum_wall_source_clearance
+        ),
+        "maximum_wall_attachment_source_clearance": (
+            0.0 if math.isinf(maximum_wall_source_clearance)
+            else maximum_wall_source_clearance
+        ),
+        "maximum_wall_attachment_translation": maximum_wall_translation,
     }

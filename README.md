@@ -38,6 +38,14 @@ onto the actual object instances in a retained runtime snapshot. Scope
 membership is a work queue, not an assertion that every identity visibly
 reproduces the example defect or has passed live acceptance.
 
+Wall-mounted prop placement is also corpus-driven. For accepted source-masked
+surfaces, the compiler carries a wall anchor only when PZ's installed definition
+declares `MoveType=WallObject` plus exactly one `attachedN/S/E/W` edge. The
+renderer then preserves the exact source silhouette and moves it only along
+that normal to the matching captured opaque wall. The current 42.20 registry
+contains 86 such map-used identities; ambiguous wall-placement objects are left
+unchanged and the result remains pending live acceptance.
+
 Roof recovery is likewise corpus-wide rather than house-specific. The current
 installed audit has 4,331 unconditional source-backed roof identities and
 80 additional contextual identities. Contextual faces are never emitted from a

@@ -24,10 +24,13 @@ No isolated PZ process is currently running. PID 65845 was stopped at
 inspectable CoreGraphics game window appeared. Its log proved only that an
 earlier generated registry loaded; it is not visual evidence. The current
 staged bridge JAR is
-`f5faaa7ba9b0262389ace3acd1f9b066f7bfe266f2adf8ab852f077293297559` and the
+`d67e48759be1b4aa4c5251efaf83c4e257ef18ef2f193b5867eb713c40211924` and the
 current staged supplemental roof registry is
 `e652b21a8bb7a14c7bea7e051ff8fcb0f9bc730280764aaca09bb4322ddc6b37`.
-The latest staged code adds the sealed-wall join path described below. It has
+The current staged prop registry is
+`ae4db646b76107c607cc7df48fe96d50cd6277e58370987c9f7312eba1628f26`.
+The latest staged code adds the sealed-wall join and evidence-backed wall
+attachment paths described below. It has
 passed offline source and production-shader tests but has not produced a live
 visual frame, so it is not claimed as an accepted improvement and does not by
 itself justify another reload.
@@ -71,7 +74,7 @@ production GLSL probe on the Apple M4 Max renders an ordinary 99/255-alpha
 sample as transparent (`51`, the clear-buffer red value) and the identical
 sample as an authoritative sealed wall at the expected lit value (`128`). It
 also retains zero failures in the physical-occlusion and wall-prop-clearance
-fixtures. The full Java suite passes 137 tests against the real installed
+fixtures. The full Java suite passes 136 tests against the real installed
 geometry/roof/prop registries, and the Python suite passes 51 tests. The
 isolated staging command now runs the bridge `jar` task before copying, rather
 than silently reusing an older artifact; the staged and freshly built JAR hashes
@@ -81,6 +84,30 @@ This is offline CPU/GPU evidence, not a moving live acceptance. V-03, V-04 and
 V-06 remain open because complete corners, wall/floor/ceiling topology,
 multi-tile prop ownership and the other outlined transparent families are not
 yet proven. This checkpoint does not by itself justify reopening the game.
+
+### PZ-declared wall attachment anchoring
+
+The prop compiler now carries an owning edge only for accepted source surfaces
+whose installed tile definition declares both `MoveType=WallObject` and exactly
+one of `attachedN/S/E/W`. The installed 42.20 corpus yields 86 such map-used
+identities: 51 lighting fixtures and 35 other fixtures. At mesh construction,
+the exact source-derived surface is translated only along its declared wall
+normal to a 0.002-unit clearance, and only when the immutable live square proves
+that same edge is an opaque wall. Seventy-seven compiled `WallObject` identities
+without a unique cardinal edge are not guessed or moved.
+
+This removes the four-sprite generic switch slab and preserves the source
+silhouette/texture coordinates. The asset audit now reports the declaration,
+source clearance, normal extent, target clearance and correction per identity,
+and separates `implemented_wall_anchored_pending_live_acceptance` from generic
+visible-surface coverage. Unit and real-registry audits cover all four edges and
+the 86-entry corpus. This is not yet live acceptance of fixture appearance or
+one-sided visibility, and it does not justify a game reopen by itself.
+The retained 586-object problem-house scene resolves four anchored identities
+across seven actual instances: two `lighting_indoor_01_1`, three
+`lighting_indoor_01_3`, one `lighting_outdoor_01_24` and one
+`lighting_outdoor_01_44`. Their exact positions, source clearance and computed
+translation are recorded in `.local/reports/prop-boundary-scene-coverage.json`.
 
 ### Installed corpus ledger and depth-derived roof checkpoint
 
@@ -1588,11 +1615,11 @@ reticle image with four code-drawn ticks and returned `PZFPS_LUA_PARSE_OK`.
 
 Most recent test results:
 
-- Project Python suite: 50 passed, 0 failed.
-- Java/Gradle: 134 tests, 0 skipped, 0 failures/errors; the opt-in generated
-  registry audit loaded all 4,413 unconditional entries, asserted the inherited
-  `roofs_30_02_90` authored box, and retained the contextual fail-closed test.
-- The broader canonical-package pytest run has 63 passing tests and four
+- Project Python suite: 51 passed, 0 failed.
+- Java/Gradle: 136 tests, 0 skipped, 0 failures/errors; the opt-in generated
+  registry audits loaded the complete installed geometry, roof and 988-prop
+  registries, including all 86 wall-anchor declarations.
+- The broader combined pytest run has 73 passing tests and four
   failures in untouched `canonical/tests/test_pzregistry.py` concerning
   cylinder axis, polygon plane and rotation conventions. They are not hidden
   as part of this checkpoint and were not caused or changed by the corpus/roof
@@ -1611,13 +1638,15 @@ Most recent test results:
 - Disposable save:
   `.local/pz-runtime/user-cache/Zomboid/Saves/Top Of The World/46507890207760758489`.
 - Latest staged bridge JAR SHA-256:
-  `e0ea535ea3fa58befd8e1d3c18e1f4f0f5edd035c0388f6ef1aaae9e4bddd852`.
+  `d67e48759be1b4aa4c5251efaf83c4e257ef18ef2f193b5867eb713c40211924`.
 - Last live-loaded supplemental roof registry SHA-256:
   `78fec525c09663f93648beb90dbc5dcec680d85bc0b16cbd17842cb6b213a4e7`.
 - Current local supplemental roof registry SHA-256:
   `e652b21a8bb7a14c7bea7e051ff8fcb0f9bc730280764aaca09bb4322ddc6b37`.
+- Current staged prop-surface registry SHA-256:
+  `ae4db646b76107c607cc7df48fe96d50cd6277e58370987c9f7312eba1628f26`.
 - Current local installed-asset coverage report SHA-256:
-  `fd8472034e32701c017e5a07c3a98dac94d5391250528a90cbb61b4ce7f3e245`.
+  `9d94d1d79d225e7a31ad1ce565415311502271ee4a948fe908e3a489e93cb96b`.
 - Latest live screenshot:
   `.local/captures/roof-mask-live-window.png`; it is stationary roof evidence,
   not a moving-view acceptance capture. Earlier gameplay/reticle evidence is
@@ -1821,22 +1850,24 @@ update rates have not been reported as achieved performance.
 
 ## Next smallest experiment
 
-No PZ process is running. The next experiment remains narrowly V-12 and must
-test the new conditional path, not merely reopen the client. When an
-inspectable game window is available, revisit the retained 690-roof scene and
-record slow exterior sweeps that include its 10 `roofs_02_15` instances and 21
-`roofs_05_47` instances. The build must log 30 contextual roof objects eligible
-and leave the one unsupported instance absent. Reject the checkpoint if the
-old detached sky strips return, if any contextual patch changes with camera
-motion, or if a missing side, inverted patch, roof-wall card or junction gap is
-visible. Also retain the 135 `roofs_30_02_*` instances as a regression sample.
-Do not reopen merely to observe another stationary frame or startup screen.
+No PZ process is running. Do not reopen merely to observe another stationary
+frame or startup screen. The next bounded live launch must test the staged V-08
+checkpoint at the retained problem house: orbit the two
+`lighting_indoor_01_1` switches, three `lighting_indoor_01_3` fixtures and the
+two exterior fixtures from both sides of their owning walls. Accept only if
+each source-shaped fixture remains at a stable 0.002-unit wall clearance,
+neither leaks through the reverse side nor changes with camera motion, and the
+old oversized generic slab never appears. The run must emit the bounded
+`[PZFPS wall-attachment]` identity/edge diagnostics and be stopped immediately
+after captures and logs are collected.
 
-Only after that roof checkpoint is accepted or rejected should a separate live
-batch target V-03/V-04 (shell cracks and interior leakage). Keep V-05/V-09
-windows and doors, V-07 closed furniture, V-08 wall fixtures, V-11 fences,
-V-14 sky, V-15 lighting and V-16 local body explicitly open; they were not
-fixed by the roof compiler. The older gameplay checks below remain regression
+The same run should retain the previously rejected door and roof scenes as
+regression checks, but it must not imply they were fixed: V-05/V-09 doors and
+windows, V-07 closed furniture, V-11 fences, V-12 roof assembly, V-14 sky,
+V-15 lighting and V-16 local body remain explicitly open. After the fixture
+checkpoint is accepted or rejected, resume the highest-impact V-12 roof and
+V-03/V-04 shell/leak work from their corpus rows rather than asking the owner to
+rediscover identities. The older gameplay checks below remain regression
 backlog, not claims about this checkpoint.
 
 1. Stage one batched build and live-test simultaneous W+A/W+D, A/D,

@@ -45,7 +45,14 @@ class PropSurfaceTests(unittest.TestCase):
             definitions.write_text(json.dumps({
                 "game_version": "42.20",
                 "tiles": {
-                    identity: {"tileset": "furniture_storage_test", "xy": [0, 0]},
+                    identity: {
+                        "tileset": "furniture_storage_test",
+                        "xy": [0, 0],
+                        "properties": {
+                            "MoveType": "WallObject",
+                            "attachedW": "",
+                        },
+                    },
                 },
             }))
             textures.write_text(json.dumps({
@@ -123,12 +130,21 @@ class PropSurfaceTests(unittest.TestCase):
 
             self.assertEqual(report["candidate_count"], 1)
             self.assertEqual(report["tile_count"], 1)
+            self.assertEqual(report["wall_attachment_tile_count"], 1)
             compiled = report["tiles"][identity]
             properties = compiled["properties"]
             self.assertTrue(properties["replace_authored_geometry"])
             self.assertEqual(properties["source_alpha_pixels"], len(source_pixels))
             self.assertEqual(properties["source_mask_depth_pixels"], len(source_pixels))
             self.assertGreaterEqual(properties["fitted_source_coverage"], 0.98)
+            self.assertEqual(properties["wall_attachment_edge"], "W")
+            self.assertEqual(
+                properties["wall_attachment_evidence"],
+                "MoveType=WallObject+attachedW",
+            )
+            self.assertEqual(properties["wall_attachment_target_clearance"], 0.002)
+            self.assertIn("wall_attachment_source_clearance", properties)
+            self.assertIn("wall_attachment_translation", properties)
             self.assertTrue(compiled["geometry"])
             self.assertTrue(all(
                 primitive["kind"] == "quad" for primitive in compiled["geometry"]

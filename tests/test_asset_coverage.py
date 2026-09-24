@@ -112,6 +112,12 @@ class AssetCoverageTests(unittest.TestCase):
                             "replace_authored_geometry": True,
                             "fitted_source_coverage": 0.992,
                             "depth_target": "furniture_storage_02_36",
+                            "wall_attachment_edge": "W",
+                            "wall_attachment_evidence": "MoveType=WallObject+attachedW",
+                            "wall_attachment_source_clearance": 0.0946,
+                            "wall_attachment_normal_extent": 0.0312,
+                            "wall_attachment_target_clearance": 0.002,
+                            "wall_attachment_translation": -0.0926,
                         },
                     },
                 },
@@ -158,14 +164,17 @@ class AssetCoverageTests(unittest.TestCase):
             )
             self.assertEqual(
                 rows["furniture_storage_02_36"]["coverage_state"],
-                "implemented_visible_surface_pending_live_acceptance",
+                "implemented_wall_anchored_pending_live_acceptance",
             )
             self.assertEqual(
                 rows["furniture_storage_02_36"]["renderer_rule"],
-                "installed_source_masked_depth_surface",
+                "installed_source_masked_wall_anchored_surface",
             )
             self.assertEqual(rows["furniture_storage_02_36"]["prop_surface_primitive_count"], 1)
             self.assertTrue(rows["furniture_storage_02_36"]["prop_surface_replacement"])
+            self.assertEqual(rows["furniture_storage_02_36"]["wall_attachment_edge"], "W")
+            self.assertAlmostEqual(
+                rows["furniture_storage_02_36"]["wall_attachment_translation"], -0.0926)
             self.assertEqual(rows["lighting_indoor_01_2"]["prop_surface_rejection_reason"],
                              "not_piecewise_planar_prop_surface")
             self.assertEqual(rows["texture_only_0"]["coverage_state"], "unsupported_unless_native_runtime_path")
@@ -174,6 +183,10 @@ class AssetCoverageTests(unittest.TestCase):
             self.assertEqual(report["summary"]["model_states"], {"native_model_resolved": 1})
             self.assertEqual(report["summary"]["identities_with_depth_surfaces"], 1)
             self.assertEqual(report["summary"]["identities_with_prop_surfaces"], 1)
+            self.assertEqual(
+                report["summary"]["identities_with_wall_anchored_prop_surfaces"], 1)
+            self.assertEqual(
+                report["summary"]["map_referenced_identities_with_wall_anchored_prop_surfaces"], 0)
             self.assertEqual(report["summary"]["prop_surface_rejection_reasons"], {
                 "not_piecewise_planar_prop_surface": 1,
             })
@@ -234,6 +247,12 @@ class AssetCoverageTests(unittest.TestCase):
                     "visual_issue_scope_ids": ["V-12"],
                     "depth_surface_rejection_reason": "",
                     "depth_surface_target": "roofs_02_3",
+                    "wall_attachment_edge": "N",
+                    "wall_attachment_evidence": "MoveType=WallObject+attachedN",
+                    "wall_attachment_source_clearance": 0.125,
+                    "wall_attachment_normal_extent": 0.02,
+                    "wall_attachment_target_clearance": 0.002,
+                    "wall_attachment_translation": -0.123,
                 }],
             }))
             scene = root / "scene.json"
@@ -253,11 +272,15 @@ class AssetCoverageTests(unittest.TestCase):
                 {"V-12": 1},
             )
             self.assertEqual(report["summary"]["depth_surface_rejected_instances_by_reason"], {})
+            self.assertEqual(report["summary"]["wall_attachment_instances"], 1)
+            self.assertEqual(report["summary"]["wall_attachment_identities"], 1)
             roof = next(item for item in report["identities"] if item["identity"] == "roofs_02_3")
             self.assertEqual(roof["instances"], 1)
             self.assertEqual(roof["sample_positions"], [[10, 20, 1]])
             self.assertEqual(roof["depth_surface_target"], "roofs_02_3")
             self.assertEqual(roof["visual_issue_scope_ids"], ["V-12"])
+            self.assertEqual(roof["wall_attachment_edge"], "N")
+            self.assertAlmostEqual(roof["wall_attachment_translation"], -0.123)
 
     def test_scene_report_evaluates_contextual_roof_neighbours(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

@@ -2,57 +2,55 @@ package dev.pzfps.bridge;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import java.util.List;
 import org.junit.jupiter.api.Test;
 
 final class WallAttachmentAssemblyTest {
-    private static TileGeometryRegistry.Primitive box(
-            float minX, float minY, float minZ, float maxX, float maxY, float maxZ) {
-        return new TileGeometryRegistry.Primitive(
-                "box", 0,0,0, 0,0,0,
-                minX,minY,minZ,maxX,maxY,maxZ, 0,0,0,"",List.of());
-    }
+    private static final int STRIDE = WorldMeshBuilder.TEXTURED_FLOATS_PER_VERTEX;
 
-    private static WorldState.TileObject light(String sprite) {
-        return new WorldState.TileObject(
-                2, "zombie.iso.objects.IsoLightSwitch", "lightswitch", sprite,
-                false,false,false,false,false,false,false);
+    private static float[] vertices(float[][] positions) {
+        float[] result = new float[positions.length * STRIDE];
+        for (int i = 0; i < positions.length; i++)
+            System.arraycopy(positions[i], 0, result, i * STRIDE, 3);
+        return result;
     }
 
     @Test
-    void supportThinAxisSelectsOwningWallAtCorner() {
-        var west = WallAttachmentAssembly.placement(
-                light("lighting_indoor_01_1"),
-                List.of(box(-.45f,0,-.5f,-.4f,2.4495f,.5f)),
-                StructuralPropClip.NORTH | StructuralPropClip.WEST).orElseThrow();
-        assertEquals(StructuralPropClip.WEST, west.edge());
-        assertEquals(.105f, west.width());
-        assertEquals(.22f, west.height());
-        assertEquals(.018f, west.depth());
-
-        var south = WallAttachmentAssembly.placement(
-                light("lighting_indoor_01_3"),
-                List.of(box(-.5f,0,.45f,.5f,2.4495f,.5f)),
-                StructuralPropClip.WEST | StructuralPropClip.SOUTH).orElseThrow();
-        assertEquals(StructuralPropClip.SOUTH, south.edge());
+    void sourceSurfaceAnchorsToEachDeclaredWallAndPreservesShape() {
+        for (int edge : new int[] {StructuralPropClip.NORTH, StructuralPropClip.WEST,
+                StructuralPropClip.EAST, StructuralPropClip.SOUTH}) {
+            float[] values = vertices(new float[][] {{4.2f,1,7.3f}, {4.5f,2,7.6f}, {4.4f,1.5f,7.5f}});
+            float beforeDx = values[STRIDE] - values[0];
+            float beforeDz = values[STRIDE + 2] - values[2];
+            assertTrue(WallAttachmentAssembly.align(
+                    values, 0, values.length, STRIDE, edge, edge, 4, 7));
+            float extreme = edge == StructuralPropClip.WEST || edge == StructuralPropClip.NORTH
+                    ? Float.POSITIVE_INFINITY : Float.NEGATIVE_INFINITY;
+            int axis = edge == StructuralPropClip.WEST || edge == StructuralPropClip.EAST ? 0 : 2;
+            for (int index = axis; index < values.length; index += STRIDE) {
+                extreme = edge == StructuralPropClip.WEST || edge == StructuralPropClip.NORTH
+                        ? Math.min(extreme, values[index]) : Math.max(extreme, values[index]);
+            }
+            float expected = switch (edge) {
+                case StructuralPropClip.WEST -> 4 + WallAttachmentAssembly.CLEARANCE;
+                case StructuralPropClip.NORTH -> 7 + WallAttachmentAssembly.CLEARANCE;
+                case StructuralPropClip.EAST -> 5 - WallAttachmentAssembly.CLEARANCE;
+                default -> 8 - WallAttachmentAssembly.CLEARANCE;
+            };
+            assertEquals(expected, extreme, .00001f);
+            assertEquals(beforeDx, values[STRIDE] - values[0], .00001f);
+            assertEquals(beforeDz, values[STRIDE + 2] - values[2], .00001f);
+        }
     }
 
     @Test
-    void requiresAuthoritativeWallAndExactRuntimeFamily() {
-        assertTrue(WallAttachmentAssembly.placement(
-                light("lighting_indoor_01_10"), List.of(), 0).isEmpty());
-        var unrelated = new WorldState.TileObject(
-                0,"zombie.iso.IsoObject","MAX","lighting_indoor_01_10",
-                false,false,false,false,false,false,false);
-        assertFalse(WallAttachmentAssembly.eligible(unrelated));
-    }
-
-    @Test
-    void controllerClassDoesNotTurnLampsOrSconcesIntoWallSwitchSlabs() {
-        assertFalse(WallAttachmentAssembly.eligible(light("lighting_indoor_01_10")));
-        assertFalse(WallAttachmentAssembly.eligible(light("lighting_indoor_01_40")));
-        assertFalse(WallAttachmentAssembly.eligible(light("lighting_outdoor_01_24")));
-        assertTrue(WallAttachmentAssembly.eligible(light("lighting_indoor_01_0")));
-        assertTrue(WallAttachmentAssembly.eligible(light("lighting_indoor_01_3")));
+    void requiresExactDeclaredEdgeToBeAnAuthoritativeSealedWall() {
+        float[] values = vertices(new float[][] {{.2f,1,.3f}, {.4f,2,.6f}, {.3f,1.5f,.5f}});
+        float[] original = values.clone();
+        assertFalse(WallAttachmentAssembly.align(values, 0, values.length, STRIDE,
+                0, StructuralPropClip.WEST, 0, 0));
+        assertArrayEquals(original, values);
+        assertFalse(WallAttachmentAssembly.align(values, 0, values.length, STRIDE,
+                StructuralPropClip.WEST, StructuralPropClip.NORTH, 0, 0));
+        assertArrayEquals(original, values);
     }
 }

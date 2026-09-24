@@ -49,6 +49,7 @@ public final class TileGeometryRegistry {
     private final Map<String, List<Primitive>> contextualBySprite;
     private final Map<String, List<RoofJoin>> roofJoinsBySprite;
     private final Map<String, String> roofTargetBySprite;
+    private final Map<String, Integer> wallAttachmentEdgeBySprite;
     private final Set<String> authoredReplacementSprites;
     private final String sourceSha256;
 
@@ -57,12 +58,14 @@ public final class TileGeometryRegistry {
             Map<String, List<Primitive>> contextualBySprite,
             Map<String, List<RoofJoin>> roofJoinsBySprite,
             Map<String, String> roofTargetBySprite,
+            Map<String, Integer> wallAttachmentEdgeBySprite,
             Set<String> authoredReplacementSprites,
             String sourceSha256) {
         this.bySprite = Map.copyOf(bySprite);
         this.contextualBySprite = Map.copyOf(contextualBySprite);
         this.roofJoinsBySprite = Map.copyOf(roofJoinsBySprite);
         this.roofTargetBySprite = Map.copyOf(roofTargetBySprite);
+        this.wallAttachmentEdgeBySprite = Map.copyOf(wallAttachmentEdgeBySprite);
         this.authoredReplacementSprites = Set.copyOf(authoredReplacementSprites);
         this.sourceSha256 = sourceSha256;
     }
@@ -75,6 +78,7 @@ public final class TileGeometryRegistry {
         JSONObject tiles = root.getJSONObject("tiles");
         HashMap<String, List<Primitive>> parsed = parseTileGeometry(tiles);
         HashMap<String, String> roofTargets = parseRoofTargets(tiles);
+        HashMap<String, Integer> wallAttachments = parseWallAttachmentEdges(tiles);
         Set<String> replacements = parseAuthoredReplacements(tiles);
         JSONObject contextualTiles = root.optJSONObject("contextual_tiles");
         HashMap<String, List<Primitive>> contextual = contextualTiles == null
@@ -87,6 +91,7 @@ public final class TileGeometryRegistry {
                 contextual,
                 roofJoins,
                 roofTargets,
+                wallAttachments,
                 replacements,
                 root.optString("source_sha256", ""));
     }
@@ -191,6 +196,27 @@ public final class TileGeometryRegistry {
         return result;
     }
 
+    private static HashMap<String, Integer> parseWallAttachmentEdges(JSONObject tiles)
+            throws IOException {
+        HashMap<String, Integer> result = new HashMap<>();
+        for (String sprite : tiles.keySet()) {
+            JSONObject properties = tiles.getJSONObject(sprite).optJSONObject("properties");
+            if (properties == null) continue;
+            String edge = properties.optString("wall_attachment_edge", "");
+            if (edge.isBlank()) continue;
+            int value = switch (edge) {
+                case "N" -> StructuralPropClip.NORTH;
+                case "W" -> StructuralPropClip.WEST;
+                case "E" -> StructuralPropClip.EAST;
+                case "S" -> StructuralPropClip.SOUTH;
+                default -> throw new IOException(
+                        "invalid wall_attachment_edge " + edge + " for " + sprite);
+            };
+            result.put(sprite, value);
+        }
+        return result;
+    }
+
     private static Set<String> parseAuthoredReplacements(JSONObject tiles) {
         java.util.HashSet<String> result = new java.util.HashSet<>();
         for (String sprite : tiles.keySet()) {
@@ -245,6 +271,8 @@ public final class TileGeometryRegistry {
         HashMap<String, List<Primitive>> contextual = new HashMap<>(authored.contextualBySprite);
         HashMap<String, List<RoofJoin>> roofJoins = new HashMap<>(authored.roofJoinsBySprite);
         HashMap<String, String> roofTargets = new HashMap<>(authored.roofTargetBySprite);
+        HashMap<String, Integer> wallAttachments =
+                new HashMap<>(authored.wallAttachmentEdgeBySprite);
         java.util.HashSet<String> replacements = new java.util.HashSet<>();
         StringBuilder hashes = new StringBuilder(authored.sourceSha256);
         for (Path path : supplemental) {
@@ -263,6 +291,8 @@ public final class TileGeometryRegistry {
                 roofJoins.putIfAbsent(entry.getKey(), entry.getValue());
             for (Map.Entry<String, String> entry : derived.roofTargetBySprite.entrySet())
                 roofTargets.putIfAbsent(entry.getKey(), entry.getValue());
+            for (Map.Entry<String, Integer> entry : derived.wallAttachmentEdgeBySprite.entrySet())
+                wallAttachments.putIfAbsent(entry.getKey(), entry.getValue());
             hashes.append("+supplemental:").append(derived.sourceSha256);
         }
         return new TileGeometryRegistry(
@@ -270,6 +300,7 @@ public final class TileGeometryRegistry {
                 contextual,
                 roofJoins,
                 roofTargets,
+                wallAttachments,
                 replacements,
                 hashes.toString());
     }
@@ -288,6 +319,15 @@ public final class TileGeometryRegistry {
 
     public String roofTarget(String sprite) {
         return roofTargetBySprite.getOrDefault(sprite, sprite);
+    }
+
+    /** Cardinal boundary declared by installed tile definitions, or zero when ambiguous. */
+    public int wallAttachmentEdge(String sprite) {
+        return wallAttachmentEdgeBySprite.getOrDefault(sprite, 0);
+    }
+
+    public int wallAttachmentCount() {
+        return wallAttachmentEdgeBySprite.size();
     }
 
     public int contextualTileCount() {

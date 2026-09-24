@@ -280,5 +280,12 @@ final class RoofDepthSurfaceTest {
         assertEquals(9, registry.geometry("lighting_indoor_01_1").size());
         assertTrue(registry.geometry("lighting_indoor_01_1").stream()
                 .allMatch(primitive -> primitive.kind().equals("quad")));
+        assertEquals(86, registry.wallAttachmentCount());
+        assertEquals(StructuralPropClip.WEST,
+                registry.wallAttachmentEdge("lighting_indoor_01_1"));
+        assertEquals(StructuralPropClip.NORTH,
+                registry.wallAttachmentEdge("lighting_indoor_01_0"));
+        assertEquals(0, registry.wallAttachmentEdge("lighting_indoor_01_40"));
+        assertEquals(0, registry.wallAttachmentEdge("fixtures_counters_01_154"));
     }
 }

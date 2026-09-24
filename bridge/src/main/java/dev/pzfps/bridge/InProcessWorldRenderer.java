@@ -838,7 +838,7 @@ public final class InProcessWorldRenderer {
             GL20.glUniform1i(materialUniform, 0);
             boolean cutout = cutoutFence(batch.sprite);
             GL20.glUniform1i(surfaceKindUniform, cutout ? 4 : batch.solidFloor ? 1 : batch.wallEdges ? 2
-                    : BoxSideCompletion.closedCrate(batch.sprite) ? 3 : batch.wallAttachment ? 5 : 0);
+                    : BoxSideCompletion.closedCrate(batch.sprite) ? 3 : 0);
             GL20.glUniform1i(texturePassUniform, translucentPass ? 1 : 0);
             GL20.glUniform4f(projectedBoundsUniform, batch.projectedBounds[0], batch.projectedBounds[1],
                     batch.projectedBounds[2], batch.projectedBounds[3]);
@@ -962,9 +962,8 @@ public final class InProcessWorldRenderer {
                 GL15.glBufferData(GL15.GL_ARRAY_BUFFER, vertices, GL15.GL_STATIC_DRAW);
                 textured.add(new GpuTexturedBatch(
                         sourceBatch.sprite(), texturedVbo, sourceBatch.vertexCount(),
-                        sourceBatch.solidFloor(), sourceBatch.wallEdges(), sourceBatch.wallAttachment(),
-                        (BoxSideCompletion.closedCrate(sourceBatch.sprite()) || sourceBatch.wallAttachment())
-                                && sourceBatch.vertices().length > 0
+                        sourceBatch.solidFloor(), sourceBatch.wallEdges(),
+                        BoxSideCompletion.closedCrate(sourceBatch.sprite()) && sourceBatch.vertices().length > 0
                                 ? BoxSideCompletion.projectedBounds(sourceBatch.vertices()) : new float[] {0, 0, 1, 1}));
             }
             ArrayList<GpuMaterialBatch> materials = new ArrayList<>();
@@ -1141,7 +1140,7 @@ public final class InProcessWorldRenderer {
                             return;
                         }
                         // Derivatives must be evaluated before divergent alpha/repair branches.
-                        vec2 pixelScale = uSurfaceKind == 3 || uSurfaceKind == 5
+                        vec2 pixelScale = uSurfaceKind == 3
                                 ? (uCrop.zw-vec2(1.0))/uProjectedBounds.zw : vec2(1.0);
                         spriteLod = max(0.0, log2(max(0.0001,
                                 max(length(dFdx(sourcePixel)*pixelScale), length(dFdy(sourcePixel)*pixelScale)))));
@@ -1170,7 +1169,7 @@ public final class InProcessWorldRenderer {
                         }
                         if (uTextured == 1) {
                             vec2 samplePixel = sourcePixel;
-                            if (uSurfaceKind == 3 || uSurfaceKind == 5) {
+                            if (uSurfaceKind == 3) {
                                 // Verified whole wooden crates: fit the authored projection to
                                 // the actual cropped artwork, not a nominal 128px tile rectangle.
                                 vec2 fraction = (sourcePixel - uProjectedBounds.xy) / uProjectedBounds.zw;
@@ -1316,7 +1315,6 @@ public final class InProcessWorldRenderer {
             int vertexCount,
             boolean solidFloor,
             boolean wallEdges,
-            boolean wallAttachment,
             float[] projectedBounds) {
         void destroy() {
             GL15.glDeleteBuffers(vbo);

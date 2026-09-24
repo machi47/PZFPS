@@ -211,14 +211,15 @@ final class WorldMeshBuilderTest {
     }
 
     @Test
-    void replacesLightSwitchSupportVolumeWithClosedWallOwnedHousing() throws Exception {
+    void anchorsExactLightSwitchSurfaceToItsDeclaredWallWithoutGenericSlab() throws Exception {
         Path registryPath = temporary.resolve("wall-attachment.json");
         Files.writeString(
                 registryPath,
                 """
                 {"schema_version":1,"source_sha256":"x","tiles":{
-                  "lighting_indoor_01_1":{"geometry":[{
-                    "kind":"box","min":[-0.45,0,-0.5],"max":[-0.4,2.4495,0.5]
+                  "lighting_indoor_01_1":{"properties":{"wall_attachment_edge":"W"},"geometry":[{
+                    "kind":"quad","points":[[-0.405,1.0,-0.1],[-0.404,1.0,0.1],
+                                                [-0.404,1.2,0.1],[-0.405,1.2,-0.1]]
                   }]}
                 }}
                 """);
@@ -235,15 +236,19 @@ final class WorldMeshBuilderTest {
 
         assertEquals(1, mesh.texturedBatches().size());
         WorldMeshBuilder.TexturedBatch batch = mesh.texturedBatches().getFirst();
-        assertTrue(batch.wallAttachment());
-        assertEquals(36, batch.vertexCount());
+        assertEquals(6, batch.vertexCount());
         float[] vertices = batch.vertices();
+        float minX = Float.POSITIVE_INFINITY;
+        float maxX = Float.NEGATIVE_INFINITY;
         for (int i = 0; i < vertices.length; i += WorldMeshBuilder.TEXTURED_FLOATS_PER_VERTEX) {
-            assertTrue(vertices[i] >= .002f && vertices[i] <= .018f);
-            assertTrue(vertices[i + 1] >= 1.079f && vertices[i + 1] <= 1.301f);
-            assertTrue(vertices[i + 2] >= .4475f && vertices[i + 2] <= .5525f);
+            minX = Math.min(minX, vertices[i]);
+            maxX = Math.max(maxX, vertices[i]);
+            assertTrue(vertices[i + 1] >= 1.224f && vertices[i + 1] <= 1.470f);
+            assertTrue(vertices[i + 2] >= .399f && vertices[i + 2] <= .601f);
             assertEquals(0, vertices[i + 11]);
         }
+        assertEquals(WallAttachmentAssembly.CLEARANCE, minX, .00001f);
+        assertEquals(.001f, maxX - minX, .00001f);
     }
 
     @Test

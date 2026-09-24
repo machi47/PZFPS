@@ -93,11 +93,17 @@ def renderer_rule(
     *,
     source_placeholder: bool = False,
     prop_surface_count: int = 0,
+    wall_attachment: bool = False,
 ) -> tuple[str, str]:
     if source_placeholder:
         return "empty_installed_source_placeholder", "not_applicable_source_placeholder"
     kind = category(name)
     if prop_surface_count and kind in _PROP_SURFACE_CATEGORIES:
+        if wall_attachment:
+            return (
+                "installed_source_masked_wall_anchored_surface",
+                "implemented_wall_anchored_pending_live_acceptance",
+            )
         return (
             "installed_source_masked_depth_surface",
             "implemented_visible_surface_pending_live_acceptance",
@@ -106,8 +112,6 @@ def renderer_rule(
     if exact:
         return exact
     suffix = _suffix(name)
-    if name.startswith("lighting_indoor_01_") and suffix is not None and 0 <= suffix <= 3:
-        return "shallow_wall_attachment", "implemented_unaccepted"
     if name.startswith("fencing_01_") and suffix is not None and 24 <= suffix <= 27:
         return "short_chainlink_boundary_panel", "implemented_unaccepted"
     if kind == "roof" and geometry_count:
@@ -242,6 +246,7 @@ def build_coverage(
             len(contextual_depth_primitives),
             source_placeholder=bool(depth_skip),
             prop_surface_count=len(prop_primitives),
+            wall_attachment=bool(prop_properties.get("wall_attachment_edge")),
         )
         kind = category(identity)
         issue_ids = visual_issue_ids(kind)
@@ -276,6 +281,24 @@ def build_coverage(
             ),
             "prop_surface_replacement": bool(
                 prop_properties.get("replace_authored_geometry", False)
+            ),
+            "wall_attachment_edge": prop_properties.get(
+                "wall_attachment_edge", ""
+            ),
+            "wall_attachment_evidence": prop_properties.get(
+                "wall_attachment_evidence", ""
+            ),
+            "wall_attachment_source_clearance": prop_properties.get(
+                "wall_attachment_source_clearance"
+            ),
+            "wall_attachment_normal_extent": prop_properties.get(
+                "wall_attachment_normal_extent"
+            ),
+            "wall_attachment_target_clearance": prop_properties.get(
+                "wall_attachment_target_clearance"
+            ),
+            "wall_attachment_translation": prop_properties.get(
+                "wall_attachment_translation"
             ),
             "prop_surface_rejection_reason": prop_rejection.get("reason", ""),
             "prop_surface_rejection_detail": prop_rejection.get("detail", ""),
@@ -375,6 +398,13 @@ def build_coverage(
             ),
             "identities_with_prop_surfaces": sum(
                 row["prop_surface_primitive_count"] > 0 for row in rows
+            ),
+            "identities_with_wall_anchored_prop_surfaces": sum(
+                bool(row["wall_attachment_edge"]) for row in rows
+            ),
+            "map_referenced_identities_with_wall_anchored_prop_surfaces": sum(
+                row["in_installed_map_headers"] and bool(row["wall_attachment_edge"])
+                for row in rows
             ),
             "model_identities": len(model_rows),
             "item_identities": len(item_rows),
@@ -488,6 +518,7 @@ def build_scene_coverage(scene_path: Path, coverage_path: Path) -> dict[str, Any
     category_counts: Counter[str] = Counter()
     issue_counts: Counter[str] = Counter()
     depth_rejection_counts: Counter[str] = Counter()
+    wall_attachment_instances = 0
     object_count = 0
     square_index = {
         tuple(square.get("position", [])): square
@@ -514,6 +545,8 @@ def build_scene_coverage(scene_path: Path, coverage_path: Path) -> dict[str, Any
                 issue_counts[issue_id] += 1
             if row and row.get("depth_surface_rejection_reason"):
                 depth_rejection_counts[row["depth_surface_rejection_reason"]] += 1
+            if row and row.get("wall_attachment_edge"):
+                wall_attachment_instances += 1
             joins = row.get("contextual_depth_surface_joins", []) if row else []
             context_matches = False
             if joins and len(position) == 3:
@@ -555,6 +588,22 @@ def build_scene_coverage(scene_path: Path, coverage_path: Path) -> dict[str, Any
                     row.get("depth_surface_rejection_detail", "") if row else ""
                 ),
                 "depth_surface_target": row.get("depth_surface_target", "") if row else "",
+                "wall_attachment_edge": row.get("wall_attachment_edge", "") if row else "",
+                "wall_attachment_evidence": (
+                    row.get("wall_attachment_evidence", "") if row else ""
+                ),
+                "wall_attachment_source_clearance": (
+                    row.get("wall_attachment_source_clearance") if row else None
+                ),
+                "wall_attachment_normal_extent": (
+                    row.get("wall_attachment_normal_extent") if row else None
+                ),
+                "wall_attachment_target_clearance": (
+                    row.get("wall_attachment_target_clearance") if row else None
+                ),
+                "wall_attachment_translation": (
+                    row.get("wall_attachment_translation") if row else None
+                ),
                 "instances": 0,
                 "contextually_eligible_instances": 0,
                 "contextually_blocked_instances": 0,
@@ -598,6 +647,10 @@ def build_scene_coverage(scene_path: Path, coverage_path: Path) -> dict[str, Any
             ),
             "contextual_roof_instances_eligible": contextual_eligible,
             "contextual_roof_instances_blocked": contextual_blocked,
+            "wall_attachment_instances": wall_attachment_instances,
+            "wall_attachment_identities": sum(
+                bool(item["wall_attachment_edge"]) for item in rows
+            ),
             "identities_absent_from_installed_corpus": sum(
                 item["coverage_state"] == "absent_from_installed_corpus" for item in rows
             ),
