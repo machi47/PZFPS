@@ -77,7 +77,8 @@ final class WorldMeshBuilderTest {
                 false, false, false, true, true, false, false);
         WorldState.Square square = new WorldState.Square(
                 2, 3, 1, 0, 0, 255, 255, 255,
-                false, false, false, false, false, false, List.of(corner));
+                false, false, false, false, false, false, List.of(corner),
+                StructuralPropClip.NORTH | StructuralPropClip.WEST);
         WorldState.Chunk chunk = new WorldState.Chunk(0, 0, 1, 1, List.of(square));
 
         WorldMeshBuilder.MeshData mesh =
@@ -96,6 +97,60 @@ final class WorldMeshBuilderTest {
         for (int vertex = 6; vertex < 12; vertex++) {
             assertEquals(2.0f, vertices[vertex * WorldMeshBuilder.TEXTURED_FLOATS_PER_VERTEX]);
         }
+    }
+
+    @Test
+    void alphaCompletionRequiresAuthoritativeSealedWallNotMerelyWallType() throws Exception {
+        Path registryPath = temporary.resolve("unsealed-wall-frame.json");
+        Files.writeString(
+                registryPath,
+                "{\"schema_version\":1,\"source_sha256\":\"x\",\"tiles\":{}}");
+        WorldState.TileObject frame = new WorldState.TileObject(
+                0, "zombie.iso.objects.IsoWindowFrame", "wall", "walls_fixture_01_8",
+                false, false, false, false, true, false, false);
+        WorldState.Square square = new WorldState.Square(
+                0, 0, 0, 1, 0, 255, 255, 255,
+                false, false, false, false, false, false, List.of(frame), 0);
+
+        WorldMeshBuilder.MeshData mesh = new WorldMeshBuilder(
+                        TileGeometryRegistry.load(registryPath))
+                .build(new WorldState.Chunk(0, 0, 1, 1, List.of(square)));
+
+        assertEquals(1, mesh.texturedBatches().size());
+        assertTrue(!mesh.texturedBatches().getFirst().wallEdges());
+    }
+
+    @Test
+    void keepsSealedAndOpeningOccurrencesOfSameSpriteInSeparateBatches() throws Exception {
+        Path registryPath = temporary.resolve("reused-wall-sprite.json");
+        Files.writeString(
+                registryPath,
+                "{\"schema_version\":1,\"source_sha256\":\"x\",\"tiles\":{}}");
+        WorldState.TileObject sealed = new WorldState.TileObject(
+                0, "zombie.iso.IsoObject", "wall", "walls_fixture_01_0",
+                false, false, false, true, false, false, false);
+        WorldState.TileObject opening = new WorldState.TileObject(
+                0, "zombie.iso.objects.IsoWindowFrame", "wall", "walls_fixture_01_0",
+                false, false, false, true, false, false, false);
+        WorldState.Square sealedSquare = new WorldState.Square(
+                0, 0, 0, 1, 0, 255, 255, 255,
+                false, false, false, false, false, false, List.of(sealed),
+                StructuralPropClip.NORTH);
+        WorldState.Square openingSquare = new WorldState.Square(
+                1, 0, 0, 1, 0, 255, 255, 255,
+                false, false, false, false, false, false, List.of(opening), 0);
+
+        WorldMeshBuilder.MeshData mesh = new WorldMeshBuilder(
+                        TileGeometryRegistry.load(registryPath))
+                .build(new WorldState.Chunk(0, 0, 1, 1, List.of(sealedSquare, openingSquare)));
+
+        assertEquals(2, mesh.texturedBatches().size());
+        assertEquals(1, mesh.texturedBatches().stream()
+                .filter(WorldMeshBuilder.TexturedBatch::wallEdges).count());
+        assertEquals(1, mesh.texturedBatches().stream()
+                .filter(batch -> !batch.wallEdges()).count());
+        assertTrue(mesh.texturedBatches().stream()
+                .allMatch(batch -> batch.sprite().equals("walls_fixture_01_0")));
     }
 
     @Test

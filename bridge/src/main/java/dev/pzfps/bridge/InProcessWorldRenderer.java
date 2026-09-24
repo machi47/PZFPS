@@ -1161,8 +1161,12 @@ public final class InProcessWorldRenderer {
                                 }
                             }
                             // A wall's rasterized side face is narrower than its 64px projected
-                            // tile interval. Repair only outer joins, following the tangent's
-                            // isometric slope. Internal windows/signs/cutouts remain untouched.
+                            // tile interval.  Surface kind 2 is assigned only when PZ marks the
+                            // exact north/west edge as an opaque sealed wall; door/window frames
+                            // never enter this path.  Repair the outer join along both the wall
+                            // tangent and vertical raster directions, then make that physical
+                            // boundary depth-bearing instead of blending a wire-like fringe over
+                            // furniture behind it.
                             float wallU = mod(sourcePixel.x, 64.0);
                             bool wallEdge = uSurfaceKind == 2 && min(wallU, 64.0 - wallU) < 6.0;
                             if (wallEdge && source.a < 0.999) {
@@ -1170,13 +1174,26 @@ public final class InProcessWorldRenderer {
                                 for (int step = 1; step <= 6; step++) {
                                     vec2 pa = sourcePixel - tangent * float(step);
                                     vec2 pb = sourcePixel + tangent * float(step);
+                                    vec2 pc = sourcePixel - vec2(0.0, float(step));
+                                    vec2 pd = sourcePixel + vec2(0.0, float(step));
                                     bool insideA = all(greaterThanEqual(pa, uCrop.xy)) && all(lessThan(pa, uCrop.xy + uCrop.zw));
                                     bool insideB = all(greaterThanEqual(pb, uCrop.xy)) && all(lessThan(pb, uCrop.xy + uCrop.zw));
+                                    bool insideC = all(greaterThanEqual(pc, uCrop.xy)) && all(lessThan(pc, uCrop.xy + uCrop.zw));
+                                    bool insideD = all(greaterThanEqual(pd, uCrop.xy)) && all(lessThan(pd, uCrop.xy + uCrop.zw));
                                     vec4 a = insideA ? sampleSprite(pa) : vec4(0.0);
                                     vec4 b = insideB ? sampleSprite(pb) : vec4(0.0);
+                                    vec4 c = insideC ? sampleSprite(pc) : vec4(0.0);
+                                    vec4 d = insideD ? sampleSprite(pd) : vec4(0.0);
                                     if (a.a > source.a) source = a;
                                     if (b.a > source.a) source = b;
+                                    if (c.a > source.a) source = c;
+                                    if (d.a > source.a) source = d;
                                 }
+                                // A sealed wall edge has no transmissive material state.  Once
+                                // its own raster supplies colour, do not send antialias coverage
+                                // to the glass/translucent pass where an interior prop can show
+                                // through it.  A genuinely empty endpoint still fails closed.
+                                if (source.a >= 0.02) source.a = 1.0;
                             }
                             // Fence alpha describes coverage of opaque wire/wood, not glass.
                             // Blending those edges while writing depth made the background

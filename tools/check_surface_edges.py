@@ -13,7 +13,7 @@ import numpy as np
 from PIL import Image
 
 
-def inspect(path, kind):
+def inspect(path, kind, sealed_wall=False):
     manifest = json.loads(path.read_text())
     region = manifest['region']
     with Image.open(manifest['page_path']) as page:
@@ -48,6 +48,8 @@ def inspect(path, kind):
             slope = -.5
         edge = np.minimum(sx % 64, 64-sx % 64) < 6
         offsets = [(sign*i, sign*i*slope) for i in range(1, 7) for sign in (-1, 1)]
+        if sealed_wall:
+            offsets += [(0, sign*i) for i in range(1, 7) for sign in (-1, 1)]
     outside = ((sx < region['offset_x']) | (sy < region['offset_y'])
                | (sx > region['offset_x'] + region['width'])
                | (sy > region['offset_y'] + region['height']))
@@ -63,20 +65,32 @@ def inspect(path, kind):
                       & (sy+dy < region['offset_y'] + region['height']))
             candidate[~inside] = 0
         after[repair] = np.maximum(after[repair], candidate[repair])
+    if sealed_wall:
+        # Match the GPU rule: a real source colour on an authoritative opaque
+        # wall join is coverage, not glass/translucency.
+        after[repair & (after >= .02)] = 1
     assert np.array_equal(after[~edge], before[~edge]), 'interior alpha changed'
     return dict(sprite=manifest['sprite'], kind=kind, page_sha256=manifest['page_sha256'],
                 samples=int(before.size), before_transparent=int((before < .02).sum()),
                 after_transparent=int((after < .02).sum()),
                 before_partial=int((before < .999).sum()), after_partial=int((after < .999).sum()),
-                interior_changed=int((after[~edge] != before[~edge]).sum()))
+                edge_samples=int(edge.sum()),
+                edge_before_transparent=int((edge & (before < .02)).sum()),
+                edge_after_transparent=int((edge & (after < .02)).sum()),
+                edge_before_partial=int((edge & (before < .999)).sum()),
+                edge_after_partial=int((edge & (after < .999)).sum()),
+                interior_changed=int((after[~edge] != before[~edge]).sum()),
+                sealed_wall=sealed_wall)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--kind', choices=('floor', 'north-wall', 'west-wall'), required=True)
+    parser.add_argument('--sealed-wall', action='store_true',
+                        help='model the renderer rule for an authoritative opaque wall edge')
     parser.add_argument('manifests', nargs='+', type=Path)
     args = parser.parse_args()
-    print(json.dumps([inspect(path, args.kind) for path in args.manifests], indent=2))
+    print(json.dumps([inspect(path, args.kind, args.sealed_wall) for path in args.manifests], indent=2))
 
 
 if __name__ == '__main__':

@@ -39,7 +39,7 @@ membership is a work queue, not an assertion that every identity visibly
 reproduces the example defect or has passed live acceptance.
 
 Roof recovery is likewise corpus-wide rather than house-specific. The current
-installed audit has 4,291 unconditional depth/alpha-derived roof identities and
+installed audit has 4,331 unconditional source-backed roof identities and
 80 additional contextual identities. Contextual faces are never emitted from a
 depth assignment alone: the registry records exact neighbor relations parsed
 from PZ's installed `seams.txt`, and the renderer requires the named canonical

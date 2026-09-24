@@ -184,9 +184,24 @@ int main(int argc, char** argv) {
         glUniform4f(uniform("uProjectedBounds"), 10, 20, 2, 4);
         glVertexAttrib2f(3, 11, 22);
         int fittedAttachment = draw();
+        // A partially covered texel is glass for an ordinary/opening surface, but an
+        // authoritative sealed wall join must become opaque and depth-bearing. Exercise the
+        // exact production fragment shader rule with identical source colour/alpha.
+        const unsigned char partialWallPixel[] = {255, 255, 255, 99};
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA,
+                GL_UNSIGNED_BYTE, partialWallPixel);
+        glUniform4f(uniform("uCrop"), 0, 0, 1, 1);
+        glUniform4f(uniform("uUvBounds"), 0, 0, 1, 1);
+        glVertexAttrib2f(3, 0.5, 0.5);
+        glVertexAttrib3f(1, 0, 0, 1);
+        glUniform1i(uniform("uSurfaceKind"), 0);
+        int ordinaryPartial = draw();
+        glUniform1i(uniform("uSurfaceKind"), 2);
+        int sealedWallPartial = draw();
         GLenum error = glGetError();
         if (error != GL_NO_ERROR || bright < 240 || dim < 120 || dim > 135 || sourceDim != 128
-                || ordinaryHole != 51 || repairedCrate != 128 || fittedAttachment != 128)
+                || ordinaryHole != 51 || repairedCrate != 128 || fittedAttachment != 128
+                || ordinaryPartial != 51 || sealedWallPartial != 128)
             throw std::runtime_error("Light-only render failed: bright=" + std::to_string(bright)
                     + " dim=" + std::to_string(dim) + " GL=" + std::to_string(error));
         std::cout << "renderer=" << glGetString(GL_RENDERER) << "\nversion=" << glGetString(GL_VERSION)
@@ -195,6 +210,8 @@ int main(int argc, char** argv) {
         std::cout << "closedCrateEdge=passed ordinaryHole=" << ordinaryHole
                   << " repairedCrate=" << repairedCrate << '\n';
         std::cout << "wallAttachmentCrop=passed fitted=" << fittedAttachment << '\n';
+        std::cout << "sealedWallCoverage=passed ordinaryPartial=" << ordinaryPartial
+                  << " sealedWallPartial=" << sealedWallPartial << '\n';
         // Native PZ atlases have whole-page mipmaps. A transparent sprite region
         // must stay transparent even beside opaque art at fractional mip boundaries.
         // This tests the production sampler, not a separately reimplemented formula.

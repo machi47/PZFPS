@@ -5,8 +5,6 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.HashSet;
-import java.util.Set;
 
 /** Converts immutable PZ snapshots into renderer-owned triangles without touching live objects. */
 public final class WorldMeshBuilder {
@@ -102,6 +100,14 @@ public final class WorldMeshBuilder {
         }
     }
 
+    /**
+     * Rendering semantics belong to an occurrence, not globally to a sprite identity. The same
+     * source art can legally appear on an opaque wall and an opening in one chunk; keeping these
+     * bits in the key prevents one occurrence from changing the shader path of the other.
+     */
+    private record TexturedBatchKey(
+            String sprite, boolean solidFloor, boolean wallEdges, boolean wallAttachment) {}
+
     /** Deterministic persistent material recipe evaluated from continuous world coordinates. */
     public record MaterialBatch(String material, float[] vertices) {
         public int vertexCount() {
@@ -131,10 +137,7 @@ public final class WorldMeshBuilder {
     public MeshData build(
             WorldState.Chunk chunk, List<WorldState.Chunk> roofContextChunks) {
         FloatBuilder output = new FloatBuilder(16_384, FLOATS_PER_VERTEX);
-        Map<String, FloatBuilder> textured = new LinkedHashMap<>();
-        Set<String> floorSprites = new HashSet<>();
-        Set<String> wallSprites = new HashSet<>();
-        Set<String> wallAttachmentSprites = new HashSet<>();
+        Map<TexturedBatchKey, FloatBuilder> textured = new LinkedHashMap<>();
         Map<String, FloatBuilder> materials = new LinkedHashMap<>();
         int primitiveCount = 0;
         int sourceTexturedFloors = 0;
@@ -174,9 +177,8 @@ public final class WorldMeshBuilder {
                 String floorSprite = floorSprite(square);
                 if (!floorSprite.isEmpty()) {
                     sourceTexturedFloors++;
-                    floorSprites.add(floorSprite);
                     FloatBuilder batch = textured.computeIfAbsent(
-                            floorSprite,
+                            new TexturedBatchKey(floorSprite, true, false, false),
                             ignored -> new FloatBuilder(512, TEXTURED_FLOATS_PER_VERTEX));
                     batch.layer = 0;
                     batch.lightingIndex = lightingIndex;
@@ -263,7 +265,7 @@ public final class WorldMeshBuilder {
                     // other tile in perspective. One boundary-owned path shares endpoints.
                     structuralFallbackObjects++;
                     FloatBuilder batch = textured.computeIfAbsent(
-                            object.sprite(),
+                            new TexturedBatchKey(object.sprite(), false, false, false),
                             ignored -> new FloatBuilder(512, TEXTURED_FLOATS_PER_VERTEX));
                     batch.layer = Math.min(16, Math.max(1, object.index() + 1));
                     batch.lightingIndex = lightingIndex;
@@ -272,9 +274,8 @@ public final class WorldMeshBuilder {
                     primitiveCount++;
                 } else if (wallAttachment.isPresent()) {
                     authoredGeometryObjects++;
-                    wallAttachmentSprites.add(object.sprite());
                     FloatBuilder batch = textured.computeIfAbsent(
-                            object.sprite(),
+                            new TexturedBatchKey(object.sprite(), false, false, true),
                             ignored -> new FloatBuilder(512, TEXTURED_FLOATS_PER_VERTEX));
                     batch.layer = 0;
                     batch.lightingIndex = lightingIndex;
@@ -284,7 +285,7 @@ public final class WorldMeshBuilder {
                     authoredGeometryObjects++;
                     if (contextualRoof) contextualRoofObjects++;
                     FloatBuilder batch = textured.computeIfAbsent(
-                            object.sprite(),
+                            new TexturedBatchKey(object.sprite(), false, false, false),
                             ignored -> new FloatBuilder(512, TEXTURED_FLOATS_PER_VERTEX));
                     boolean wallConstrained = StructuralPropClip.constrainedByWalls(object);
                     // Authored scene volume is not a wall decal. Pulling fixtures or props
@@ -337,11 +338,15 @@ public final class WorldMeshBuilder {
                 } else if (isStructuralPanel(object)) {
                     structuralFallbackObjects++;
                     boolean mirrorSafe = isMirrorSafeStructuralPanel(object);
-                    if (mirrorSafe && !object.sprite().startsWith("fencing_")) {
-                        wallSprites.add(object.sprite());
-                    }
+                    // Alpha completion is valid only when PZ proves this exact edge is an
+                    // opaque sealed boundary.  A window/door frame is often typed as a wall
+                    // too; applying the wall rule merely from its sprite/type would fill the
+                    // intentional opening and recreate the opaque-window regression.
+                    boolean sealedWall = mirrorSafe
+                            && !object.sprite().startsWith("fencing_")
+                            && ownsSealedEdge(object, square.sealedEdges());
                     FloatBuilder batch = textured.computeIfAbsent(
-                            object.sprite(),
+                            new TexturedBatchKey(object.sprite(), false, sealedWall, false),
                             ignored -> new FloatBuilder(512, TEXTURED_FLOATS_PER_VERTEX));
                     batch.layer = Math.min(16, Math.max(1, object.index() + 1));
                     batch.lightingIndex = lightingIndex;
@@ -406,11 +411,12 @@ public final class WorldMeshBuilder {
         }
         float[] vertices = output.toArray();
         ArrayList<TexturedBatch> texturedBatches = new ArrayList<>(textured.size());
-        for (Map.Entry<String, FloatBuilder> entry : textured.entrySet()) {
+        for (Map.Entry<TexturedBatchKey, FloatBuilder> entry : textured.entrySet()) {
             if (entry.getValue().vertexCount() > 0) {
-                texturedBatches.add(new TexturedBatch(entry.getKey(), entry.getValue().toArray(),
-                        floorSprites.contains(entry.getKey()), wallSprites.contains(entry.getKey()),
-                        wallAttachmentSprites.contains(entry.getKey())));
+                TexturedBatchKey key = entry.getKey();
+                texturedBatches.add(new TexturedBatch(
+                        key.sprite(), entry.getValue().toArray(), key.solidFloor(),
+                        key.wallEdges(), key.wallAttachment()));
             }
         }
         ArrayList<MaterialBatch> materialBatches = new ArrayList<>(materials.size());
@@ -539,6 +545,11 @@ public final class WorldMeshBuilder {
                 || sprite.startsWith("walls_")
                 || sprite.startsWith("wall_")
                 || sprite.startsWith("fencing_");
+    }
+
+    private static boolean ownsSealedEdge(WorldState.TileObject object, int sealedEdges) {
+        return (object.edgeNorth() && (sealedEdges & StructuralPropClip.NORTH) != 0)
+                || (object.edgeWest() && (sealedEdges & StructuralPropClip.WEST) != 0);
     }
 
     private static boolean isRoofSprite(String sprite) {
@@ -731,7 +742,7 @@ public final class WorldMeshBuilder {
 
     private static int totalVertexCount(
             FloatBuilder flat,
-            Map<String, FloatBuilder> textured,
+            Map<TexturedBatchKey, FloatBuilder> textured,
             Map<String, FloatBuilder> materials) {
         int count = flat.vertexCount();
         for (FloatBuilder batch : textured.values()) count += batch.vertexCount();

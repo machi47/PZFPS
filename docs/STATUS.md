@@ -24,14 +24,49 @@ No isolated PZ process is currently running. PID 65845 was stopped at
 inspectable CoreGraphics game window appeared. Its log proved only that an
 earlier generated registry loaded; it is not visual evidence. The current
 staged bridge JAR is
-`e60e0cf64e758e26a3dfc2ca8363cdbb254702dccbb6b7a26213fe1c626f0c2a` and the
+`e0ea535ea3fa58befd8e1d3c18e1f4f0f5edd035c0388f6ef1aaae9e4bddd852` and the
 current staged supplemental roof registry is
-`e63c520cd2506e6738973c81e0cb784ee7c0ec1c378e4bb4301c9d3d7a881b18`.
-The latest code adds a source-backed contextual roof assembly path described
-below. It has passed offline and renderer tests but has not produced a live
-visual frame, so it is not claimed as an improvement and does not by itself
-justify another reload.
+`e652b21a8bb7a14c7bea7e051ff8fcb0f9bc730280764aaca09bb4322ddc6b37`.
+The latest staged code adds the sealed-wall join path described below. It has
+passed offline source and production-shader tests but has not produced a live
+visual frame, so it is not claimed as an accepted improvement and does not by
+itself justify another reload.
 No normal save, installed game binary or unrelated mod was changed.
+
+### Sealed-wall join and exterior prop-occlusion checkpoint
+
+The wall-edge shader path is no longer selected merely because an object is
+typed as a wall or shares a sprite identity with one. `WorldCapture` supplies
+the authoritative opaque north/west/east/south boundary mask, and
+`WorldMeshBuilder` now assigns alpha completion only to the exact fallback
+panel that owns a sealed edge. Rendering flags are part of the batch key, so a
+sealed wall and an unsealed door/window occurrence remain separate even if PZ
+reuses the same source sprite within one chunk.
+
+At those sealed outer joins only, the production fragment shader searches a
+bounded six-source-pixel tangent/vertical neighborhood. Once the wall's own
+raster supplies colour, its antialiased fringe becomes opaque and
+depth-bearing rather than blending over furniture behind it. A genuinely empty
+endpoint remains empty. The ordinary surface path is unchanged, so this rule
+does not turn door or window alpha into a wall.
+
+The CPU reference was run on the exact `walls_exterior_house_02_80` identity
+present in the retained problem-house capture: its 12,336 sampled join points
+moved from 1,779 transparent and 2,578 partial samples to zero transparent and
+zero partial samples, with zero changes outside the edge band. A second real
+`walls_interior_house_02_97` north-wall sample moved from 3,840 transparent and
+4,669 partial edge samples to zero/zero, also with zero interior changes. The
+production GLSL probe on the Apple M4 Max renders an ordinary 99/255-alpha
+sample as transparent (`51`, the clear-buffer red value) and the identical
+sample as an authoritative sealed wall at the expected lit value (`128`). It
+also retains zero failures in the physical-occlusion and wall-prop-clearance
+fixtures. The full Java suite passes 136 tests against the real installed
+geometry/roof/prop registries, and the Python suite passes 50 tests.
+
+This is offline CPU/GPU evidence, not a moving live acceptance. V-03, V-04 and
+V-06 remain open because complete corners, wall/floor/ceiling topology,
+multi-tile prop ownership and the other outlined transparent families are not
+yet proven. This checkpoint does not by itself justify reopening the game.
 
 ### Installed corpus ledger and depth-derived roof checkpoint
 
